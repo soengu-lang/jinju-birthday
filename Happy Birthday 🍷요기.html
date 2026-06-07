@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<!-- saved from url=(0058)file:///C:/Users/soeng/Downloads/birthday-wine-page_6.html -->
+<html lang="ko"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Happy Birthday 🍷</title>
+<link href="./Happy Birthday 🍷요기_files/css2" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --wine: #E88FA8;
+    --wine-deep: #1A2A3D;
+    --gold: #87CEEB;
+    --gold-light: #C8E9F7;
+    --cream: #FFF0F5;
+    --text: #1A1A2A;
+  }
+
+  html, body {
+    width: 100%; height: 100%;
+    background: var(--wine-deep);
+    font-family: 'Jost', sans-serif;
+    overflow-x: hidden;
+    color: var(--cream);
+  }
+
+  /* ── GRAIN OVERLAY ── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none; z-index: 9999; opacity: 0.35;
+  }
+
+  /* ── INTRO SCREEN ── */
+  #intro {
+    position: fixed; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    background: var(--wine-deep);
+    z-index: 100;
+    transition: opacity 1s ease, visibility 1s ease;
+  }
+  #intro.hidden { opacity: 0; visibility: hidden; }
+
+  .intro-year {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: clamp(40px, 10vw, 90px);
+    font-weight: 300;
+    color: var(--wine);
+    line-height: 1;
+    letter-spacing: 0.05em;
+    animation: fadeUp 1.2s ease forwards;
+    opacity: 0;
+  }
+  .intro-label {
+    font-size: 11px;
+    letter-spacing: 0.35em;
+    text-transform: uppercase;
+    color: var(--gold);
+    margin-top: 12px;
+    animation: fadeUp 1.2s 0.4s ease forwards;
+    opacity: 0;
+  }
+  .intro-btn {
+    margin-top: 48px;
+    padding: 14px 40px;
+    border: 1px solid var(--gold);
+    background: transparent;
+    color: var(--gold-light);
+    font-family: 'Jost', sans-serif;
+    font-size: 12px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.3s, color 0.3s;
+    animation: fadeUp 1.2s 0.8s ease forwards;
+    opacity: 0;
+  }
+  .intro-btn:hover { background: var(--gold); color: var(--wine-deep); }
+
+  /* ── MAIN ── */
+  #main {
+    min-height: 100vh;
+    display: flex; flex-direction: column;
+    align-items: center;
+  }
+
+  /* ── HERO ── */
+  .hero {
+    width: 100%; padding: 80px 24px 40px;
+    text-align: center;
+    position: relative;
+  }
+  .hero-line {
+    width: 1px; height: 60px;
+    background: linear-gradient(to bottom, transparent, var(--gold));
+    margin: 0 auto 32px;
+  }
+  .hero-title {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: clamp(36px, 10vw, 72px);
+    font-weight: 300;
+    font-style: italic;
+    line-height: 1.1;
+    color: var(--cream);
+    margin-bottom: 16px;
+  }
+  .hero-sub {
+    font-size: 11px;
+    letter-spacing: 0.35em;
+    color: var(--gold);
+    text-transform: uppercase;
+  }
+  .hero-divider {
+    display: flex; align-items: center; gap: 16px;
+    width: min(400px, 90%);
+    margin: 32px auto 0;
+    color: var(--gold);
+  }
+  .hero-divider span { flex: 1; height: 1px; background: var(--gold); opacity: 0.4; }
+
+  /* ── SLIDESHOW ── */
+  .slideshow-section {
+    width: 100%; max-width: 500px;
+    padding: 48px 24px;
+  }
+  .slideshow-wrapper {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 3/4;
+    background: #0d1a2a;
+    overflow: hidden;
+    border: 1px solid rgba(135,206,235,0.2);
+  }
+  .slide {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0;
+    transition: opacity 1s ease;
+  }
+  .slide.active { opacity: 1; }
+  .slide img, .slide video {
+    width: 100%; height: 100%;
+    object-fit: cover;
+  }
+
+  /* placeholder slides */
+  .slide-placeholder {
+    width: 100%; height: 100%;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 16px;
+    background: linear-gradient(135deg, #1a2a3d 0%, #0d1a2a 50%, #2a1a3d 100%);
+  }
+  .slide-placeholder .icon { font-size: 48px; opacity: 0.3; }
+  .slide-placeholder .label {
+    font-size: 11px; letter-spacing: 0.25em;
+    text-transform: uppercase; color: var(--gold); opacity: 0.6;
+  }
+
+  /* slide caption */
+  .slide-caption {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    padding: 40px 24px 20px;
+    background: linear-gradient(to top, rgba(10,20,35,0.85), transparent);
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-size: 18px;
+    color: var(--gold-light);
+    opacity: 0;
+    transition: opacity 0.5s 0.5s;
+    pointer-events: none;
+  }
+  .slide.active .slide-caption { opacity: 1; }
+
+  /* controls */
+  .slide-controls {
+    display: flex; align-items: center; justify-content: center;
+    gap: 24px; margin-top: 20px;
+  }
+  .ctrl-btn {
+    background: none; border: 1px solid rgba(201,169,110,0.3);
+    color: var(--gold); width: 40px; height: 40px;
+    cursor: pointer; font-size: 16px;
+    transition: border-color 0.2s, background 0.2s;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .ctrl-btn:hover { border-color: var(--gold); background: rgba(135,206,235,0.1); }
+  .slide-dots { display: flex; gap: 8px; align-items: center; }
+  .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--gold); opacity: 0.25;
+    cursor: pointer; transition: opacity 0.2s, transform 0.2s;
+    border: none;
+  }
+  .dot.active { opacity: 1; transform: scale(1.4); }
+
+  /* ── MESSAGE ── */
+  .message-section {
+    width: min(640px, 90%);
+    padding: 0 0 80px;
+    text-align: center;
+  }
+  .msg-ornament {
+    font-size: 24px; color: var(--gold); opacity: 0.4;
+    margin-bottom: 24px;
+  }
+  .msg-text {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: clamp(18px, 4vw, 26px);
+    font-weight: 300;
+    font-style: italic;
+    line-height: 1.8;
+    color: var(--cream);
+    opacity: 0.9;
+    margin-bottom: 40px;
+  }
+  .msg-from {
+    font-size: 11px; letter-spacing: 0.3em;
+    text-transform: uppercase; color: var(--gold);
+  }
+  .footer-line {
+    width: 1px; height: 60px;
+    background: linear-gradient(to top, transparent, var(--gold));
+    margin: 40px auto 0; opacity: 0.4;
+  }
+
+  /* ── ANIMATIONS ── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── HOW TO USE (hidden comment in source) ── */
+  /*
+    사진 추가: slides 배열에 { type:'image', src:'파일명.jpg', caption:'캡션' } 추가
+    영상 추가: { type:'video', src:'파일명.mp4', caption:'캡션' }
+    메시지 수정: .msg-text 안의 텍스트 변경
+    이름 수정: .msg-from 안의 텍스트 변경
+  */
+</style>
+</head>
+<body>
+
+<!-- INTRO -->
+<div id="intro">
+  <div class="intro-year">2026.06.14</div>
+  <div class="intro-label">Happy Birthday, Jinju</div>
+  <button class="intro-btn" onclick="enterMain()">Open ✦</button>
+</div>
+
+<!-- MAIN -->
+<div id="main">
+  <section class="hero">
+    <div class="hero-line"></div>
+    <h1 class="hero-title">For You,<br>LEE Jinju</h1>
+    <p class="hero-sub">A Collection of Our Moments</p>
+    <div class="hero-divider">
+      <span></span>
+      <span style="font-family:&#39;Cormorant Garamond&#39;,serif;font-style:italic;font-size:18px;white-space:nowrap;opacity:0.6">✦</span>
+      <span></span>
+    </div>
+  </section>
+
+  <section class="slideshow-section">
+    <div class="slideshow-wrapper" id="slideshow">
+
+      <!-- 1. 이전 생일 케이크 1 -->
+      <div class="slide" data-index="0"><img src="file:///C:/Users/soeng/Downloads/r4.jpg" alt=""></div>
+      <!-- 2. 이전 생일 케이크 2 -->
+      <div class="slide" data-index="1"><img src="file:///C:/Users/soeng/Downloads/r5.jpg" alt=""></div>
+      <!-- 3. 뮤지컬 -->
+      <div class="slide" data-index="2"><img src="file:///C:/Users/soeng/Downloads/q16.jpg" alt=""></div>
+      <!-- 4. 가을 공원 -->
+      <div class="slide" data-index="3"><img src="file:///C:/Users/soeng/Downloads/q8.jpg" alt=""></div>
+      <!-- 5. 전북 축구 -->
+      <div class="slide active" data-index="4"><img src="file:///C:/Users/soeng/Downloads/q3.jpg" alt=""></div>
+      <!-- 6. 축구장 셀카 -->
+      <div class="slide" data-index="5"><img src="file:///C:/Users/soeng/Downloads/q9.jpg" alt=""></div>
+      <!-- 7. 바이에른 -->
+      <div class="slide" data-index="6"><img src="file:///C:/Users/soeng/Downloads/q10.jpg" alt=""></div>
+      <!-- 8. 콜드플레이 -->
+      <div class="slide" data-index="7"><img src="file:///C:/Users/soeng/Downloads/q6.jpg" alt=""></div>
+      <!-- 9. 공연장 셀카 -->
+      <div class="slide" data-index="8"><img src="file:///C:/Users/soeng/Downloads/5.jpg" alt=""></div>
+      <!-- 10. 헤드폰 카페 -->
+      <div class="slide" data-index="9"><img src="file:///C:/Users/soeng/Downloads/q11.jpg" alt=""></div>
+      <!-- 11. 노을 바다 -->
+      <div class="slide" data-index="10"><img src="file:///C:/Users/soeng/Downloads/r2.jpg" alt=""></div>
+      <!-- 12. 겨울 해변 -->
+      <div class="slide" data-index="11"><img src="file:///C:/Users/soeng/Downloads/r3.jpg" alt=""></div>
+      <!-- 13. 해변 들어올리기 -->
+      <div class="slide" data-index="12"><img src="file:///C:/Users/soeng/Downloads/q1.jpg" alt=""></div>
+      <!-- 14. 해변 뒷모습 -->
+      <div class="slide" data-index="13"><img src="file:///C:/Users/soeng/Downloads/q13.jpg" alt=""></div>
+      <!-- 15. 스노클링 셀카 -->
+      <div class="slide" data-index="14"><img src="file:///C:/Users/soeng/Downloads/q14.jpg" alt=""></div>
+      <!-- 16. 수중 스노클링 -->
+      <div class="slide" data-index="15"><img src="file:///C:/Users/soeng/Downloads/q15.jpg" alt=""></div>
+      <!-- 17. 수영장 스노클링 -->
+      <div class="slide" data-index="16"><img src="file:///C:/Users/soeng/Downloads/q4.jpg" alt=""></div>
+      <!-- 18. 동백꽃밭 -->
+      <div class="slide" data-index="17"><img src="file:///C:/Users/soeng/Downloads/q7.jpg" alt=""></div>
+      <!-- 19. 스노보드 -->
+      <div class="slide" data-index="18"><img src="file:///C:/Users/soeng/Downloads/q12.jpg" alt=""></div>
+      <!-- 20. 스페인 - 세비야 아치 단독 -->
+      <div class="slide" data-index="19"><img src="file:///C:/Users/soeng/Downloads/r9.jpg" alt=""></div>
+      <!-- 21. 스페인 - 세비야 광장 단독 -->
+      <div class="slide" data-index="20"><img src="file:///C:/Users/soeng/Downloads/r8.jpg" alt=""></div>
+      <!-- 22. 스페인 - 톨레도 야경 -->
+      <div class="slide" data-index="21"><img src="file:///C:/Users/soeng/Downloads/r10.jpg" alt=""></div>
+      <!-- 23. 스페인 - 세고비아 설경 -->
+      <div class="slide" data-index="22"><img src="file:///C:/Users/soeng/Downloads/r11.jpg" alt=""></div>
+      <!-- 24. 스페인 - 바르셀로나 캄프누 -->
+      <div class="slide" data-index="23"><img src="file:///C:/Users/soeng/Downloads/r6.jpg" alt=""></div>
+      <!-- 25. 스페인 - 거울 셀카 -->
+      <div class="slide" data-index="24"><img src="file:///C:/Users/soeng/Downloads/r7.jpg" alt=""></div>
+      <!-- 26. 스페인 - 레알 마드리드 -->
+      <div class="slide" data-index="25"><img src="file:///C:/Users/soeng/Downloads/4.jpg" alt=""></div>
+      <!-- 27. 피자 웨딩촬영장 -->
+      <div class="slide" data-index="26"><img src="file:///C:/Users/soeng/Downloads/q5.jpg" alt=""></div>
+      <!-- 28. 웨딩 촬영 -->
+      <div class="slide" data-index="27"><img src="file:///C:/Users/soeng/Downloads/2.jpg" alt=""></div>
+      <!-- 29. 창문 키스 -->
+      <div class="slide" data-index="28"><img src="file:///C:/Users/soeng/Downloads/q17.jpg" alt=""></div>
+      <!-- 30. 부케 클로즈업 -->
+      <div class="slide" data-index="29"><img src="file:///C:/Users/soeng/Downloads/r1.jpg" alt=""></div>
+      <!-- 31. 결혼식 입장 -->
+      <div class="slide" data-index="30"><img src="file:///C:/Users/soeng/Downloads/p11.jpg" alt=""></div>
+      <!-- 32. 결혼식 키스 -->
+      <div class="slide" data-index="31"><img src="file:///C:/Users/soeng/Downloads/1.jpg" alt=""></div>
+      <!-- 33. 결혼식 부케 -->
+      <div class="slide" data-index="32"><img src="file:///C:/Users/soeng/Downloads/p12.jpg" alt=""></div>
+
+    </div>
+
+    <div class="slide-controls">
+      <button class="ctrl-btn" onclick="changeSlide(-1)">←</button>
+      <div class="slide-dots" id="dots"><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot active"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button></div>
+      <button class="ctrl-btn" onclick="changeSlide(1)">→</button>
+    </div>
+  </section>
+
+  <section class="message-section">
+    <div class="msg-ornament">✦ ✦ ✦</div>
+    <p class="msg-text">
+      벌써 네 번째 생일인데,<br>
+      올해는 남편 자격으로 처음 축하하네.<br><br>
+      앞으로 수십 번 더, 내가 꼭 옆에서 챙길게.
+    </p>
+    <div class="msg-from">
+      From. Sungwoo &nbsp;✦&nbsp; 2026.06.14
+    </div>
+    <div class="footer-line"></div>
+  </section>
+</div>
+
+<script>
+  // ── Intro ──
+  function enterMain() {
+    document.getElementById('intro').classList.add('hidden');
+  }
+
+  // ── Slideshow ──
+  const slides = document.querySelectorAll('.slide');
+  const dotsEl = document.getElementById('dots');
+  let current = 0;
+  let autoTimer;
+
+  // build dots
+  slides.forEach((_, i) => {
+    const d = document.createElement('button');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    dotsEl.appendChild(d);
+  });
+
+  function goTo(idx) {
+    slides[current].classList.remove('active');
+    dotsEl.children[current].classList.remove('active');
+    current = (idx + slides.length) % slides.length;
+    slides[current].classList.add('active');
+    dotsEl.children[current].classList.add('active');
+    resetAuto();
+  }
+
+  function changeSlide(dir) { goTo(current + dir); }
+
+  function resetAuto() {
+    clearInterval(autoTimer);
+    autoTimer = setInterval(() => changeSlide(1), 5000);
+  }
+
+  resetAuto();
+
+  // keyboard
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight') changeSlide(1);
+    if (e.key === 'ArrowLeft') changeSlide(-1);
+  });
+
+  // touch swipe
+  let tx = 0;
+  const sw = document.getElementById('slideshow');
+  sw.addEventListener('touchstart', e => tx = e.touches[0].clientX);
+  sw.addEventListener('touchend', e => {
+    const diff = tx - e.changedTouches[0].clientX;
+    if (Math.abs(diff) > 40) changeSlide(diff > 0 ? 1 : -1);
+  });
+</script>
+
+<!-- 배경음악 -->
+<iframe id="yt-audio" src="./Happy Birthday 🍷요기_files/UxSKsvd_4jw.html" style="position:fixed;width:0;height:0;border:none;pointer-events:none;" allow="autoplay"></iframe>
+
+<style>
+  .music-btn {
+    position: fixed;
+    bottom: 24px; right: 24px;
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    background: rgba(232,143,168,0.15);
+    border: 1px solid rgba(232,143,168,0.4);
+    color: #E88FA8;
+    font-size: 18px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    z-index: 200;
+    transition: background 0.3s;
+    backdrop-filter: blur(6px);
+  }
+  .music-btn:hover { background: rgba(232,143,168,0.25); }
+</style>
+
+<button class="music-btn" id="musicBtn" onclick="toggleMusic()" title="음악 켜기/끄기">♪</button>
+
+<script>
+  let muted = false;
+  const iframe = document.getElementById('yt-audio');
+  const btn = document.getElementById('musicBtn');
+
+  function toggleMusic() {
+    muted = !muted;
+    const src = iframe.src;
+    if (muted) {
+      iframe.src = src.replace('mute=0', 'mute=1');
+      btn.textContent = '♩';
+      btn.style.opacity = '0.4';
+    } else {
+      iframe.src = src.replace('mute=1', 'mute=0');
+      btn.textContent = '♪';
+      btn.style.opacity = '1';
+    }
+  }
+
+  // 인트로 버튼 클릭시 음악 시작 유도
+  document.querySelector('.intro-btn').addEventListener('click', () => {
+    iframe.src = iframe.src; // reload to trigger autoplay after interaction
+  });
+</script>
+
+
+</body></html>
