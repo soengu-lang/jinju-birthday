@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- saved from url=(0058)file:///C:/Users/soeng/Downloads/birthday-wine-page_8.html -->
+<!-- saved from url=(0058)file:///C:/Users/soeng/Downloads/birthday-wine-page_3.html -->
 <html lang="ko"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -249,7 +249,8 @@
 <div id="intro">
   <div class="intro-year">2026.06.14</div>
   <div class="intro-label">Happy Birthday, Jinju</div>
-  <button class="intro-btn" onclick="enterMain()">Open ✦</button>
+  <button class="intro-btn" onclick="enterMain(); startMusic()">Open ✦</button>
+  <div style="margin-top:16px;font-size:10px;letter-spacing:0.2em;color:rgba(135,206,235,0.5);text-transform:uppercase;">🎵 음악은 우측 하단 버튼으로 조절하세요</div>
 </div>
 
 <!-- MAIN -->
@@ -459,6 +460,11 @@
   document.querySelector('.intro-btn').addEventListener('click', () => {
     iframe.src = iframe.src; // reload to trigger autoplay after interaction
   });
+
+  function startMusic() {
+    const yt = document.getElementById('yt-audio');
+    yt.src = "https://www.youtube.com/embed/UxSKsvd_4jw?autoplay=1&mute=0&loop=1&playlist=UxSKsvd_4jw&controls=0&showinfo=0&rel=0&enablejsapi=1";
+  }
 </script>
 
 
