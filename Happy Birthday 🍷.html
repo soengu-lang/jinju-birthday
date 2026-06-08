@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- saved from url=(0058)file:///C:/Users/soeng/Downloads/birthday-wine-page_3.html -->
+<!-- saved from url=(0058)file:///C:/Users/soeng/Downloads/birthday-wine-page_4.html -->
 <html lang="ko"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -246,7 +246,7 @@
 <body>
 
 <!-- INTRO -->
-<div id="intro">
+<div id="intro" class="hidden">
   <div class="intro-year">2026.06.14</div>
   <div class="intro-label">Happy Birthday, Jinju</div>
   <button class="intro-btn" onclick="enterMain(); startMusic()">Open ✦</button>
@@ -272,11 +272,11 @@
       <!-- 1. 이전 생일 케이크 1 -->
       <div class="slide" data-index="0"><img src="file:///C:/Users/soeng/Downloads/r4.jpg" alt=""></div>
       <!-- 2. 이전 생일 케이크 2 -->
-      <div class="slide active" data-index="1"><img src="file:///C:/Users/soeng/Downloads/r5.jpg" alt=""></div>
+      <div class="slide" data-index="1"><img src="file:///C:/Users/soeng/Downloads/r5.jpg" alt=""></div>
       <!-- 3. 뮤지컬 -->
       <div class="slide" data-index="2"><img src="file:///C:/Users/soeng/Downloads/q16.jpg" alt=""></div>
       <!-- 4. 가을 공원 -->
-      <div class="slide" data-index="3"><img src="file:///C:/Users/soeng/Downloads/q8.jpg" alt=""></div>
+      <div class="slide active" data-index="3"><img src="file:///C:/Users/soeng/Downloads/q8.jpg" alt=""></div>
       <!-- 5. 전북 축구 -->
       <div class="slide" data-index="4"><img src="file:///C:/Users/soeng/Downloads/q3.jpg" alt=""></div>
       <!-- 6. 축구장 셀카 -->
@@ -340,7 +340,7 @@
 
     <div class="slide-controls">
       <button class="ctrl-btn" onclick="changeSlide(-1)">←</button>
-      <div class="slide-dots" id="dots"><button class="dot"></button><button class="dot active"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button></div>
+      <div class="slide-dots" id="dots"><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot active"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button><button class="dot"></button></div>
       <button class="ctrl-btn" onclick="changeSlide(1)">→</button>
     </div>
   </section>
@@ -414,7 +414,7 @@
 </script>
 
 <!-- 배경음악 -->
-<iframe id="yt-audio" src="./Happy Birthday 🍷_files/UxSKsvd_4jw.html" style="position:fixed;width:0;height:0;border:none;pointer-events:none;" allow="autoplay"></iframe>
+<audio id="bgm" src="music.mp3" loop="" preload="auto"></audio>
 
 <style>
   .music-btn {
@@ -439,31 +439,23 @@
 
 <script>
   let muted = false;
-  const iframe = document.getElementById('yt-audio');
+  const bgm = document.getElementById('bgm');
   const btn = document.getElementById('musicBtn');
 
   function toggleMusic() {
-    muted = !muted;
-    const src = iframe.src;
-    if (muted) {
-      iframe.src = src.replace('mute=0', 'mute=1');
-      btn.textContent = '♩';
-      btn.style.opacity = '0.4';
-    } else {
-      iframe.src = src.replace('mute=1', 'mute=0');
+    if (bgm.paused) {
+      bgm.play();
       btn.textContent = '♪';
       btn.style.opacity = '1';
+    } else {
+      bgm.pause();
+      btn.textContent = '♩';
+      btn.style.opacity = '0.4';
     }
   }
 
-  // 인트로 버튼 클릭시 음악 시작 유도
-  document.querySelector('.intro-btn').addEventListener('click', () => {
-    iframe.src = iframe.src; // reload to trigger autoplay after interaction
-  });
-
   function startMusic() {
-    const yt = document.getElementById('yt-audio');
-    yt.src = "https://www.youtube.com/embed/UxSKsvd_4jw?autoplay=1&mute=0&loop=1&playlist=UxSKsvd_4jw&controls=0&showinfo=0&rel=0&enablejsapi=1";
+    bgm.play().catch(() => {});
   }
 </script>
 
