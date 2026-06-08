@@ -3,20 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Happy Birthday 🍷</title>
+<title>Happy Birthday</title>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=Jost:wght@200;300;400&display=swap" rel="stylesheet">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
   :root {
     --wine: #E88FA8;
     --wine-deep: #1A2A3D;
     --gold: #87CEEB;
     --gold-light: #C8E9F7;
     --cream: #FFF0F5;
-    --text: #1A1A2A;
   }
-
   html, body {
     width: 100%; height: 100%;
     background: var(--wine-deep);
@@ -24,16 +21,12 @@
     overflow-x: hidden;
     color: var(--cream);
   }
-
-  /* ── GRAIN OVERLAY ── */
   body::before {
     content: '';
     position: fixed; inset: 0;
     background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
     pointer-events: none; z-index: 9999; opacity: 0.35;
   }
-
-  /* ── INTRO SCREEN ── */
   #intro {
     position: fixed; inset: 0;
     display: flex; flex-direction: column;
@@ -43,7 +36,6 @@
     transition: opacity 1s ease, visibility 1s ease;
   }
   #intro.hidden { opacity: 0; visibility: hidden; }
-
   .intro-year {
     font-family: 'Cormorant Garamond', serif;
     font-size: clamp(40px, 10vw, 90px);
@@ -79,19 +71,23 @@
     opacity: 0;
   }
   .intro-btn:hover { background: var(--gold); color: var(--wine-deep); }
-
-  /* ── MAIN ── */
+  .intro-hint {
+    margin-top: 16px;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: rgba(135,206,235,0.5);
+    text-transform: uppercase;
+    animation: fadeUp 1.2s 1s ease forwards;
+    opacity: 0;
+  }
   #main {
     min-height: 100vh;
     display: flex; flex-direction: column;
     align-items: center;
   }
-
-  /* ── HERO ── */
   .hero {
     width: 100%; padding: 80px 24px 40px;
     text-align: center;
-    position: relative;
   }
   .hero-line {
     width: 1px; height: 60px;
@@ -120,8 +116,6 @@
     color: var(--gold);
   }
   .hero-divider span { flex: 1; height: 1px; background: var(--gold); opacity: 0.4; }
-
-  /* ── SLIDESHOW ── */
   .slideshow-section {
     width: 100%; max-width: 500px;
     padding: 48px 24px;
@@ -145,37 +139,6 @@
     width: 100%; height: 100%;
     object-fit: cover;
   }
-
-  /* placeholder slides */
-  .slide-placeholder {
-    width: 100%; height: 100%;
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    gap: 16px;
-    background: linear-gradient(135deg, #1a2a3d 0%, #0d1a2a 50%, #2a1a3d 100%);
-  }
-  .slide-placeholder .icon { font-size: 48px; opacity: 0.3; }
-  .slide-placeholder .label {
-    font-size: 11px; letter-spacing: 0.25em;
-    text-transform: uppercase; color: var(--gold); opacity: 0.6;
-  }
-
-  /* slide caption */
-  .slide-caption {
-    position: absolute; bottom: 0; left: 0; right: 0;
-    padding: 40px 24px 20px;
-    background: linear-gradient(to top, rgba(10,20,35,0.85), transparent);
-    font-family: 'Cormorant Garamond', serif;
-    font-style: italic;
-    font-size: 18px;
-    color: var(--gold-light);
-    opacity: 0;
-    transition: opacity 0.5s 0.5s;
-    pointer-events: none;
-  }
-  .slide.active .slide-caption { opacity: 1; }
-
-  /* controls */
   .slide-controls {
     display: flex; align-items: center; justify-content: center;
     gap: 24px; margin-top: 20px;
@@ -197,8 +160,6 @@
     border: none;
   }
   .dot.active { opacity: 1; transform: scale(1.4); }
-
-  /* ── MESSAGE ── */
   .message-section {
     width: min(640px, 90%);
     padding: 0 0 80px;
@@ -227,32 +188,37 @@
     background: linear-gradient(to top, transparent, var(--gold));
     margin: 40px auto 0; opacity: 0.4;
   }
-
-  /* ── ANIMATIONS ── */
   @keyframes fadeUp {
     from { opacity: 0; transform: translateY(20px); }
     to { opacity: 1; transform: translateY(0); }
   }
-
-  /* ── HOW TO USE (hidden comment in source) ── */
-  /*
-    사진 추가: slides 배열에 { type:'image', src:'파일명.jpg', caption:'캡션' } 추가
-    영상 추가: { type:'video', src:'파일명.mp4', caption:'캡션' }
-    메시지 수정: .msg-text 안의 텍스트 변경
-    이름 수정: .msg-from 안의 텍스트 변경
-  */
+  .music-btn {
+    position: fixed;
+    bottom: 24px; right: 24px;
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    background: rgba(232,143,168,0.15);
+    border: 1px solid rgba(232,143,168,0.4);
+    color: #E88FA8;
+    font-size: 18px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    z-index: 200;
+    transition: background 0.3s;
+    backdrop-filter: blur(6px);
+  }
+  .music-btn:hover { background: rgba(232,143,168,0.25); }
 </style>
 </head>
 <body>
 
-<!-- INTRO -->
 <div id="intro">
   <div class="intro-year">2026.06.14</div>
   <div class="intro-label">Happy Birthday, Jinju</div>
-  <button class="intro-btn" onclick="enterMain()">Open ✦</button>
+  <button class="intro-btn" onclick="enterMain(); startMusic()">Open ✦</button>
+  <div class="intro-hint">🎵 음악은 우측 하단 버튼으로 조절하세요</div>
 </div>
 
-<!-- MAIN -->
 <div id="main">
   <section class="hero">
     <div class="hero-line"></div>
@@ -267,76 +233,40 @@
 
   <section class="slideshow-section">
     <div class="slideshow-wrapper" id="slideshow">
-
-      <!-- 1. 뮤지컬 -->
-      <div class="slide active" data-index="0"><img src="q16.jpg" alt=""></div>
-      <!-- 2. 가을 공원 -->
-      <div class="slide" data-index="1"><img src="q8.jpg" alt=""></div>
-      <!-- 3. 이전 생일 케이크 1 -->
-      <div class="slide" data-index="2"><img src="r4.jpg" alt=""></div>
-      <!-- 4. 이전 생일 케이크 2 -->
-      <div class="slide" data-index="3"><img src="r5.jpg" alt=""></div>
-      <!-- 5. 전북 축구 -->
+      <div class="slide active" data-index="0"><img src="r4.jpg" alt=""></div>
+      <div class="slide" data-index="1"><img src="r5.jpg" alt=""></div>
+      <div class="slide" data-index="2"><img src="q16.jpg" alt=""></div>
+      <div class="slide" data-index="3"><img src="q8.jpg" alt=""></div>
       <div class="slide" data-index="4"><img src="q3.jpg" alt=""></div>
-      <!-- 6. 축구장 셀카 -->
       <div class="slide" data-index="5"><img src="q9.jpg" alt=""></div>
-      <!-- 7. 바이에른 -->
       <div class="slide" data-index="6"><img src="q10.jpg" alt=""></div>
-      <!-- 8. 콜드플레이 -->
       <div class="slide" data-index="7"><img src="q6.jpg" alt=""></div>
-      <!-- 9. 공연장 셀카 -->
       <div class="slide" data-index="8"><img src="5.jpg" alt=""></div>
-      <!-- 10. 헤드폰 카페 -->
       <div class="slide" data-index="9"><img src="q11.jpg" alt=""></div>
-      <!-- 11. 노을 바다 -->
       <div class="slide" data-index="10"><img src="r2.jpg" alt=""></div>
-      <!-- 12. 겨울 해변 -->
       <div class="slide" data-index="11"><img src="r3.jpg" alt=""></div>
-      <!-- 13. 해변 들어올리기 -->
       <div class="slide" data-index="12"><img src="q1.jpg" alt=""></div>
-      <!-- 14. 해변 뒷모습 -->
       <div class="slide" data-index="13"><img src="q13.jpg" alt=""></div>
-      <!-- 15. 스노클링 셀카 -->
       <div class="slide" data-index="14"><img src="q14.jpg" alt=""></div>
-      <!-- 16. 수중 스노클링 -->
       <div class="slide" data-index="15"><img src="q15.jpg" alt=""></div>
-      <!-- 17. 수영장 스노클링 -->
       <div class="slide" data-index="16"><img src="q4.jpg" alt=""></div>
-      <!-- 18. 동백꽃밭 -->
       <div class="slide" data-index="17"><img src="q7.jpg" alt=""></div>
-      <!-- 19. 스노보드 -->
       <div class="slide" data-index="18"><img src="q12.jpg" alt=""></div>
-      <!-- 20. 스페인 - 세비야 아치 단독 -->
       <div class="slide" data-index="19"><img src="r9.jpg" alt=""></div>
-      <!-- 21. 스페인 - 세비야 광장 단독 -->
       <div class="slide" data-index="20"><img src="r8.jpg" alt=""></div>
-      <!-- 22. 스페인 - 톨레도 야경 -->
       <div class="slide" data-index="21"><img src="r10.jpg" alt=""></div>
-      <!-- 23. 스페인 - 세고비아 설경 -->
       <div class="slide" data-index="22"><img src="r11.jpg" alt=""></div>
-      <!-- 24. 스페인 - 바르셀로나 캄프누 -->
       <div class="slide" data-index="23"><img src="r6.jpg" alt=""></div>
-      <!-- 25. 스페인 - 거울 셀카 -->
       <div class="slide" data-index="24"><img src="r7.jpg" alt=""></div>
-      <!-- 26. 스페인 - 레알 마드리드 -->
       <div class="slide" data-index="25"><img src="4.jpg" alt=""></div>
-      <!-- 27. 피자 웨딩촬영장 -->
       <div class="slide" data-index="26"><img src="q5.jpg" alt=""></div>
-      <!-- 28. 웨딩 촬영 -->
       <div class="slide" data-index="27"><img src="2.jpg" alt=""></div>
-      <!-- 29. 창문 키스 -->
       <div class="slide" data-index="28"><img src="q17.jpg" alt=""></div>
-      <!-- 30. 부케 클로즈업 -->
       <div class="slide" data-index="29"><img src="r1.jpg" alt=""></div>
-      <!-- 31. 결혼식 입장 -->
       <div class="slide" data-index="30"><img src="p11.jpg" alt=""></div>
-      <!-- 32. 결혼식 키스 -->
       <div class="slide" data-index="31"><img src="1.jpg" alt=""></div>
-      <!-- 33. 결혼식 부케 -->
       <div class="slide" data-index="32"><img src="p12.jpg" alt=""></div>
-
     </div>
-
     <div class="slide-controls">
       <button class="ctrl-btn" onclick="changeSlide(-1)">←</button>
       <div class="slide-dots" id="dots"></div>
@@ -358,19 +288,19 @@
   </section>
 </div>
 
+<audio id="bgm" src="music.mp3" loop preload="auto"></audio>
+<button class="music-btn" id="musicBtn" onclick="toggleMusic()" title="음악 켜기/끄기">♪</button>
+
 <script>
-  // ── Intro ──
   function enterMain() {
     document.getElementById('intro').classList.add('hidden');
   }
 
-  // ── Slideshow ──
   const slides = document.querySelectorAll('.slide');
   const dotsEl = document.getElementById('dots');
   let current = 0;
   let autoTimer;
 
-  // build dots
   slides.forEach((_, i) => {
     const d = document.createElement('button');
     d.className = 'dot' + (i === 0 ? ' active' : '');
@@ -396,13 +326,11 @@
 
   resetAuto();
 
-  // keyboard
   document.addEventListener('keydown', e => {
     if (e.key === 'ArrowRight') changeSlide(1);
     if (e.key === 'ArrowLeft') changeSlide(-1);
   });
 
-  // touch swipe
   let tx = 0;
   const sw = document.getElementById('slideshow');
   sw.addEventListener('touchstart', e => tx = e.touches[0].clientX);
@@ -410,59 +338,25 @@
     const diff = tx - e.changedTouches[0].clientX;
     if (Math.abs(diff) > 40) changeSlide(diff > 0 ? 1 : -1);
   });
-</script>
 
-<!-- 배경음악 -->
-<iframe id="yt-audio"
-  src="https://www.youtube.com/embed/UxSKsvd_4jw?autoplay=1&mute=0&loop=1&playlist=UxSKsvd_4jw&controls=0&showinfo=0&rel=0&enablejsapi=1"
-  style="position:fixed;width:0;height:0;border:none;pointer-events:none;"
-  allow="autoplay"
-></iframe>
-
-<style>
-  .music-btn {
-    position: fixed;
-    bottom: 24px; right: 24px;
-    width: 44px; height: 44px;
-    border-radius: 50%;
-    background: rgba(232,143,168,0.15);
-    border: 1px solid rgba(232,143,168,0.4);
-    color: #E88FA8;
-    font-size: 18px;
-    cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    z-index: 200;
-    transition: background 0.3s;
-    backdrop-filter: blur(6px);
-  }
-  .music-btn:hover { background: rgba(232,143,168,0.25); }
-</style>
-
-<button class="music-btn" id="musicBtn" onclick="toggleMusic()" title="음악 켜기/끄기">♪</button>
-
-<script>
-  let muted = false;
-  const iframe = document.getElementById('yt-audio');
+  const bgm = document.getElementById('bgm');
   const btn = document.getElementById('musicBtn');
 
-  function toggleMusic() {
-    muted = !muted;
-    const src = iframe.src;
-    if (muted) {
-      iframe.src = src.replace('mute=0', 'mute=1');
-      btn.textContent = '♩';
-      btn.style.opacity = '0.4';
-    } else {
-      iframe.src = src.replace('mute=1', 'mute=0');
-      btn.textContent = '♪';
-      btn.style.opacity = '1';
-    }
+  function startMusic() {
+    bgm.play().catch(() => {});
   }
 
-  // 인트로 버튼 클릭시 음악 시작 유도
-  document.querySelector('.intro-btn').addEventListener('click', () => {
-    iframe.src = iframe.src; // reload to trigger autoplay after interaction
-  });
+  function toggleMusic() {
+    if (bgm.paused) {
+      bgm.play();
+      btn.textContent = '♪';
+      btn.style.opacity = '1';
+    } else {
+      bgm.pause();
+      btn.textContent = '♩';
+      btn.style.opacity = '0.4';
+    }
+  }
 </script>
 </body>
 </html>
