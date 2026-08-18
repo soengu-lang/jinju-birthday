@@ -1763,6 +1763,7 @@ async function pullImages(){
 
 function schedulePush(){
   if(!state.sync?.enabled) return;
+  state.sync.dirty = true;                  // 아직 못 올린 내 변경이 있다는 표시
   clearTimeout(pushTimer);
   pushTimer = setTimeout(syncPush, 1200);   // 연달아 누를 때 한 번만 올리기
 }
@@ -1773,7 +1774,7 @@ async function syncPush(){
   try{
     const rev = Date.now();
     await fsPut(`rooms/${c.room}/state/core`, corePayload(), rev);
-    c.rev = rev; c.lastAt = rev; c.error = '';
+    c.rev = rev; c.lastAt = rev; c.error = ''; c.dirty = false;
     for(const r of state.recipes){                       // 새로 추가된 사진만 올림
       if(r.image && (c.imgs?.[r.id] !== r.image.length)){
         await fsPut(`rooms/${c.room}/img/${r.id}`, r.image, rev);
@@ -1786,6 +1787,9 @@ async function syncPush(){
 async function syncPull(){
   const c = state.sync;
   if(!c?.enabled || syncBusy) return;
+  /* 인터넷이 끊겼을 때 적어둔 내 변경이 아직 안 올라갔다면, 남의 내용을 받아
+     덮어쓰기 전에 내 것부터 올린다(마트에서 신호 약할 때 입력이 사라지는 것 방지) */
+  if(c.dirty){ await syncPush(); return; }
   syncBusy = true;
   try{
     const doc = await fsGet(`rooms/${c.room}/state/core`);
