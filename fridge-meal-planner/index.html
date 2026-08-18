@@ -315,8 +315,10 @@ function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('on
 function guessCat(name){ for(const [re,c] of CAT_HINTS) if(re.test(name)) return c; return '기타'; }
 function guessEmoji(name){ for(const [re,e] of EMOJI_HINTS) if(re.test(name)) return e; return '🍽️'; }
 /* 같은 재료로 볼지 판단 (공백/괄호 제거 후 포함관계) */
-const normName = s => String(s||'').replace(/\s|\(.*?\)/g,'').toLowerCase();
-function sameItem(a,b){ const x=normName(a), y=normName(b); return x===y || (x.length>1&&y.length>1&&(x.includes(y)||y.includes(x))); }
+/* 괄호 안 설명(원산지·브랜드)과 공백은 무시하고 이름을 맞춘다.
+   포함관계까지 같다고 보면 두부↔두부면, 계란↔계란말이가 합쳐지므로 정확히 일치할 때만 같은 재료로 본다. */
+const normName = s => String(s||'').replace(/\(.*?\)/g,'').replace(/\s/g,'').toLowerCase();
+function sameItem(a,b){ const x=normName(a), y=normName(b); return !!x && x===y; }
 /* 단위 정규화: kg→g, L→ml */
 function normUnit(qty,unit){
   if(unit==='kg') return [qty*1000,'g'];
@@ -1277,6 +1279,7 @@ function openSettings(){
           한 사람만 Firebase 준비(무료, 5분)를 하면 나머지 식구는 <b>초대 링크만 열면</b> 끝이에요.
         </div>
         <button class="btn sm block" data-act="syncSetup">👨‍👩‍👧 가족과 공유 시작하기</button>
+        <button class="btn ghost sm block" style="margin-top:7px" data-act="joinByLink">🔗 초대 링크로 참여하기</button>
       `}
     </div>
 
@@ -1360,6 +1363,20 @@ function openSyncInvite(){
       <textarea id="inviteBox" readonly style="min-height:84px;font-size:11px;font-family:ui-monospace,monospace">${esc(link)}</textarea>
     </div>
     <button class="btn orange block" style="margin-top:8px" data-act="copyInvite">📋 링크 복사</button>
+  </div>`);
+}
+function openJoinByLink(){
+  openModal(`<div class="modal">
+    <div class="mhead"><h3>초대 링크로 참여하기</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted" style="line-height:1.8">
+      먼저 방을 만든 쪽에서 <b>⚙️ → 🔗 초대 링크 복사</b>를 누른 뒤,
+      아래 칸을 <b>1~2초 꾹 눌러 붙여넣기</b> 하세요.
+      <br>홈 화면 앱처럼 주소창이 없는 곳에서도 이걸로 참여할 수 있어요.
+    </div>
+    <div class="field"><label>초대 링크</label>
+      <textarea id="joinBox" placeholder="https://soengu-lang.github.io/... #join=..."
+        style="min-height:90px;font-size:11px;font-family:ui-monospace,monospace"></textarea></div>
+    <button class="btn block" style="margin-top:10px" data-act="doJoinLink">참여하기</button>
   </div>`);
 }
 function openJoinPrompt(){
@@ -1619,6 +1636,17 @@ document.addEventListener('click', async (e)=>{
     syncStart(); closeModal(); render(); openSyncInvite(); break;
   }
   case 'syncInvite': openSyncInvite(); break;
+  case 'joinByLink': openJoinByLink(); break;
+  case 'doJoinLink': {
+    const m = $('#joinBox').value.match(/join=([A-Za-z0-9_\-]+)/);
+    if(!m){ toast('초대 링크가 아니에요. 링크를 통째로 붙여넣어 주세요'); break; }
+    try{
+      const v = JSON.parse(b64d(m[1]));
+      if(!(v.k && v.p && v.r)) throw 0;
+      pendingInvite = v;
+    }catch(e){ toast('초대 링크를 읽지 못했어요'); break; }
+    openJoinPrompt(); break;
+  }
   case 'syncNow': await syncPull(); await syncPush();
     toast(state.sync.error || '동기화했어요'); closeModal(); render(); break;
   case 'syncOff': {
