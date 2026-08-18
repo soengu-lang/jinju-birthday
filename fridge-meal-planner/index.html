@@ -332,9 +332,14 @@ function roundBuy(q,unit){
    ============================================================ */
 let state, ui = { tab:'week', weekOffset:0, monthOffset:0, menuFilter:'전체' };
 
-function save(){
+let applyingRemote = false;
+function writeLocal(){
   try{ localStorage.setItem(KEY, JSON.stringify(state)); }
   catch(e){ toast('저장 공간이 가득 찼어요. 레시피 사진을 몇 개 지워주세요.'); }
+}
+function save(){
+  writeLocal();
+  if(!applyingRemote) schedulePush();   // 가족 공유가 켜져 있을 때만 동작
 }
 function load(){
   try{ const raw = localStorage.getItem(KEY); if(raw) return JSON.parse(raw); }catch(e){}
@@ -342,7 +347,8 @@ function load(){
 }
 function blankState(){
   return { version:1, settings:{ people:2, budget:600000 },
-           fridge:[], recipes:[], plan:{}, extras:[], checked:{}, expenses:[], seeded:false };
+           fridge:[], recipes:[], plan:{}, extras:[], checked:{}, expenses:[], seeded:false,
+           sync:{ enabled:false } };
 }
 
 /* ---------- 샘플 데이터 (첫 실행 시에만) ---------- */
@@ -638,12 +644,20 @@ async function runOCR(dataUrl, onProgress){
 /* ============================================================
    4. 화면 렌더링
    ============================================================ */
+function renderHeadMeta(){
+  const box = $('#headMeta'); if(!box) return;
+  const avg = weekAvg(weekDates(0));
+  const c = state.sync||{};
+  const line2 = !c.enabled ? '자동 저장됨'
+    : c.error ? `<b style="color:var(--red)">공유 오류</b>`
+    : `<b style="color:var(--green)">👨‍👩‍👧 가족 공유 중</b>`;
+  box.innerHTML = (avg
+    ? `이번 주 평균 <b>${avg.kcal}kcal</b> · 단백질 <b>${avg.protein}g</b>`
+    : `식단을 만들어 보세요`) + '<br>' + line2;
+}
 function render(){
   document.querySelectorAll('#tabbar button').forEach(b=>b.classList.toggle('on', b.dataset.tab===ui.tab));
-  const avg = weekAvg(weekDates(0));
-  $('#headMeta').innerHTML = avg
-    ? `이번 주 평균 <b>${avg.kcal}kcal</b> · 단백질 <b>${avg.protein}g</b><br>자동 저장됨`
-    : `식단을 만들어 보세요<br>자동 저장됨`;
+  renderHeadMeta();
   $('#fab').classList.toggle('hidden', ui.tab!=='menu');
   const v = $('#view');
   const keep = window.scrollY;
@@ -1240,6 +1254,28 @@ function openSettings(){
     </div>
     <button class="btn block" style="margin-top:11px" data-act="saveSettings">저장</button>
 
+    <div class="field"><label>가족과 함께 쓰기</label>
+      ${state.sync?.enabled ? `
+        <div class="ing-box">
+          <div style="font-size:12.5px;font-weight:800;color:var(--green)">👨‍👩‍👧 공유 중</div>
+          <div class="tiny muted" style="margin-top:4px;line-height:1.7">
+            방 이름 <b>${esc(state.sync.room)}</b><br>
+            ${state.sync.error ? `<span style="color:var(--red)">⚠️ ${esc(state.sync.error)}</span>`
+              : `마지막 동기화 ${state.sync.lastAt? new Date(state.sync.lastAt).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}) : '-'}`}
+          </div>
+        </div>
+        <button class="btn orange sm block" style="margin-top:8px" data-act="syncInvite">🔗 초대 링크 복사 (카톡으로 보내기)</button>
+        <button class="btn ghost sm block" style="margin-top:7px" data-act="syncNow">🔄 지금 동기화</button>
+        <button class="btn ghost sm block" style="margin-top:7px;color:var(--red)" data-act="syncOff">공유 끄기 (이 폰만)</button>
+      ` : `
+        <div class="tiny muted" style="line-height:1.7;margin-bottom:8px">
+          두 폰이 같은 냉장고·식단·장보기·식비를 함께 봅니다.
+          한 사람만 Firebase 준비(무료, 5분)를 하면 나머지 식구는 <b>초대 링크만 열면</b> 끝이에요.
+        </div>
+        <button class="btn sm block" data-act="syncSetup">👨‍👩‍👧 가족과 공유 시작하기</button>
+      `}
+    </div>
+
     <div class="field"><label>데이터</label>
       <div class="tiny muted" style="line-height:1.7;margin-bottom:8px">
         모든 기록은 이 브라우저 안에만 저장돼요(서버 없음). 폰을 바꾸거나 브라우저 데이터를 지우면 사라지니
@@ -1261,6 +1297,73 @@ function openSettings(){
     }catch(err){ toast('올바른 백업 파일이 아니에요'); } };
     fr.readAsText(f);
   });
+}
+function openSyncSetup(){
+  openModal(`<div class="modal">
+    <div class="mhead"><h3>가족과 공유 시작하기</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted" style="line-height:1.8">
+      Firebase(구글의 무료 저장소)에 우리집 방을 하나 만드는 방식이에요.
+      <b>한 사람만</b> 아래 준비를 하면 되고, 나머지 식구는 초대 링크만 열면 됩니다.
+    </div>
+    <div class="ing-box" style="margin-top:10px">
+      <div style="font-size:12.5px;font-weight:800;margin-bottom:6px">준비 (한 번만, 약 5분)</div>
+      <div class="tiny" style="line-height:1.9">
+        1. <b>console.firebase.google.com</b> 접속 → 구글 로그인<br>
+        2. <b>프로젝트 만들기</b> → 이름 아무거나 (애널리틱스는 꺼도 됨)<br>
+        3. 왼쪽 <b>빌드 → Firestore Database</b> → <b>데이터베이스 만들기</b> → 위치는 기본값<br>
+        4. <b>규칙</b> 탭에서 아래 내용으로 바꾸고 <b>게시</b><br>
+        5. ⚙️ <b>프로젝트 설정</b> → 아래로 내려 <b>웹앱(&lt;/&gt;)</b> 추가 → 나오는 설정값을 통째로 복사
+      </div>
+    </div>
+    <div class="field"><label>4번에 붙여넣을 보안 규칙</label>
+      <textarea id="rulesBox" readonly style="min-height:112px;font-size:11px;font-family:ui-monospace,monospace">rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /rooms/{roomId}/{document=**} {
+      allow read, write: if roomId.size() >= 16;
+    }
+  }
+}</textarea>
+      <button class="btn ghost sm block" style="margin-top:6px" data-act="copyRules">📋 규칙 복사</button>
+    </div>
+    <div class="field"><label>5번에서 복사한 설정값 붙여넣기</label>
+      <textarea id="fbBox" placeholder='const firebaseConfig = {
+  apiKey: "AIza........",
+  authDomain: "....firebaseapp.com",
+  projectId: "our-fridge-1234",
+  ...
+};'></textarea>
+      <div class="tiny muted" style="margin-top:5px">통째로 붙여넣으면 필요한 값만 알아서 골라냅니다.</div>
+    </div>
+    <button class="btn block" style="margin-top:12px" data-act="syncConnect">연결하고 방 만들기</button>
+  </div>`);
+}
+function openSyncInvite(){
+  const link = inviteLink();
+  openModal(`<div class="modal">
+    <div class="mhead"><h3>초대 링크</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted" style="line-height:1.8">
+      이 링크를 배우자에게 카톡으로 보내세요. 링크를 열고 <b>참여</b>만 누르면 같은 냉장고를 함께 보게 됩니다.
+      <br><b>링크를 아는 사람은 우리 방에 들어올 수 있으니</b> 가족에게만 보내세요.
+    </div>
+    <div class="field"><label>링크</label>
+      <textarea id="inviteBox" readonly style="min-height:84px;font-size:11px;font-family:ui-monospace,monospace">${esc(link)}</textarea>
+    </div>
+    <button class="btn orange block" style="margin-top:8px" data-act="copyInvite">📋 링크 복사</button>
+  </div>`);
+}
+function openJoinPrompt(){
+  const has = state.recipes.length || state.fridge.length || state.expenses.length;
+  openModal(`<div class="modal">
+    <div class="mhead"><h3>가족 방에 참여할까요?</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted" style="line-height:1.8">
+      초대 링크로 들어오셨어요. 참여하면 이 폰과 상대 폰이 같은 냉장고·식단·장보기·식비를 함께 보게 됩니다.
+    </div>
+    ${has? `<div class="swap" style="margin-top:11px">⚠️ 이 폰에 이미 기록이 있어요. 어느 쪽을 쓸지 골라 주세요.</div>`:''}
+    <button class="btn block" style="margin-top:11px" data-act="joinTake">📥 방에 있는 내용 받아오기 ${has?'(이 폰 기록은 사라져요)':''}</button>
+    ${has? `<button class="btn ghost block sm" style="margin-top:7px" data-act="joinPush">📤 이 폰 기록을 방에 올리기 (상대 것을 덮어씀)</button>`:''}
+    <button class="btn ghost block sm" style="margin-top:7px" data-act="close">나중에</button>
+  </div>`);
 }
 function openExpenseQuick(amountHint, memoHint){
   openModal(`<div class="modal">
@@ -1439,6 +1542,45 @@ document.addEventListener('click', async (e)=>{
     setTimeout(()=>URL.revokeObjectURL(a.href), 1000); break;
   }
   case 'importBtn': $('#impFile').click(); break;
+
+  /* ---- 가족과 공유 ---- */
+  case 'syncSetup': openSyncSetup(); break;
+  case 'copyRules': await copyText($('#rulesBox').value, '보안 규칙을 복사했어요'); break;
+  case 'copyInvite': await copyText($('#inviteBox').value, '초대 링크를 복사했어요'); break;
+  case 'syncConnect': {
+    const cfg = parseFbConfig($('#fbBox').value);
+    if(!cfg){ toast('설정값에서 apiKey와 projectId를 찾지 못했어요'); break; }
+    state.sync = { enabled:true, ...cfg, room: randId(20), rev:0, imgs:{}, error:'' };
+    writeLocal();
+    b.disabled = true; b.textContent = '연결 중...';
+    await syncPush();
+    if(state.sync.error){
+      const msg = state.sync.error;
+      state.sync = { enabled:false }; writeLocal();
+      toast(msg); openSyncSetup(); break;
+    }
+    syncStart(); closeModal(); render(); openSyncInvite(); break;
+  }
+  case 'syncInvite': openSyncInvite(); break;
+  case 'syncNow': await syncPull(); await syncPush();
+    toast(state.sync.error || '동기화했어요'); closeModal(); render(); break;
+  case 'syncOff': {
+    if(!confirm('이 폰에서만 공유를 끕니다. 지금까지 받은 기록은 그대로 남아요.')) break;
+    state.sync = { enabled:false }; clearInterval(syncTimer); syncTimer=null;
+    writeLocal(); closeModal(); render(); toast('공유를 껐어요'); break;
+  }
+  case 'joinTake': case 'joinPush': {
+    state.sync = { enabled:true, apiKey:pendingInvite.k, projectId:pendingInvite.p,
+                   room:pendingInvite.r, rev:0, imgs:{}, error:'' };
+    writeLocal(); pendingInvite = null;
+    if(act==='joinTake'){
+      const doc = await fsGet(`rooms/${state.sync.room}/state/core`).catch(e=>({err:e.message}));
+      if(doc && doc.err){ state.sync={enabled:false}; writeLocal(); toast(doc.err); closeModal(); break; }
+      if(doc){ applyingRemote=true; applyCore(doc.json); applyingRemote=false; state.sync.rev = doc.rev; writeLocal(); pullImages(); }
+    } else await syncPush();
+    syncStart(); closeModal(); render();
+    toast(state.sync.error || '가족 방에 연결됐어요'); break;
+  }
   case 'reset': {
     if(!confirm('모든 기록(냉장고·식단·레시피·식비)을 지울까요?')) break;
     state = blankState(); save(); closeModal(); render(); toast('초기화했어요'); break;
@@ -1466,12 +1608,157 @@ function addToFridge({name,qty,unit,cat,expDate}){
 }
 
 /* ============================================================
-   7. 시작
+   7. 가족과 함께 쓰기 — Firebase Firestore REST 동기화
+   ------------------------------------------------------------
+   · SDK 없이 fetch만 씁니다(외부 스크립트 로딩 없음).
+   · rooms/{방}/state/core  = 사진을 뺀 전체 데이터(JSON 한 덩어리)
+   · rooms/{방}/img/{레시피id} = 레시피 사진(용량이 커서 따로 보관)
+   · 15초마다 core 문서 1건만 확인 → 바뀌었을 때만 내려받음(무료 한도 안에서 여유)
    ============================================================ */
+const DEVICE = (()=>{ let d=localStorage.getItem('fmp.device');
+  if(!d){ d=uid(); localStorage.setItem('fmp.device',d); } return d; })();
+let syncTimer=null, pushTimer=null, syncBusy=false, pendingInvite=null;
+
+const b64e = s => btoa(unescape(encodeURIComponent(s))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+const b64d = s => decodeURIComponent(escape(atob(s.replace(/-/g,'+').replace(/_/g,'/'))));
+const randId = n => { const a=new Uint8Array(n); crypto.getRandomValues(a);
+  return [...a].map(x=>'abcdefghijkmnpqrstuvwxyz23456789'[x%32]).join(''); };
+
+function fsUrl(path){
+  const c = state.sync;
+  return `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(c.projectId)}`
+       + `/databases/(default)/documents/${path}?key=${encodeURIComponent(c.apiKey)}`;
+}
+async function fsErr(r){
+  let m=''; try{ m=(await r.json()).error?.message||''; }catch(e){}
+  if(r.status===403) return '권한이 거부됐어요 — Firestore 보안 규칙을 확인해 주세요';
+  if(r.status===400) return 'API 키나 프로젝트 ID가 올바르지 않아요';
+  if(r.status===404) return '프로젝트를 찾을 수 없어요 (Firestore 데이터베이스를 만들었는지 확인)';
+  return `오류 ${r.status} ${m}`.trim();
+}
+async function fsGet(path){
+  const r = await fetch(fsUrl(path));
+  if(r.status===404) return null;
+  if(!r.ok) throw new Error(await fsErr(r));
+  const d = await r.json();
+  return { json:d.fields?.json?.stringValue||'', rev:+(d.fields?.rev?.integerValue||0), by:d.fields?.by?.stringValue||'' };
+}
+async function fsPut(path, json, rev){
+  const r = await fetch(fsUrl(path), { method:'PATCH', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ fields:{ json:{stringValue:json}, rev:{integerValue:String(rev)}, by:{stringValue:DEVICE} } }) });
+  if(!r.ok) throw new Error(await fsErr(r));
+}
+
+/* 사진을 뺀 전체 데이터 (사진은 별도 문서로) */
+function corePayload(){
+  return JSON.stringify({
+    fridge:state.fridge, plan:state.plan, extras:state.extras, checked:state.checked,
+    expenses:state.expenses, settings:state.settings,
+    recipes: state.recipes.map(r=>{ const {image, ...rest}=r; return {...rest, hasImage: !!image}; })
+  });
+}
+function applyCore(txt){
+  const d = JSON.parse(txt);
+  const keepImg = {}; state.recipes.forEach(r=>{ if(r.image) keepImg[r.id]=r.image; });
+  state.fridge = d.fridge||[];   state.plan = d.plan||{};
+  state.extras = d.extras||[];   state.checked = d.checked||{};
+  state.expenses = d.expenses||[]; state.settings = d.settings||state.settings;
+  state.recipes = (d.recipes||[]).map(r=>({ ...r, image: keepImg[r.id]||'' }));
+}
+/* 내 폰에 없는 사진만 뒤늦게 받아오기 */
+async function pullImages(){
+  const c = state.sync; let got = 0;
+  for(const r of state.recipes){
+    if(!r.hasImage || r.image) continue;
+    try{ const doc = await fsGet(`rooms/${c.room}/img/${r.id}`);
+      if(doc && doc.json){ r.image = doc.json; got++; } }catch(e){ break; }
+  }
+  if(got){ writeLocal(); render(); }
+}
+
+function schedulePush(){
+  if(!state.sync?.enabled) return;
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(syncPush, 1200);   // 연달아 누를 때 한 번만 올리기
+}
+async function syncPush(){
+  const c = state.sync;
+  if(!c?.enabled || syncBusy) return;
+  syncBusy = true;
+  try{
+    const rev = Date.now();
+    await fsPut(`rooms/${c.room}/state/core`, corePayload(), rev);
+    c.rev = rev; c.lastAt = rev; c.error = '';
+    for(const r of state.recipes){                       // 새로 추가된 사진만 올림
+      if(r.image && (c.imgs?.[r.id] !== r.image.length)){
+        await fsPut(`rooms/${c.room}/img/${r.id}`, r.image, rev);
+        (c.imgs = c.imgs||{})[r.id] = r.image.length;
+      }
+    }
+  }catch(e){ c.error = e.message; }
+  finally{ syncBusy=false; writeLocal(); renderHeadMeta(); }
+}
+async function syncPull(){
+  const c = state.sync;
+  if(!c?.enabled || syncBusy) return;
+  syncBusy = true;
+  try{
+    const doc = await fsGet(`rooms/${c.room}/state/core`);
+    if(doc && doc.rev > (c.rev||0) && doc.by !== DEVICE){
+      applyingRemote = true; applyCore(doc.json); applyingRemote = false;
+      c.rev = doc.rev; writeLocal(); render();
+      pullImages();
+      toast('가족이 바꾼 내용을 받아왔어요');
+    }
+    c.lastAt = Date.now(); c.error = '';
+  }catch(e){ c.error = e.message; }
+  finally{ syncBusy=false; writeLocal(); renderHeadMeta(); }
+}
+function syncStart(){
+  clearInterval(syncTimer); syncTimer = null;
+  if(!state.sync?.enabled) return;
+  syncPull();
+  syncTimer = setInterval(()=>{ if(!document.hidden) syncPull(); }, 15000);
+}
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) syncPull(); });
+
+/* 붙여넣은 Firebase 설정에서 필요한 두 값만 뽑기 */
+function parseFbConfig(text){
+  const t = String(text||'');
+  const api = t.match(/apiKey["'\s:]+([A-Za-z0-9_\-]{20,})/);
+  const pid = t.match(/projectId["'\s:]+([a-z0-9\-]{4,})/i);
+  if(!api || !pid) return null;
+  return { apiKey: api[1], projectId: pid[1] };
+}
+function inviteLink(){
+  const c = state.sync;
+  return location.href.split('#')[0] + '#join='
+       + b64e(JSON.stringify({ k:c.apiKey, p:c.projectId, r:c.room }));
+}
+/* 주소에 초대 코드가 붙어 있으면 받아 두기 */
+(function readInvite(){
+  const m = location.hash.match(/join=([A-Za-z0-9_\-]+)/);
+  if(!m) return;
+  try{ const v = JSON.parse(b64d(m[1]));
+    if(v.k && v.p && v.r) pendingInvite = v; }catch(e){}
+  history.replaceState(null, '', location.pathname + location.search);
+})();
+
+/* ============================================================
+   8. 시작
+   ============================================================ */
+async function copyText(text, okMsg){
+  try{ await navigator.clipboard.writeText(text); toast(okMsg); }
+  catch(e){ prompt('길게 눌러 복사하세요', text); }
+}
+
 state = load() || blankState();
-if(!state.seeded && !state.recipes.length) { seed(); save(); }
+if(!state.sync) state.sync = { enabled:false };      // 예전 버전에서 넘어온 경우
+if(!state.seeded && !state.recipes.length) { seed(); writeLocal(); }
 ui.tab = 'week';
 render();
+syncStart();
+if(pendingInvite) openJoinPrompt();
 </script>
 </body>
 </html>
