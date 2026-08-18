@@ -1285,6 +1285,12 @@ function openSettings(){
         모든 기록은 이 브라우저 안에만 저장돼요(서버 없음). 폰을 바꾸거나 브라우저 데이터를 지우면 사라지니
         가끔 백업 파일을 내려받아 두세요.
       </div>
+      <button class="btn sm block" data-act="copyBackup">📋 백업 내용 복사 (다른 브라우저로 옮길 때)</button>
+      <button class="btn ghost sm block" style="margin-top:7px" data-act="pasteRestore">📥 붙여넣어 복원하기</button>
+      <div class="tiny muted" style="margin:7px 0 9px;line-height:1.7">
+        카톡 내장 브라우저 ↔ 사파리처럼 <b>브라우저가 다르면 기록도 따로</b> 저장돼요.
+        위 두 버튼으로 통째로 옮길 수 있습니다.
+      </div>
       <button class="btn ghost sm block" data-act="export">⬇️ 백업 파일 내려받기 (JSON)</button>
       <button class="btn ghost sm block" style="margin-top:7px" data-act="importBtn">⬆️ 백업 파일 불러오기</button>
       <input type="file" id="impFile" accept="application/json" class="hidden">
@@ -1367,6 +1373,28 @@ function openJoinPrompt(){
     <button class="btn block" style="margin-top:11px" data-act="joinTake">📥 방에 있는 내용 받아오기 ${has?'(이 폰 기록은 사라져요)':''}</button>
     ${has? `<button class="btn ghost block sm" style="margin-top:7px" data-act="joinPush">📤 이 폰 기록을 방에 올리기 (상대 것을 덮어씀)</button>`:''}
     <button class="btn ghost block sm" style="margin-top:7px" data-act="close">나중에</button>
+  </div>`);
+}
+function openPasteRestore(){
+  openModal(`<div class="modal">
+    <div class="mhead"><h3>붙여넣어 복원하기</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted" style="line-height:1.8">
+      원래 쓰던 브라우저에서 <b>⚙️ → 백업 내용 복사</b>를 누른 뒤,
+      아래 칸을 길게 눌러 <b>붙여넣기</b> 하세요.
+    </div>
+    <div class="field"><label>백업 내용</label>
+      <textarea id="restoreBox" placeholder="여기에 붙여넣기" style="min-height:150px;font-size:11px;font-family:ui-monospace,monospace"></textarea>
+    </div>
+    <button class="btn block" style="margin-top:10px" data-act="doPasteRestore">이 내용으로 복원</button>
+  </div>`);
+}
+function openCopyFallback(text){
+  openModal(`<div class="modal">
+    <div class="mhead"><h3>길게 눌러 복사하세요</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted">아래 칸을 길게 눌러 <b>전체 선택 → 복사</b> 하세요.</div>
+    <div class="field"><textarea id="fallbackBox" readonly
+      style="min-height:180px;font-size:11px;font-family:ui-monospace,monospace">${esc(text)}</textarea></div>
+    <button class="btn block" data-act="selectFallback">전체 선택</button>
   </div>`);
 }
 function openExpenseQuick(amountHint, memoHint){
@@ -1546,6 +1574,31 @@ document.addEventListener('click', async (e)=>{
     setTimeout(()=>URL.revokeObjectURL(a.href), 1000); break;
   }
   case 'importBtn': $('#impFile').click(); break;
+  case 'copyBackup': {
+    let payload = JSON.stringify(state), note = '백업 내용을 복사했어요';
+    if(payload.length > 800000){        // 사진까지 넣으면 붙여넣기 어려울 만큼 커질 때
+      payload = JSON.stringify({ ...state, recipes: state.recipes.map(r=>({...r, image:''})) });
+      note = '내용이 커서 레시피 사진은 빼고 복사했어요';
+    }
+    await copyText(payload, note); break;
+  }
+  case 'pasteRestore': openPasteRestore(); break;
+  case 'selectFallback': {
+    const t = $('#fallbackBox'); t.focus(); t.select(); t.setSelectionRange(0, 999999999);
+    toast('선택했어요 — 길게 눌러 복사하세요'); break;
+  }
+  case 'doPasteRestore': {
+    const txt = $('#restoreBox').value.trim();
+    if(!txt){ toast('붙여넣은 내용이 없어요'); break; }
+    let data;
+    try{ data = JSON.parse(txt); }catch(e){ toast('올바른 백업 내용이 아니에요'); break; }
+    if(!data || !Array.isArray(data.recipes)){ toast('올바른 백업 내용이 아니에요'); break; }
+    if(!confirm('이 브라우저의 현재 기록을 덮어씁니다. 계속할까요?')) break;
+    state = Object.assign(blankState(), data);
+    if(!state.sync) state.sync = { enabled:false };
+    writeLocal(); closeModal(); render(); syncStart();
+    toast(`복원했어요 · 재료 ${state.fridge.length}개, 레시피 ${state.recipes.length}개`); break;
+  }
 
   /* ---- 가족과 공유 ---- */
   case 'syncSetup': openSyncSetup(); break;
@@ -1753,7 +1806,7 @@ function inviteLink(){
    ============================================================ */
 async function copyText(text, okMsg){
   try{ await navigator.clipboard.writeText(text); toast(okMsg); }
-  catch(e){ prompt('길게 눌러 복사하세요', text); }
+  catch(e){ openCopyFallback(text); }   // 인앱 브라우저에서 복사가 막힐 때
 }
 
 state = load() || blankState();
