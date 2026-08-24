@@ -296,6 +296,18 @@ table.mx td.now{background:var(--gold-s)}
 .simrow .b{font-weight:800;text-align:right}
 .pillbar{height:7px;border-radius:99px;background:var(--soft);overflow:hidden}
 .pillbar>i{display:block;height:100%;border-radius:99px;background:var(--navy)}
+.mtitle{display:inline-flex;align-items:center;gap:5px;font-size:15px;font-weight:900;padding:6px 12px;
+  border-radius:11px;background:var(--card);border:1px solid var(--line);box-shadow:var(--shadow)}
+.mtitle:hover{background:var(--soft)}
+.mtitle .caret{font-size:10px;color:var(--muted)}
+.mgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:4px}
+.mgrid button{background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 6px;text-align:center}
+.mgrid button .mm{font-size:13.5px;font-weight:800}
+.mgrid button .mv{font-size:10.5px;color:var(--muted);margin-top:2px;font-weight:700}
+.mgrid button.on{background:var(--navy);border-color:var(--navy)}
+.mgrid button.on .mm,.mgrid button.on .mv{color:#fff}
+.mgrid button.today{border-color:var(--gold);box-shadow:0 0 0 2px var(--gold-s)}
+.mgrid button.empty .mm{color:var(--muted)}
 .memo-card{background:var(--gold-s);border:1px solid #f0dcbb;border-radius:var(--r);padding:13px 14px;
   font-size:12.5px;line-height:1.75;white-space:pre-wrap;color:#7a5514}
 </style>
@@ -457,6 +469,7 @@ function seedState(){
 const mk = i => `${state.year}-${pad2(i)}`;
 const monthKeyOf = d => `${d.getFullYear()}-${pad2(d.getMonth()+1)}`;
 const mLabel = i => `${i}월`;
+const monthHasData = key => state.items.some(i=>cellVal(i.id,key));
 /* 기록이 들어 있는 마지막 달 (없으면 이번 달) */
 function lastMonthWithData(){
   let last = 0;
@@ -735,6 +748,11 @@ function viewHome(){
       <div class="sec-foot"><span>순저축 (수입 − 지출)</span>
         <b style="color:${s.net<0?'var(--spend)':'var(--income)'};font-size:14px">${num(s.net)}원</b></div>
     </div>
+    ${(()=>{ const lastM = lastMonthWithData(), m = ui.m||nowMonthIdx();
+      if(monthHasData(cur) || lastM===m) return '';
+      return `<div class="note">${m}월은 아직 안 적었어요 · 마지막 기록은 <b>${lastM}월</b>
+        <button class="chip" style="margin-left:6px" data-act="goMonth" data-m="${lastM}">${lastM}월 보기</button></div>`;
+    })()}
 
     <div class="card pad">
       <div class="tiny muted" style="font-weight:800;margin-bottom:8px">빠른 기록 — 이번 달 생활비에 더합니다</div>
@@ -799,7 +817,7 @@ function viewLedger(){
   return `<section class="pane">
     <div class="mnav">
       <button class="arrow" data-act="mMove" data-d="-1" ${ui.m<=1?'disabled style="opacity:.35"':''}>‹</button>
-      <div class="t">${state.year}년 ${mLabel(ui.m)}</div>
+      <button class="mtitle" data-act="pickMonth">${state.year}년 ${mLabel(ui.m)}<span class="caret">▼</span></button>
       <button class="arrow" data-act="mMove" data-d="1" ${ui.m>=12?'disabled style="opacity:.35"':''}>›</button>
     </div>
     <div class="sum4">
@@ -815,6 +833,17 @@ function viewLedger(){
       ${ps? `<div class="tiny muted" style="margin-top:7px">지난달 지출 ${num(ps.spend)}원 대비
         <span class="delta ${s.spend>ps.spend?'up':'down'}">${s.spend>ps.spend?'▲':'▼'} ${num(Math.abs(s.spend-ps.spend))}원</span></div>`:''}
     </div>
+
+    ${(()=>{ const lastM = lastMonthWithData();
+      if(monthHasData(cur) || lastM===ui.m) return '';
+      return `<div class="note" style="margin-top:11px">
+          ${ui.m}월은 아직 비어 있어요. 마지막으로 적은 달은 <b>${lastM}월</b>입니다.
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn sm grow" data-act="fillFromLast">
+            이전 기록으로 채우기 (수입·고정비·저축)</button>
+          <button class="btn ghost sm" data-act="goMonth" data-m="${lastM}">${lastM}월 보기</button>
+        </div>`; })()}
 
     ${SECTIONS.map(sec=>{
       const list = itemsOf(sec.key), tot = sectionTotal(sec.key, cur);
@@ -891,7 +920,7 @@ function viewAsset(){
   return `<section class="pane">
     <div class="mnav">
       <button class="arrow" data-act="aMove" data-d="-1" ${i<=0?'disabled style="opacity:.35"':''}>‹</button>
-      <div class="t">${assetKeyLabel(cur)} 자산</div>
+      <button class="mtitle" data-act="pickAsset">${assetKeyLabel(cur)} 자산<span class="caret">▼</span></button>
       <button class="arrow" data-act="aMove" data-d="1" ${i>=keys.length-1?'disabled style="opacity:.35"':''}>›</button>
     </div>
     <div class="banner">
@@ -1697,6 +1726,43 @@ function openPasteRestore(){
   </div>`);
 }
 
+/* ---------- 5-6-1. 월 고르기 ---------- */
+function openMonthPicker(){
+  const now = nowMonthIdx();
+  openModal(`<div class="modal">
+    <div class="mhead"><h3>${state.year}년 · 달 고르기</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted">달을 누르면 그 달 가계부로 갑니다. 지난 달도 얼마든지 고쳐 적을 수 있어요.</div>
+    <div class="mgrid">
+      ${Array.from({length:12},(_,k)=>{
+        const m = k+1, key = mk(m), sum = monthSummary(key), has = monthHasData(key);
+        return `<button class="${m===ui.m?'on':''} ${m===now&&m!==ui.m?'today':''} ${has?'':'empty'}"
+          data-act="goMonth" data-m="${m}">
+          <div class="mm">${m}월${m===now?' ·':''}</div>
+          <div class="mv">${has? '지출 '+shortWon(sum.spend) : '비어 있음'}</div></button>`;
+      }).join('')}
+    </div>
+    <div class="tiny muted" style="margin-top:10px">
+      ${'\u00B7'} 표시가 오늘(${now}월)이에요. 연도는 ⚙️ 설정에서 바꿉니다.</div>
+  </div>`);
+}
+function openAssetPicker(){
+  const keys = assetKeys(), now = nowMonthIdx();
+  openModal(`<div class="modal">
+    <div class="mhead"><h3>자산 · 달 고르기</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted">그 달 말 평가액을 적는 칸입니다. 안 적은 달은 최근 값이 이어집니다.</div>
+    <div class="mgrid">
+      ${keys.map(k=>{
+        const has = state.assetRows.some(r=>assetRaw(r.id,k)!==undefined);
+        const isNow = k!=='init' && +k.slice(5)===now;
+        return `<button class="${k===ui.aKey?'on':''} ${isNow&&k!==ui.aKey?'today':''} ${has?'':'empty'}"
+          data-act="goAsset" data-k="${k}">
+          <div class="mm">${k==='init'? '초기' : (+k.slice(5))+'월'}${isNow?' ·':''}</div>
+          <div class="mv">${has? bigWon(netWorth(k)) : '안 적음'}</div></button>`;
+      }).join('')}
+    </div>
+  </div>`);
+}
+
 /* ---------- 5-7. 🧊 냉장고 연동 설정 ---------- */
 function openLinkSetup(){
   const L = state.link || blankLink();
@@ -1821,6 +1887,25 @@ document.addEventListener('click', async (e)=>{
     const name = $('#niName').value.trim(); if(!name){ toast('이름을 넣어 주세요'); break; }
     state.items.push({ id:uid(), section:b.dataset.sec, name, auto:$('#niAuto').checked });
     save(); closeModal(); render(); toast(`${name} 추가했어요`); break;
+  }
+  case 'pickMonth': openMonthPicker(); break;
+  case 'pickAsset': openAssetPicker(); break;
+  case 'goMonth': ui.m = +b.dataset.m; ui.tab='ledger'; ui.annual=false;
+    closeModal(); render(); window.scrollTo(0,0); break;
+  case 'goAsset': ui.aKey = b.dataset.k; ui.aAnnual=false; closeModal(); render(); window.scrollTo(0,0); break;
+  case 'fillFromLast': {
+    /* 항목마다 가장 최근에 적었던 값을 가져온다 (월세는 5월, 차량비는 6월 … 처럼) */
+    const cur = mk(ui.m);
+    let n = 0;
+    ['income','fixed','save'].forEach(sec=>itemsOf(sec).forEach(i=>{
+      if(cellVal(i.id,cur)) return;
+      for(let m=ui.m-1; m>=1; m--){
+        const v = cellVal(i.id, mk(m));
+        if(v){ state.cells[`${i.id}|${cur}`] = v; n++; break; }
+      }
+    }));
+    save(); render();
+    toast(n? `${n}개 항목을 이전 기록으로 채웠어요 · 금액을 확인해 주세요` : '채울 항목이 없어요'); break;
   }
   case 'fillPrev': {
     const sec = b.dataset.sec, cur = mk(ui.m), prev = mk(ui.m-1);
@@ -2206,7 +2291,7 @@ state.habitLog = state.habitLog || {};
 /* 🧊 냉장고 앱 기록이 같은 브라우저에 있으면 처음 한 번 자동으로 켠다 */
 if(!state.link) state.link = blankLink();
 if(!state.link.asked && fridgeHere()){ state.link.enabled = true; state.link.asked = true; }
-ui.m = lastMonthWithData();
+ui.m = nowMonthIdx();
 ui.aKey = latestAssetKey();
 render();
 syncStart();
