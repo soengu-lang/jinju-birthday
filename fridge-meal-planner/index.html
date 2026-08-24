@@ -1825,11 +1825,14 @@ function inviteLink(){
        + b64e(JSON.stringify({ k:c.apiKey, p:c.projectId, r:c.room }));
 }
 /* 주소에 초대 코드가 붙어 있으면 받아 두기 */
+let inviteBroken = false;
 (function readInvite(){
   const m = location.hash.match(/join=([A-Za-z0-9_\-]+)/);
   if(!m) return;
-  try{ const v = JSON.parse(b64d(m[1]));
-    if(v.k && v.p && v.r) pendingInvite = v; }catch(e){}
+  try{
+    const v = JSON.parse(b64d(m[1]));
+    if(v.k && v.p && v.r) pendingInvite = v; else throw 0;
+  }catch(e){ inviteBroken = true; }   // 메신저가 링크를 자른 경우 — 조용히 넘기지 않는다
   history.replaceState(null, '', location.pathname + location.search);
 })();
 
@@ -1848,6 +1851,14 @@ ui.tab = 'week';
 render();
 syncStart();
 if(pendingInvite) openJoinPrompt();
+else if(inviteBroken) openModal(`<div class="modal">
+  <div class="mhead"><h3>초대 링크가 잘렸어요</h3><button class="x" data-act="close">✕</button></div>
+  <div class="tiny muted" style="line-height:1.8">
+    카톡 같은 메신저가 긴 링크를 자르면 이렇게 됩니다. 링크를 <b>글자로 통째로 복사</b>해서
+    아래 버튼으로 붙여넣으면 바로 참여됩니다.
+  </div>
+  <button class="btn block" style="margin-top:12px" data-act="joinByLink">🔗 초대 링크 붙여넣어 참여하기</button>
+</div>`);
 </script>
 </body>
 </html>
