@@ -431,7 +431,7 @@ function blankState(){
     settings:{ owners:['진주','성우'] },
     items:[], cells:{}, entries:[], assetRows:[], assetCells:{},
     fixed:[], loans:[], goal:{ target:0, rate:0.05, monthlySave:0 },
-    habits:[], habitLog:{}, memo:'', sync:{ enabled:false } };
+    habits:[], habitLog:{}, memo:'', sync:{ enabled:false }, link:blankLink() };
 }
 function seedState(){
   const s = blankState();
@@ -471,9 +471,12 @@ function nowMonthIdx(){
 const itemsOf = sec => state.items.filter(i=>i.section===sec);
 const itemById = id => state.items.find(i=>i.id===id);
 const entriesOf = (itemId, key) => state.entries.filter(e=>e.itemId===itemId && e.date.slice(0,7)===key);
+/* 🧊 냉장고 식단표에서 자동으로 넘어온 금액 (이 폰에서 계산, 직접 고칠 수 없음) */
+const linkVal = (itemId, key) =>
+  (state.link?.enabled ? +((state.link.cells||{})[`${itemId}|${key}`]) || 0 : 0);
 function cellVal(itemId, key){
   const base = +state.cells[`${itemId}|${key}`] || 0;
-  return base + entriesOf(itemId,key).reduce((s,e)=>s+(+e.amount||0),0);
+  return base + entriesOf(itemId,key).reduce((s,e)=>s+(+e.amount||0),0) + linkVal(itemId,key);
 }
 const sectionTotal = (sec, key) => itemsOf(sec).reduce((s,i)=>s+cellVal(i.id,key),0);
 function monthSummary(key){
@@ -542,6 +545,85 @@ function goalSim(now, rate, monthly, years=10){
     base = end;
   }
   return out;
+}
+
+/* ============================================================
+   2-1. 🧊 냉장고 식단표 연동 (읽기 전용)
+   ------------------------------------------------------------
+   · 냉장고 앱의 식비 기록을 읽어 생활비 항목에 자동으로 채웁니다.
+   · 같은 브라우저면 localStorage에서 바로, 아니면 냉장고 방을 읽습니다.
+   · 냉장고 쪽에는 아무것도 쓰지 않습니다(읽기만).
+   · 계산 결과는 이 폰에만 두고 배우자 폰과 동기화하지 않습니다
+     (양쪽이 각자 냉장고를 읽어 계산합니다).
+   ============================================================ */
+const FRIDGE_KEY = 'fridgeMealPlanner.v1';
+const LINK_KINDS = [
+  { k:'grocery',  label:'🛒 장보기',    match:/마트|장보기|식료|식품/ },
+  { k:'dining',   label:'🍽️ 외식·카페', match:/외식|식당|카페/ },
+  { k:'delivery', label:'🛵 배달',      match:/배달/ }
+];
+function blankLink(){
+  return { enabled:false, mode:'local', remote:null, map:{}, cells:{}, lastAt:0, error:'', total:0 };
+}
+function readFridgeLocal(){
+  try{ const raw = localStorage.getItem(FRIDGE_KEY); if(!raw) return null;
+    const d = JSON.parse(raw); return Array.isArray(d?.expenses) ? d : null; }catch(e){ return null; }
+}
+const fridgeHere = () => !!readFridgeLocal();
+/* 냉장고 분류 → 가계부 항목 id (저장된 게 없으면 이름으로 자동 매칭) */
+function linkItemId(kind){
+  const m = state.link?.map || {};
+  /* 한 번이라도 직접 고른 적이 있으면 그대로 따른다 (빈 값 = 넣지 않음) */
+  if(Object.prototype.hasOwnProperty.call(m, kind))
+    return (m[kind] && itemById(m[kind])) ? m[kind] : '';
+  const rule = LINK_KINDS.find(x=>x.k===kind);
+  const hit = itemsOf('living').find(i=>rule.match.test(i.name));
+  return hit? hit.id : '';
+}
+function linkMapNow(){
+  const m = {};
+  LINK_KINDS.forEach(x=>{ m[x.k] = linkItemId(x.k); });
+  return m;
+}
+/* 냉장고 식비 목록 → { '항목id|YYYY-MM': 합계 } */
+function linkCellsFrom(expenses){
+  const map = linkMapNow(), out = {};
+  (expenses||[]).forEach(e=>{
+    const kind = e.type==='cafe' ? 'dining' : e.type;      /* 카페·간식은 외식으로 */
+    const id = map[kind]; if(!id) return;
+    const key = `${id}|${String(e.date||'').slice(0,7)}`;
+    out[key] = (out[key]||0) + (+e.amount||0);
+  });
+  return out;
+}
+async function fridgeRemoteExpenses(cfg){
+  const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(cfg.projectId)}`
+            + `/databases/(default)/documents/rooms/${cfg.room}/state/core?key=${encodeURIComponent(cfg.apiKey)}`;
+  const r = await fetch(url);                               /* 읽기만 합니다 */
+  if(!r.ok) throw new Error(r.status===403? '냉장고 방을 읽을 권한이 없어요' : `오류 ${r.status}`);
+  const d = await r.json();
+  const core = JSON.parse(d.fields?.json?.stringValue || '{}');
+  return core.expenses || [];
+}
+async function refreshLink(){
+  const L = state.link;
+  if(!L?.enabled) return;
+  const before = JSON.stringify(L.cells||{});
+  try{
+    let expenses;
+    if(L.mode==='remote' && L.remote) expenses = await fridgeRemoteExpenses(L.remote);
+    else {
+      const d = readFridgeLocal();
+      if(!d) throw new Error('이 브라우저에는 냉장고 앱 기록이 없어요');
+      expenses = d.expenses;
+    }
+    L.cells = linkCellsFrom(expenses);
+    L.map = linkMapNow();
+    L.total = Object.values(L.cells).reduce((a,b)=>a+b,0);
+    L.error = ''; L.lastAt = Date.now();
+  }catch(e){ L.error = e.message; }
+  writeLocal();
+  if(JSON.stringify(L.cells||{}) !== before) render();
 }
 
 /* ---------- 절약 ---------- */
@@ -732,11 +814,12 @@ function viewLedger(){
         <div class="sec-head"><div class="t">${esc(sec.label)}</div>
           <div class="v" style="color:${sec.color}">${num(tot)}원</div></div>
         ${list.map(i=>{
-          const v = cellVal(i.id,cur), n = entriesOf(i.id,cur).length;
+          const v = cellVal(i.id,cur), n = entriesOf(i.id,cur).length, lk = linkVal(i.id,cur);
+          const sub = [ lk? `🧊 냉장고에서 ${num(lk)}원` : '', n? `상세 기록 ${n}건` : '' ].filter(Boolean).join(' · ');
           return `<button class="line-item" data-act="cell" data-id="${i.id}">
             <div class="grow"><div class="nm">${esc(i.name)}
               ${i.auto?'<span class="badge auto">자동이체</span>':''}</div>
-              ${n? `<div class="sub">상세 기록 ${n}건</div>`:''}</div>
+              ${sub? `<div class="sub">${sub}</div>`:''}</div>
             <div class="val ${v?'':'zero'}">${v? num(v):'—'}</div></button>`;
         }).join('')}
         <div class="sec-foot">
@@ -1041,6 +1124,7 @@ function openCell(itemId){
   const key = mk(ui.m), base = +state.cells[`${itemId}|${key}`]||0;
   const list = entriesOf(itemId,key);
   const extra = list.reduce((s,e)=>s+(+e.amount||0),0);
+  const lk = linkVal(itemId,key);
   const sec = SEC(it.section);
   const months = Array.from({length:12},(_,i)=>cellVal(itemId,mk(i+1)));
   openModal(`<div class="modal">
@@ -1054,14 +1138,16 @@ function openCell(itemId){
     <div class="keypad">
       ${[10000,50000,100000,300000,500000,1000000].map(n=>`<button class="act" data-act="cPlus" data-n="${n}">+${shortWon(n)}</button>`).join('')}
     </div>
+    ${lk? `<div class="note" style="margin-top:10px">🧊 냉장고 식단표에서 <b>${num(lk)}원</b>이 자동으로 더해져 있어요.
+      이 금액은 냉장고 앱에서 고치면 여기도 따라 바뀝니다.</div>`:''}
     ${list.length? `<div class="field"><label>상세 기록 ${list.length}건 (합계 ${num(extra)}원)</label>
       <div class="card">${list.map(e=>`<div class="line-item">
         <div class="grow"><div class="nm" style="font-size:12.5px">${esc(e.memo||'기록')}</div>
           <div class="sub">${e.date.slice(5).replace('-','월 ')}일</div></div>
         <div class="val" style="font-size:13px">${num(e.amount)}</div>
         <button class="x" data-act="delEntry" data-id="${e.id}">✕</button></div>`).join('')}</div>
-      <div class="tiny muted" style="margin-top:6px">이 달 합계 = 직접 적은 ${num(base)}원 + 상세 ${num(extra)}원 =
-        <b>${num(base+extra)}원</b></div></div>`:''}
+      <div class="tiny muted" style="margin-top:6px">이 달 합계 = 직접 적은 ${num(base)}원 + 상세 ${num(extra)}원
+        ${lk? `+ 냉장고 ${num(lk)}원 `:''}= <b>${num(base+extra+lk)}원</b></div></div>`:''}
     <div class="field"><label>상세 기록 추가 (선택)</label>
       <div class="row"><input id="eAmt" data-money inputmode="numeric" placeholder="금액" class="grow">
         <input id="eMemo" placeholder="메모" class="grow">
@@ -1382,7 +1468,7 @@ function runImport(){
     Object.entries(p.vals).forEach(([k,v])=>{
       if(isLedger){
         /* 상세 기록이 있으면 그만큼 빼서, 이 달 합계가 시트 값과 똑같아지게 한다 */
-        const extra = entriesOf(id,k).reduce((s2,e)=>s2+(+e.amount||0),0);
+        const extra = entriesOf(id,k).reduce((s2,e)=>s2+(+e.amount||0),0) + linkVal(id,k);
         state.cells[`${id}|${k}`] = Math.max(0, v - extra);
       } else state.assetCells[`${id}|${k}`] = v;
       filled++;
@@ -1454,6 +1540,25 @@ function openSettings(){
     <div class="field" style="margin-top:0"><label>구글 시트</label>
       <button class="btn block" data-act="import">📥 시트에서 가져오기 (붙여넣기)</button>
       <button class="btn ghost sm block" style="margin-top:7px" data-act="export">📤 시트로 내보내기</button>
+    </div>
+
+    <div class="field"><label>🧊 냉장고 식단표 연동</label>
+      ${(()=>{ const L=state.link||{}; const cur=mk(ui.m||nowMonthIdx());
+        const now = Object.entries(L.cells||{}).filter(([k])=>k.endsWith('|'+cur))
+                     .reduce((a,[,v])=>a+v,0);
+        return L.enabled
+          ? `<div class="box">
+               <div style="font-size:12.5px;font-weight:800;color:var(--navy)">켜짐 · ${L.mode==='remote'?'냉장고 방에서 읽는 중':'이 브라우저에서 읽는 중'}</div>
+               <div class="tiny muted" style="margin-top:4px;line-height:1.7">
+                 ${mLabel(ui.m||nowMonthIdx())} 반영 <b>${num(now)}원</b> · 올해 합계 ${num(L.total||0)}원<br>
+                 ${L.error? `<span style="color:var(--spend)">⚠️ ${esc(L.error)}</span>`
+                   : `마지막 확인 ${L.lastAt? new Date(L.lastAt).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):'-'}`}
+               </div></div>`
+          : `<div class="tiny muted" style="line-height:1.7;margin-bottom:8px">
+               냉장고 앱에 적은 <b>장보기·외식·배달</b> 식비를 이 가계부 생활비에 자동으로 채웁니다.
+               ${fridgeHere()? '' : '<br>이 브라우저에는 냉장고 앱 기록이 없어요 — 초대 링크로 연결할 수 있습니다.'}</div>`;
+      })()}
+      <button class="btn sm block" style="margin-top:8px" data-act="linkSetup">연동 설정 열기</button>
     </div>
 
     <div class="field"><label>기본값</label>
@@ -1573,6 +1678,71 @@ function openPasteRestore(){
     <div class="field"><label>백업 내용</label>
       <textarea id="restoreBox" style="min-height:150px;font-size:11px;font-family:ui-monospace,monospace"></textarea></div>
     <button class="btn block" style="margin-top:10px" data-act="doPasteRestore">이 내용으로 복원</button>
+  </div>`);
+}
+
+/* ---------- 5-7. 🧊 냉장고 연동 설정 ---------- */
+function openLinkSetup(){
+  const L = state.link || blankLink();
+  const living = itemsOf('living');
+  const cur = mk(ui.m||nowMonthIdx());
+  const nowSum = Object.entries(L.cells||{}).filter(([k])=>k.endsWith('|'+cur)).reduce((a,[,v])=>a+v,0);
+  openModal(`<div class="modal">
+    <div class="mhead"><h3>🧊 냉장고 식단표 연동</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted" style="line-height:1.8">
+      냉장고 앱 <b>💳 식비</b>에 적은 금액을 가계부 생활비에 <b>자동으로</b> 채웁니다.
+      따로 누를 필요 없고, 냉장고 앱에서 고치면 여기도 따라 바뀝니다.
+      냉장고 쪽 기록은 <b>읽기만</b> 하고 절대 바꾸지 않아요.
+    </div>
+
+    <div class="box" style="margin-top:11px">
+      <div class="row"><div class="grow">
+        <div style="font-size:13px;font-weight:900">${L.enabled? '켜짐':'꺼짐'}</div>
+        <div class="tiny muted" style="margin-top:3px;line-height:1.7">
+          ${L.enabled? `${L.mode==='remote'? '냉장고 방에서 읽는 중' : '이 브라우저의 냉장고 앱에서 읽는 중'}<br>
+             ${mLabel(ui.m||nowMonthIdx())} 반영 <b>${num(nowSum)}원</b> · 올해 ${num(L.total||0)}원`
+            : (fridgeHere()? '이 브라우저에 냉장고 앱 기록이 있어요. 켜면 바로 반영됩니다.'
+                           : '이 브라우저에는 냉장고 앱 기록이 없어요.')}
+          ${L.error? `<br><span style="color:var(--spend)">⚠️ ${esc(L.error)}</span>`:''}
+        </div></div>
+        <button class="btn sm ${L.enabled?'ghost':''}" data-act="${L.enabled?'linkOff':'linkOn'}">
+          ${L.enabled? '끄기':'켜기'}</button>
+      </div>
+    </div>
+    ${L.enabled? `<button class="btn ghost sm block" style="margin-top:8px" data-act="linkRefresh">🔄 지금 다시 읽기</button>`:''}
+
+    <div class="field"><label>어디에 넣을지</label>
+      ${LINK_KINDS.map(k=>`<div class="map-row">
+        <div class="h">${k.label}<span>냉장고 식비 분류</span></div>
+        <select data-link-map="${k.k}">
+          <option value="">— 넣지 않음 —</option>
+          ${living.map(i=>`<option value="${i.id}" ${linkItemId(k.k)===i.id?'selected':''}>${esc(i.name)}</option>`).join('')}
+        </select></div>`).join('')}
+      <div class="tiny muted" style="margin-top:6px">냉장고의 <b>카페·간식</b>은 외식과 함께 계산됩니다.</div>
+    </div>
+
+    <div class="field"><label>폰·브라우저가 다를 때</label>
+      ${L.mode==='remote' && L.remote? `
+        <div class="box"><div class="tiny">냉장고 방 <b>${esc(L.remote.room)}</b> 에서 읽는 중</div></div>
+        <button class="btn ghost sm block" style="margin-top:7px" data-act="linkRemoteOff">이 브라우저 기록으로 되돌리기</button>`
+      : `<div class="tiny muted" style="line-height:1.7;margin-bottom:7px">
+          냉장고 앱을 다른 폰·다른 브라우저에서 쓰신다면, 냉장고 앱의 <b>가족 공유</b>를 켠 뒤
+          거기서 <b>초대 링크를 복사</b>해 아래로 연결하세요(읽기 전용).</div>
+        <button class="btn ghost sm block" data-act="linkRemote">🔗 냉장고 초대 링크로 연결</button>`}
+    </div>
+    <div class="tiny muted" style="margin-top:10px;line-height:1.7">
+      이 계산은 <b>폰마다 따로</b> 이뤄집니다. 배우자 폰에서도 보이게 하려면 그 폰에서도 한 번 켜 주세요.
+    </div>
+  </div>`);
+}
+function openLinkRemote(){
+  openModal(`<div class="modal">
+    <div class="mhead"><h3>냉장고 초대 링크로 연결</h3><button class="x" data-act="close">✕</button></div>
+    <div class="note">냉장고 앱 ⚙️ → <b>🔗 초대 링크 복사</b> 로 복사한 링크를 붙여넣으세요.
+      가계부는 그 방을 <b>읽기만</b> 하고 아무것도 쓰지 않습니다.</div>
+    <div class="field"><label>냉장고 초대 링크</label>
+      <textarea id="linkBox" style="min-height:90px;font-size:11px;font-family:ui-monospace,monospace"></textarea></div>
+    <button class="btn block" style="margin-top:10px" data-act="linkRemoteSave">연결하기</button>
   </div>`);
 }
 
@@ -1779,11 +1949,11 @@ document.addEventListener('click', async (e)=>{
   }
   case 'reseed':
     if(!confirm('지금 기록을 버리고 처음 시트에서 가져온 내용으로 되돌릴까요?')) break;
-    state = Object.assign(seedState(), { sync: state.sync });
+    state = Object.assign(seedState(), { sync: state.sync, link: state.link });
     save(); closeModal(); render(); toast('시트 원본으로 되돌렸어요'); break;
   case 'reset':
     if(!confirm('모든 내용을 비울까요? (되돌릴 수 없어요)')) break;
-    state = Object.assign(blankState(), { sync: state.sync }); save(); closeModal(); render(); break;
+    state = Object.assign(blankState(), { sync: state.sync, link: state.link }); save(); closeModal(); render(); break;
   case 'copyBackup': copyText(JSON.stringify(state), '백업 내용을 복사했어요'); break;
   case 'pasteRestore': openPasteRestore(); break;
   case 'doPasteRestore': {
@@ -1793,6 +1963,40 @@ document.addEventListener('click', async (e)=>{
     }catch(err){ toast('올바른 백업 내용이 아니에요'); } break;
   }
   case 'selectFallback': { const t=$('#fallbackBox'); t.focus(); t.select(); break; }
+
+  /* ---- 냉장고 연동 ---- */
+  case 'linkSetup': openLinkSetup(); break;
+  case 'linkOn': {
+    state.link = Object.assign(blankLink(), state.link, { enabled:true, asked:true });
+    if(state.link.mode!=='remote' && !fridgeHere()){
+      state.link.enabled = false; writeLocal(); openLinkSetup();
+      toast('이 브라우저에는 냉장고 앱 기록이 없어요'); break;
+    }
+    await refreshLink(); openLinkSetup(); render();
+    toast(state.link.error || '냉장고 식비를 자동으로 반영해요'); break;
+  }
+  case 'linkOff':
+    state.link.enabled = false; state.link.asked = true;
+    writeLocal(); openLinkSetup(); render(); toast('연동을 껐어요'); break;
+  case 'linkRefresh': await refreshLink(); openLinkSetup(); render();
+    toast(state.link.error || '다시 읽었어요'); break;
+  case 'linkRemote': openLinkRemote(); break;
+  case 'linkRemoteSave': {
+    const m = ($('#linkBox').value||'').match(/join=([A-Za-z0-9_\-]+)/);
+    if(!m){ toast('초대 링크를 찾지 못했어요'); break; }
+    try{
+      const v = JSON.parse(b64d(m[1]));
+      if(!(v.k && v.p && v.r)) throw 0;
+      state.link = Object.assign(blankLink(), state.link,
+        { enabled:true, asked:true, mode:'remote', remote:{ apiKey:v.k, projectId:v.p, room:v.r } });
+      writeLocal(); await refreshLink(); openLinkSetup(); render();
+      toast(state.link.error || '냉장고 방과 연결했어요');
+    }catch(err){ toast('링크가 올바르지 않아요'); }
+    break;
+  }
+  case 'linkRemoteOff':
+    state.link.mode = 'local'; state.link.remote = null;
+    await refreshLink(); openLinkSetup(); render(); break;
 
   /* ---- 공유 ---- */
   case 'syncSetup': openSyncSetup(); break;
@@ -1837,6 +2041,15 @@ document.addEventListener('input', e=>{
     const v = t.value.replace(/[^0-9]/g,'');
     t.value = v? (+v).toLocaleString('ko-KR') : '';
   }
+});
+document.addEventListener('change', e=>{
+  const t = e.target;
+  if(t.dataset.linkMap === undefined) return;
+  state.link = state.link || blankLink();
+  state.link.map = state.link.map || {};
+  state.link.map[t.dataset.linkMap] = t.value || '';   /* 빈 값 = 넣지 않음 */
+  writeLocal();
+  refreshLink().then(()=>{ openLinkSetup(); render(); });
 });
 document.addEventListener('keydown', e=>{
   if(e.key==='Escape'){ closeModal(); return; }
@@ -1936,7 +2149,7 @@ function syncStart(){
   syncPull();
   syncTimer = setInterval(()=>{ if(!document.hidden) syncPull(); }, 15000);
 }
-document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) syncPull(); });
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden){ syncPull(); refreshLink(); } });
 
 function parseFbConfig(text){
   const t = String(text||'');
@@ -1965,10 +2178,14 @@ if(!state || !state.items) state = seedState();
 if(!state.sync) state.sync = { enabled:false };
 state.entries = state.entries || [];
 state.habitLog = state.habitLog || {};
+/* 🧊 냉장고 앱 기록이 같은 브라우저에 있으면 처음 한 번 자동으로 켠다 */
+if(!state.link) state.link = blankLink();
+if(!state.link.asked && fridgeHere()){ state.link.enabled = true; state.link.asked = true; }
 ui.m = lastMonthWithData();
 ui.aKey = latestAssetKey();
 render();
 syncStart();
+refreshLink();
 if(pendingInvite) openJoinPrompt();
 </script>
 </body>
