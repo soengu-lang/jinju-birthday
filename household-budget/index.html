@@ -570,6 +570,14 @@ function readFridgeLocal(){
     const d = JSON.parse(raw); return Array.isArray(d?.expenses) ? d : null; }catch(e){ return null; }
 }
 const fridgeHere = () => !!readFridgeLocal();
+/* 냉장고 앱이 이미 쓰고 있는 Firebase 설정 (같은 브라우저일 때만 보입니다) */
+function fridgeFbConfig(){
+  try{
+    const raw = localStorage.getItem(FRIDGE_KEY); if(!raw) return null;
+    const c = JSON.parse(raw)?.sync;
+    return (c?.apiKey && c?.projectId) ? { apiKey:c.apiKey, projectId:c.projectId } : null;
+  }catch(e){ return null; }
+}
 /* 냉장고 분류 → 가계부 항목 id (저장된 게 없으면 이름으로 자동 매칭) */
 function linkItemId(kind){
   const m = state.link?.map || {};
@@ -1584,7 +1592,8 @@ function openSettings(){
         <button class="btn ghost sm block" style="margin-top:7px;color:var(--spend)" data-act="syncOff">공유 끄기</button>
       ` : `
         <div class="tiny muted" style="line-height:1.7;margin-bottom:8px">
-          한 사람만 Firebase 준비(무료, 5분)를 하면, 배우자는 <b>초대 링크만 열면</b> 같은 가계부를 봅니다.</div>
+          한 사람만 Firebase 준비(무료, 5분)를 하면, 배우자는 <b>초대 링크만 열면</b> 같은 가계부를 봅니다.
+          ${fridgeFbConfig()? '<br>🧊 냉장고 앱에 쓰던 설정이 있어서 <b>버튼 하나로</b> 연결됩니다.' : ''}</div>
         <button class="btn sm block" data-act="syncSetup">👨‍👩‍👧 함께 쓰기 시작하기</button>
         <button class="btn ghost sm block" style="margin-top:7px" data-act="joinByLink">🔗 초대 링크로 참여하기</button>
       `}
@@ -1616,6 +1625,13 @@ function openSettings(){
 function openSyncSetup(){
   openModal(`<div class="modal">
     <div class="mhead"><h3>함께 쓰기 시작하기</h3><button class="x" data-act="close">✕</button></div>
+    ${(()=>{ const c = fridgeFbConfig(); return c? `
+      <div class="note">🧊 냉장고 식단표에 쓰던 Firebase(<b>${esc(c.projectId)}</b>)를 찾았어요.
+        아래 준비 없이 <b>버튼 하나로</b> 연결할 수 있습니다.</div>
+      <button class="btn block" style="margin-top:9px" data-act="syncFromFridge">
+        🧊 냉장고 앱에 쓰던 Firebase 그대로 쓰기</button>
+      <div class="tiny muted" style="margin:8px 2px 0">가계부는 <b>새 방</b>을 만들어 씁니다(냉장고 기록과 섞이지 않아요).</div>
+      <div class="sec-title" style="margin:16px 2px 6px"><h2 style="font-size:13px">직접 설정하기</h2></div>` : ''; })()}
     <div class="tiny muted" style="line-height:1.8">
       Firebase(구글의 무료 저장소)에 우리집 방을 하나 만드는 방식이에요.
       <b>한 사람만</b> 아래 준비를 하면 됩니다.</div>
@@ -2000,6 +2016,15 @@ document.addEventListener('click', async (e)=>{
 
   /* ---- 공유 ---- */
   case 'syncSetup': openSyncSetup(); break;
+  case 'syncFromFridge': {
+    const cfg = fridgeFbConfig();
+    if(!cfg){ toast('냉장고 앱 설정을 찾지 못했어요'); break; }
+    state.sync = { enabled:true, apiKey:cfg.apiKey, projectId:cfg.projectId, room:randId(20), rev:0 };
+    writeLocal(); closeModal(); render();
+    await syncPush();
+    if(state.sync.error) toast(state.sync.error); else { openSyncInvite(); toast('연결됐어요 · 가계부 방을 새로 만들었어요'); }
+    break;
+  }
   case 'copyRules': copyText($('#rulesBox').value, '보안 규칙을 복사했어요'); break;
   case 'syncConnect': {
     const cfg = parseFbConfig($('#fbBox').value);
