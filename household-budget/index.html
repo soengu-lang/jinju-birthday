@@ -583,8 +583,11 @@ function readFridgeLocal(){
     const d = JSON.parse(raw); return Array.isArray(d?.expenses) ? d : null; }catch(e){ return null; }
 }
 const fridgeHere = () => !!readFridgeLocal();
-/* 냉장고 앱이 이미 쓰고 있는 Firebase 설정 (같은 브라우저일 때만 보입니다) */
+/* 냉장고 앱이 쓰고 있는 Firebase 설정
+   ① 냉장고 방을 읽도록 연결해 뒀으면 그 값 ② 같은 브라우저의 냉장고 앱 저장값 */
 function fridgeFbConfig(){
+  const r = state.link?.remote;
+  if(r?.apiKey && r?.projectId) return { apiKey:r.apiKey, projectId:r.projectId };
   try{
     const raw = localStorage.getItem(FRIDGE_KEY); if(!raw) return null;
     const c = JSON.parse(raw)?.sync;
@@ -2293,6 +2296,7 @@ if(!state.link) state.link = blankLink();
 if(!state.link.asked && fridgeHere()){ state.link.enabled = true; state.link.asked = true; }
 ui.m = nowMonthIdx();
 ui.aKey = latestAssetKey();
+writeLocal();          /* 처음 열었을 때도 바로 저장해 둔다 */
 render();
 syncStart();
 refreshLink();
