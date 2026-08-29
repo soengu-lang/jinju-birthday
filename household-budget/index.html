@@ -515,7 +515,7 @@ const yearTotal = (itemId) => { let s=0; for(let i=1;i<=12;i++) s+=cellVal(itemI
    ============================================================ */
 /* 가맹점·적요 → 우리집 항목 이름 조각 */
 const PAYEE_HINTS = [
-  [/카드대금|카드결제|카드값|청구금액|일시불결제대금|자동납부.*카드/, '__skip__'],
+  [/카드\s*(대금|결제|값)|청구금액|일시불결제대금|자동납부.*카드|카드.*자동이체/, '__skip__'],
   [/이마트|emart|홈플러스|롯데마트|코스트코|하나로|마트|쿠팡|컬리|오아시스|정육|수산|청과/i, '마트'],
   [/스타벅스|스벅|투썸|이디야|메가커피|빽다방|커피|카페|공차|파리바게|뚜레쥬르|베이커리|던킨|배스킨|CU|GS25|세븐일레븐|이마트24|편의점/i, '외식'],
   [/배민|배달의민족|요기요|쿠팡이츠|배달/, '배달'],
@@ -567,8 +567,10 @@ function grabAmount(t){
 function cleanMemo(s2){
   let t = String(s2||'').replace(/[,|]/g,' ').replace(/\s+/g,' ').trim();
   for(let i=0;i<3;i++) t = t.replace(/(^|\s)(출금|입금|이체|결제|사용|송금|자동이체)(\s|$)/g,' ');
-  /* 맨 앞의 카드사·은행 이름은 빼서 가게 이름만 남긴다 (신한카드 스타벅스 → 스타벅스) */
-  t = t.replace(/^\s*[가-힣A-Za-z]{2,8}(카드|은행|뱅크)\s+/,'');
+  /* 맨 앞 카드사·은행 이름은 뒤에 가게 이름이 남을 때만 뗀다
+     (신한카드 스타벅스 → 스타벅스 / "신한카드 결제"는 그대로 둬야 카드대금인 걸 안다) */
+  const cut = t.replace(/^\s*[가-힣A-Za-z]{2,8}(카드|은행|뱅크)\s+/,'');
+  if(cut && cut !== t && cut.replace(/\s/g,'').length >= 2 && !/^(결제|대금|값)$/.test(cut)) t = cut;
   return t.replace(/^[\s\-·]+|[\s\-·]+$/g,'').replace(/\s+/g,' ').trim();
 }
 /* 붙여넣은 글 → [{date, memo, amount, type, skip}] */
@@ -583,7 +585,7 @@ function parseStatement(raw){
   };
   const rest = (t, d, a) => {
     let r = t;
-    if(d) r = r.replace(DATE_PAT,' ');
+    if(d) r = r.replace(new RegExp(DATE_PAT.source,'g'),' ');
     /* 금액 자리는 모두 지운다 — 남은 숫자는 잔액·누적 칸이라 내용이 아니다 */
     if(a) r = r.replace(/([-+])?\s*((?:[0-9]{1,3}(?:,[0-9]{3})+)|[0-9]{3,})\s*원?/g,' ');
     return cleanMemo(r.replace(/,/g,' '));
@@ -599,18 +601,65 @@ function parseStatement(raw){
         if(!t || /^(잔액|누적|합계|총액)/.test(t)) return;
         const d = grabDate(t);
         if(d && !date) date = d;
-        const tNoDate = d ? t.replace(DATE_PAT,' ') : t;
+        const tNoDate = d ? t.replace(new RegExp(DATE_PAT.source,'g'),' ') : t;
         const a = grabAmount(tNoDate);
         if(a && !isFinite(amount)){ amount = a.v; income = a.income; }
         const m = rest(t, d, a);
         if(m) memo.push(m);
       });
       if(isFinite(amount) && amount>0)
-        out.push({ date: date || iso(today()), memo: cleanMemo(memo.join(' ')),
+        out.push({ date: date || iso(today()), memo: cleanMemo(memo.join(' ')), raw: memo.join(' '),
                    amount, type: income?'income':'expense', skip: cancel?'취소 건':'' });
     });
     return out;
   }
+  /* 표(엑셀·CSV) 머리글을 만나면 칸 역할을 기억해 둔다 */
+  let cols = null;
+  const cellsOf = line => {
+    const hasTab = /\t/.test(line);
+    let raw = line;
+    for(let i=0;i<5;i++) raw = raw.replace(/(\d),(\d{3})(?!\d)/g,'$1$2');   /* 1,234,567 → 1234567 */
+    raw = raw.replace(/\t/g,',');
+    if(!hasTab && (raw.match(/,/g)||[]).length < 2) return null;
+    const cs = raw.split(',').map(c=>c.trim());
+    return cs.length >= 3 ? cs : null;
+  };
+  const readHeader = cs => {
+    if(!cs || cs.some(c=>grabAmount(c))) return null;
+    const role = cs.map(c=>{
+      if(/거래\s*일|이용\s*일|승인\s*일|일자|날짜|date/i.test(c)) return 'date';
+      if(/입금|수입/.test(c)) return 'in';        /* 입금액에 '금액'이 들어 있어 먼저 본다 */
+      if(/출금|사용|이용\s*금액|결제\s*금액|지출|금액|amount/i.test(c)) return 'out';
+      if(/적요|내용|가맹점|상호|메모|摘要|내역|사용처/.test(c)) return 'memo';
+      return '';
+    });
+    return role.includes('date') && (role.includes('out') || role.includes('in')) ? role : null;
+  };
+  const parseRow = cs => {
+    let date='', amount=NaN, income=false, memo='', texts=[];
+    cs.forEach((c,i)=>{
+      if(!c) return;
+      const role = cols? cols[i] : '';
+      const d = grabDate(c);
+      const isNum = /^[-+]?[0-9][0-9,]*$/.test(c.replace(/\s|원/g,''));
+      if(role==='date' || (!cols && d && !date && !isNum)){ if(d && !date) date = d; return; }
+      if(isNum){
+        const v = Math.abs(parseInt(c.replace(/[^0-9\-]/g,''),10));
+        if(!isFinite(v) || v < 100) return;
+        if(role==='in'){ if(!isFinite(amount)){ amount=v; income=true; } return; }
+        if(role==='out'){ if(!isFinite(amount)){ amount=v; income=false; } return; }
+        if(!cols && !isFinite(amount)){ amount=v; income=/^\+/.test(c); }
+        return;
+      }
+      if(d && !date){ date = d; return; }
+      if(role==='memo') memo = c; else texts.push(c);
+    });
+    if(!memo) memo = texts.sort((a,b)=>b.length-a.length)[0] || '';
+    if(!isFinite(amount) || amount<=0) return null;
+    return { date: date||'', memo: cleanMemo(memo), raw: memo, amount,
+             type: income?'income':'expense', skip: cs.some(c=>/취소/.test(c))? '취소 건':'' };
+  };
+
   /* 앱에서 복사한 목록: 금액이 나오면 한 건이 끝난 것으로 본다 */
   let cur = null, lastDate = '';
   const start = () => ({ date:lastDate, memo:'', amount:NaN, type:'expense', skip:'' });
@@ -625,10 +674,24 @@ function parseStatement(raw){
   text.split('\n').forEach(line0=>{
     const t = clean(line0);
     if(!t || /^(잔액|누적|합계|총액|거래내역|전체|검색)/.test(t)) return;
-    if(/거래일자|거래일시|적요|출금액|입금액|이용일|가맹점명|승인일자/.test(t) && !grabAmount(t)) return;
+    if(/조회기간|조회일|출력일|이용내역|거래내역|고객명|카드번호|계좌번호|기간\s*:/.test(t)) return;
+    /* 표 한 줄이면 칸 단위로 읽는다 */
+    const cs = cellsOf(line0);
+    if(cs){
+      const head = readHeader(cs);
+      if(head){ cols = head; return; }
+      const row = parseRow(cs);
+      if(row){
+        close();
+        if(!row.date) row.date = lastDate || iso(today()); else lastDate = row.date;
+        out.push(row);
+        return;
+      }
+      if(cols) return;               /* 표인데 못 읽은 줄은 건너뛴다 */
+    }
     const cancel = /취소/.test(t);
     const d = grabDate(t);
-    const tNoDate = d ? t.replace(DATE_PAT,' ') : t;
+    const tNoDate = d ? t.replace(new RegExp(DATE_PAT.source,'g'),' ') : t;
     const a = grabAmount(tNoDate);
     if(!cur) cur = start();
     if(d){
@@ -651,11 +714,12 @@ function parseStatement(raw){
 }
 /* 내용 → 항목 (한 번 고치면 기억합니다) */
 const payeeKey = s2 => String(s2||'').replace(/\s/g,'').toLowerCase().slice(0,24);
-function guessItemFor(memo, type){
+function guessItemFor(memo, type, raw){
   const learned = (state.payeeMap||{})[payeeKey(memo)];
   if(learned) return learned;                     /* '__skip__' 도 그대로 돌려줌 */
+  const hay = `${memo} ${raw||''}`;
   for(const [re, frag] of PAYEE_HINTS){
-    if(!re.test(memo)) continue;
+    if(!re.test(hay)) continue;
     if(frag === '__skip__') return '__skip__';
     const pool = type==='income' ? itemsOf('income') : spendItems();
     const hit = pool.find(i=>i.name.includes(frag));
@@ -1967,24 +2031,77 @@ function openPasteRestore(){
 
 /* ---------- 5-4-1. 📋 카드·계좌 내역 붙여넣기 ---------- */
 let stmtDraft = null;
+/* 카드사·은행 파일은 한글이 EUC-KR(CP949)로 저장된 경우가 많아 둘 다 시도한다 */
+function decodeSmart(buf){
+  const utf8 = new TextDecoder('utf-8').decode(buf);
+  const bad = (utf8.match(/\uFFFD/g) || []).length;
+  if(!bad) return utf8;
+  try{
+    const kr = new TextDecoder('euc-kr').decode(buf);
+    return ((kr.match(/\uFFFD/g) || []).length < bad) ? kr : utf8;
+  }catch(e){ return utf8; }
+}
+function loadScript(src){
+  return new Promise((ok, no)=>{
+    const el2 = document.createElement('script');
+    el2.src = src; el2.onload = ok;
+    el2.onerror = ()=>no(new Error('load'));
+    document.head.appendChild(el2);
+  });
+}
+/* 엑셀(.xlsx/.xls)은 표를 읽는 도구를 그때만 내려받아 CSV로 바꾼다 */
+async function excelToText(file){
+  if(!window.XLSX){
+    toast('엑셀 읽는 중…');
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+  }
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type:'array' });
+  return wb.SheetNames.map(n=>XLSX.utils.sheet_to_csv(wb.Sheets[n])).join('\n');
+}
+async function readStatementFile(file){
+  const name = (file.name||'').toLowerCase();
+  if(/\.xlsx?$/.test(name)){
+    try{ return await excelToText(file); }
+    catch(e){
+      toast('엑셀을 읽지 못했어요 — 엑셀에서 열어 복사·붙여넣기 해주세요');
+      return null;
+    }
+  }
+  return decodeSmart(await file.arrayBuffer());
+}
 function openPasteTx(){
   stmtDraft = null;
   openModal(`<div class="modal">
     <div class="mhead"><h3>카드·계좌 내역 붙여넣기</h3><button class="x" data-act="close">✕</button></div>
     <div class="note">🏦 <b>은행 앱</b>: 거래내역 화면에서 길게 눌러 전체 선택 → 복사 → 여기에 붙여넣기<br>
       💳 <b>카드 문자</b>: 결제 문자 여러 통을 한꺼번에 붙여넣어도 됩니다<br>
-      📄 카드사·은행에서 받은 <b>엑셀·CSV</b> 내용도 그대로 붙여넣기</div>
+      📄 <b>카드사·은행에서 받은 파일</b>(엑셀·CSV)은 아래 <b>📄 파일 열기</b>로 바로 불러오세요</div>
     <div class="field"><label>여기에 붙여넣기</label>
       <textarea id="stmtBox" style="min-height:170px;font-size:11px;font-family:ui-monospace,monospace"
         placeholder="8월 27일
 스타벅스   -5,600
 관리비     -250,000
 급여       +3,200,000"></textarea></div>
-    <button class="btn block" style="margin-top:10px" data-act="stmtParse">다음 (읽어보기)</button>
+    <div class="row" style="margin-top:10px">
+      <button class="btn grow" data-act="stmtParse">다음 (읽어보기)</button>
+      <button class="btn ghost" data-act="stmtFileBtn">📄 파일 열기</button>
+    </div>
+    <input type="file" id="stmtFile" class="hidden"
+      accept=".csv,.tsv,.txt,.xls,.xlsx,text/csv,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
     <div class="tiny muted" style="margin-top:8px;line-height:1.7">
       · <b>카드대금 결제</b>는 자동으로 빼 둡니다(항목에 이미 있어서 두 번 세니까요)<br>
-      · 한 번 항목을 골라 주면 그 가게는 <b>다음부터 자동</b>으로 들어갑니다</div>
+      · 한 번 항목을 골라 주면 그 가게는 <b>다음부터 자동</b>으로 들어갑니다<br>
+      · 엑셀 파일은 표를 읽는 도구를 그때 한 번 내려받아 <b>인터넷 연결</b>이 필요해요 (CSV는 필요 없음)</div>
   </div>`);
+  $('#stmtFile').addEventListener('change', async e=>{
+    const f = e.target.files[0]; if(!f) return;
+    const text = await readStatementFile(f);
+    if(text == null) return;
+    const box = $('#stmtBox');
+    if(box) box.value = text;
+    buildStmtDraft(text);
+  });
 }
 function drawStmtPreview(){
   const list = stmtDraft || [];
@@ -2025,7 +2142,7 @@ function buildStmtDraft(text){
   if(!recs.length){ toast('날짜와 금액을 찾지 못했어요'); return; }
   const have = new Set(state.entries.map(e=>`${e.date}|${Math.round(e.amount)}|${(e.memo||'').trim()}`));
   stmtDraft = recs.map(r=>{
-    const guess = guessItemFor(r.memo, r.type);
+    const guess = guessItemFor(r.memo, r.type, r.raw);
     const dup = have.has(`${r.date}|${Math.round(r.amount)}|${r.memo}`);
     return { ...r, dup, item: (r.skip || dup) ? '__skip__' : (guess || '') };
   });
@@ -2270,6 +2387,7 @@ document.addEventListener('click', async (e)=>{
   /* ---- 📋 내역 붙여넣기 ---- */
   case 'pasteTx': openPasteTx(); break;
   case 'stmtParse': buildStmtDraft($('#stmtBox').value); break;
+  case 'stmtFileBtn': $('#stmtFile').click(); break;
   case 'stmtRun': runStmtImport(); break;
 
   /* ---- 💳 카드 대조 ---- */
