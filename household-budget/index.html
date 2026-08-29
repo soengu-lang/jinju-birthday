@@ -450,7 +450,7 @@ function blankState(){
     items:[], cells:{}, entries:[], assetRows:[], assetCells:{},
     fixed:[], loans:[], goal:{ target:0, rate:0.05, monthlySave:0 },
     habits:[], habitLog:{}, memo:'', sync:{ enabled:false }, link:blankLink(),
-    pays:DEF_PAYS.map(p=>({...p})), itemPay:{}, stmt:{}, stmtFill:{} };
+    pays:DEF_PAYS.map(p=>({...p})), itemPay:{}, stmt:{}, stmtFill:{}, payeeMap:{} };
 }
 function seedState(){
   const s = blankState();
@@ -506,6 +506,163 @@ function monthSummary(key){
   return { income, fixed, save:sav, living, spend, net, rate: income? net/income : 0 };
 }
 const yearTotal = (itemId) => { let s=0; for(let i=1;i<=12;i++) s+=cellVal(itemId,mk(i)); return s; };
+
+/* ============================================================
+   2-2. 📋 카드·계좌 내역 읽기
+   ------------------------------------------------------------
+   은행 앱의 거래내역이나 카드 결제 문자를 붙여넣으면
+   날짜·내용·금액을 뽑아 항목별 상세 기록으로 넣습니다.
+   ============================================================ */
+/* 가맹점·적요 → 우리집 항목 이름 조각 */
+const PAYEE_HINTS = [
+  [/카드대금|카드결제|카드값|청구금액|일시불결제대금|자동납부.*카드/, '__skip__'],
+  [/이마트|emart|홈플러스|롯데마트|코스트코|하나로|마트|쿠팡|컬리|오아시스|정육|수산|청과/i, '마트'],
+  [/스타벅스|스벅|투썸|이디야|메가커피|빽다방|커피|카페|공차|파리바게|뚜레쥬르|베이커리|던킨|배스킨|CU|GS25|세븐일레븐|이마트24|편의점/i, '외식'],
+  [/배민|배달의민족|요기요|쿠팡이츠|배달/, '배달'],
+  [/식당|한식|중식|일식|양식|김밥|국밥|치킨|피자|족발|보쌈|삼겹|고깃|맥도날드|버거|롯데리아|서브웨이|스시|초밥|분식|포차|주점|호프/i, '외식'],
+  [/지하철|버스|택시|카카오ᅳ?T|코레일|KTX|SRT|고속버스|주유|오일뱅크|칼텍스|SK에너지|현대오일|S-?OIL|하이패스|주차|톨게이트|정비|타이어|세차/i, '교통'],
+  [/병원|의원|약국|치과|한의원|메디컬|클리닉|건강검진/, '의료'],
+  [/올리브영|다이소|무인양품|이케아|생활용품|철물|가구/, '생활용품'],
+  [/넷플릭스|netflix|유튜브|youtube|왓챠|디즈니|스포티파이|멜론|지니뮤직|애플|apple|google|icloud|chatgpt|openai|claude|구독/i, '구독'],
+  [/미용실|헤어|네일|화장품|의류|무신사|지그재그|에이블리|백화점|아울렛/, '꾸밈비'],
+  [/영화|CGV|메가박스|롯데시네마|공연|전시|여행|숙박|호텔|펜션|놀이공원|게임|스팀|서점|교보|알라딘/i, '여가'],
+  [/헬스|필라테스|요가|골프|수영|PT/i, '운동'],
+  [/학원|수업|강의|등록금|교재|과외/, '교육'],
+  [/축의|부의|경조|결혼|장례|돌잔치/, '경조사'],
+  [/월세|임대료/, '월세'],
+  [/관리비/, '관리비'],
+  [/보험|생명|화재|메리츠|한화손|롯데손|DB손해|삼성화재/, '보험'],
+  [/SKT|KT|LG유플|알뜰|통신|휴대폰|핸드폰/i, '핸드폰'],
+  [/인터넷|IPTV|씨앤앰|딜라이브/i, '인터넷'],
+  [/이자|원리금|대출/, '대출이자'],
+  [/청약/, '청약'],
+  [/적금|저축/, '적금'],
+  [/급여|월급|상여|성과급/, '급여']
+];
+const STMT_NOISE = [
+  /\[?\s*web발신\s*\]?/ig, /\[국외발신\]/g, /\[?\s*국내승인\s*\]?/g,
+  /잔액\s*[\d,]+\s*원?/g, /누적\s*[\d,]+\s*원?/g, /한도\s*[\d,]+\s*원?/g,
+  /\d{1,2}:\d{2}(:\d{2})?/g, /일시불|할부\s*\d*\s*개?월?/g,
+  /승인취소|취소승인|정상승인|승인|체크|신용|국내|해외/g,
+  /[가-힣]\*+[가-힣]?\s*님?/g, /\(\d{2,4}\)/g, /\d{4}\*+\d*/g, /\*{2,}\d*/g
+];
+const DATE_PAT = /(20\d\d)\s*[.\-\/년]\s*(\d{1,2})\s*[.\-\/월]\s*(\d{1,2})|(\d{1,2})\s*[.\-\/월]\s*(\d{1,2})\s*일?/;
+function grabDate(t){
+  const m = t.match(DATE_PAT);
+  if(!m) return '';
+  let y, mo, d;
+  if(m[1]){ y=+m[1]; mo=+m[2]; d=+m[3]; }
+  else { y = state.year || today().getFullYear(); mo=+m[4]; d=+m[5]; }
+  if(!(mo>=1 && mo<=12 && d>=1 && d<=31)) return '';
+  return `${y}-${pad2(mo)}-${pad2(d)}`;
+}
+function grabAmount(t){
+  const m = t.match(/([-+])?\s*((?:[0-9]{1,3}(?:,[0-9]{3})+)|[0-9]{3,})\s*원?/);
+  if(!m) return null;
+  const v = parseInt(String(m[2]).replace(/,/g,''), 10);
+  if(!isFinite(v) || v < 100) return null;
+  const income = m[1]==='+' || /입금|급여|월급|상여|이자지급|환급|캐시백|충전|received/i.test(t);
+  return { v, income };
+}
+function cleanMemo(s2){
+  let t = String(s2||'').replace(/[,|]/g,' ').replace(/\s+/g,' ').trim();
+  for(let i=0;i<3;i++) t = t.replace(/(^|\s)(출금|입금|이체|결제|사용|송금|자동이체)(\s|$)/g,' ');
+  /* 맨 앞의 카드사·은행 이름은 빼서 가게 이름만 남긴다 (신한카드 스타벅스 → 스타벅스) */
+  t = t.replace(/^\s*[가-힣A-Za-z]{2,8}(카드|은행|뱅크)\s+/,'');
+  return t.replace(/^[\s\-·]+|[\s\-·]+$/g,'').replace(/\s+/g,' ').trim();
+}
+/* 붙여넣은 글 → [{date, memo, amount, type, skip}] */
+function parseStatement(raw){
+  const text = String(raw||'').replace(/\r/g,'');
+  const smsMode = /web발신/i.test(text) || /\n\s*\n/.test(text);
+  const out = [];
+  const clean = line => {
+    let t = line.replace(/\t/g,' ').trim();
+    STMT_NOISE.forEach(re=>{ t = t.replace(re,' '); });
+    return t.replace(/\s+/g,' ').trim();
+  };
+  const rest = (t, d, a) => {
+    let r = t;
+    if(d) r = r.replace(DATE_PAT,' ');
+    /* 금액 자리는 모두 지운다 — 남은 숫자는 잔액·누적 칸이라 내용이 아니다 */
+    if(a) r = r.replace(/([-+])?\s*((?:[0-9]{1,3}(?:,[0-9]{3})+)|[0-9]{3,})\s*원?/g,' ');
+    return cleanMemo(r.replace(/,/g,' '));
+  };
+  if(smsMode){
+    /* 문자 여러 통: 빈 줄이나 [Web발신]로 나눠 한 통을 한 건으로 */
+    const blocks = text.split(/\n\s*\n|(?=\[?\s*web발신)/i).map(b=>b.trim()).filter(Boolean);
+    blocks.forEach(b=>{
+      const cancel = /취소/.test(b);
+      let date='', amount=NaN, income=false, memo=[];
+      b.split('\n').forEach(line0=>{
+        const t = clean(line0);
+        if(!t || /^(잔액|누적|합계|총액)/.test(t)) return;
+        const d = grabDate(t);
+        if(d && !date) date = d;
+        const tNoDate = d ? t.replace(DATE_PAT,' ') : t;
+        const a = grabAmount(tNoDate);
+        if(a && !isFinite(amount)){ amount = a.v; income = a.income; }
+        const m = rest(t, d, a);
+        if(m) memo.push(m);
+      });
+      if(isFinite(amount) && amount>0)
+        out.push({ date: date || iso(today()), memo: cleanMemo(memo.join(' ')),
+                   amount, type: income?'income':'expense', skip: cancel?'취소 건':'' });
+    });
+    return out;
+  }
+  /* 앱에서 복사한 목록: 금액이 나오면 한 건이 끝난 것으로 본다 */
+  let cur = null, lastDate = '';
+  const start = () => ({ date:lastDate, memo:'', amount:NaN, type:'expense', skip:'' });
+  const close = () => {
+    if(cur && isFinite(cur.amount) && cur.amount>0){
+      cur.memo = cleanMemo(cur.memo);
+      if(!cur.date) cur.date = lastDate || iso(today());
+      out.push(cur);
+    }
+    cur = null;
+  };
+  text.split('\n').forEach(line0=>{
+    const t = clean(line0);
+    if(!t || /^(잔액|누적|합계|총액|거래내역|전체|검색)/.test(t)) return;
+    if(/거래일자|거래일시|적요|출금액|입금액|이용일|가맹점명|승인일자/.test(t) && !grabAmount(t)) return;
+    const cancel = /취소/.test(t);
+    const d = grabDate(t);
+    const tNoDate = d ? t.replace(DATE_PAT,' ') : t;
+    const a = grabAmount(tNoDate);
+    if(!cur) cur = start();
+    if(d){
+      if(isFinite(cur.amount)){ close(); cur = start(); }
+      cur.date = d; lastDate = d;
+    }
+    const m = rest(t, d, a);
+    if(a){
+      if(isFinite(cur.amount)){ close(); cur = start(); }
+      cur.amount = a.v; cur.type = a.income? 'income':'expense';
+      if(cancel) cur.skip = '취소 건';
+      if(m) cur.memo = (cur.memo? cur.memo+' ':'') + m;
+      if(d) close();
+    } else if(m){
+      cur.memo = (cur.memo? cur.memo+' ':'') + m;
+    }
+  });
+  close();
+  return out;
+}
+/* 내용 → 항목 (한 번 고치면 기억합니다) */
+const payeeKey = s2 => String(s2||'').replace(/\s/g,'').toLowerCase().slice(0,24);
+function guessItemFor(memo, type){
+  const learned = (state.payeeMap||{})[payeeKey(memo)];
+  if(learned) return learned;                     /* '__skip__' 도 그대로 돌려줌 */
+  for(const [re, frag] of PAYEE_HINTS){
+    if(!re.test(memo)) continue;
+    if(frag === '__skip__') return '__skip__';
+    const pool = type==='income' ? itemsOf('income') : spendItems();
+    const hit = pool.find(i=>i.name.includes(frag));
+    if(hit) return hit.id;
+  }
+  return '';
+}
 
 /* ---------- 💳 결제수단 · 카드 대조 ---------- */
 const PAY_KINDS = { card:{label:'카드', emoji:'💳'}, account:{label:'계좌', emoji:'🏦'}, cash:{label:'현금', emoji:'💵'} };
@@ -894,6 +1051,9 @@ function viewLedger(){
         </div>
       </div>`;
     }).join('')}
+
+    <button class="btn ghost block sm" style="margin-top:12px" data-act="pasteTx">
+      📋 카드·계좌 내역 붙여넣기</button>
 
     ${payReconcile(cur)}
 
@@ -1655,6 +1815,7 @@ function openSettings(){
     <div class="field" style="margin-top:0"><label>구글 시트</label>
       <button class="btn block" data-act="import">📥 시트에서 가져오기 (붙여넣기)</button>
       <button class="btn ghost sm block" style="margin-top:7px" data-act="export">📤 시트로 내보내기</button>
+      <button class="btn ghost sm block" style="margin-top:7px" data-act="pasteTx">📋 카드·계좌 내역 붙여넣기</button>
     </div>
 
     <div class="field"><label>🧊 냉장고 식단표 연동</label>
@@ -1802,6 +1963,89 @@ function openPasteRestore(){
       <textarea id="restoreBox" style="min-height:150px;font-size:11px;font-family:ui-monospace,monospace"></textarea></div>
     <button class="btn block" style="margin-top:10px" data-act="doPasteRestore">이 내용으로 복원</button>
   </div>`);
+}
+
+/* ---------- 5-4-1. 📋 카드·계좌 내역 붙여넣기 ---------- */
+let stmtDraft = null;
+function openPasteTx(){
+  stmtDraft = null;
+  openModal(`<div class="modal">
+    <div class="mhead"><h3>카드·계좌 내역 붙여넣기</h3><button class="x" data-act="close">✕</button></div>
+    <div class="note">🏦 <b>은행 앱</b>: 거래내역 화면에서 길게 눌러 전체 선택 → 복사 → 여기에 붙여넣기<br>
+      💳 <b>카드 문자</b>: 결제 문자 여러 통을 한꺼번에 붙여넣어도 됩니다<br>
+      📄 카드사·은행에서 받은 <b>엑셀·CSV</b> 내용도 그대로 붙여넣기</div>
+    <div class="field"><label>여기에 붙여넣기</label>
+      <textarea id="stmtBox" style="min-height:170px;font-size:11px;font-family:ui-monospace,monospace"
+        placeholder="8월 27일
+스타벅스   -5,600
+관리비     -250,000
+급여       +3,200,000"></textarea></div>
+    <button class="btn block" style="margin-top:10px" data-act="stmtParse">다음 (읽어보기)</button>
+    <div class="tiny muted" style="margin-top:8px;line-height:1.7">
+      · <b>카드대금 결제</b>는 자동으로 빼 둡니다(항목에 이미 있어서 두 번 세니까요)<br>
+      · 한 번 항목을 골라 주면 그 가게는 <b>다음부터 자동</b>으로 들어갑니다</div>
+  </div>`);
+}
+function drawStmtPreview(){
+  const list = stmtDraft || [];
+  const use = list.filter(r=>r.item && r.item!=='__skip__');
+  const sum = use.filter(r=>r.type==='expense').reduce((a,r)=>a+r.amount,0);
+  const inc = use.filter(r=>r.type==='income').reduce((a,r)=>a+r.amount,0);
+  const opts = (r,i) => `<select data-stmt-item="${i}">
+      <option value="__skip__" ${r.item==='__skip__'?'selected':''}>— 넣지 않음 —</option>
+      ${SECTIONS.map(sec=>`<optgroup label="${esc(sec.label)}">${itemsOf(sec.key).map(it=>
+        `<option value="${it.id}" ${r.item===it.id?'selected':''}>${esc(it.name)}</option>`).join('')}</optgroup>`).join('')}
+    </select>`;
+  openModal(`<div class="modal">
+    <div class="mhead"><h3>${list.length}건을 읽었어요</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted">넣을 항목만 확인해 주세요. <b>넣지 않음</b>으로 두면 건너뜁니다.</div>
+    <div class="card" style="margin-top:10px;max-height:340px;overflow-y:auto">
+      ${list.length? list.map((r,i)=>`<div class="bline">
+        <div class="t">
+          <div class="n" style="font-size:12.5px">${esc(r.memo||'(내용 없음)')}
+            ${r.dup? '<span class="badge check">이미 있음</span>':''}
+            ${r.skip? `<span class="badge alert">${esc(r.skip)}</span>`:''}</div>
+          <div class="v"><b style="color:${r.type==='income'?'var(--income)':'var(--ink)'}">
+            ${r.type==='income'?'+':''}${num(r.amount)}</b>원</div>
+        </div>
+        <div class="row" style="margin-top:6px">
+          <span class="tiny muted" style="width:74px">${esc(r.date.slice(5).replace('-','월 '))}일</span>
+          <div class="grow">${opts(r,i)}</div>
+        </div>
+      </div>`).join('') : `<div class="empty">읽어낸 내역이 없어요.<br>붙여넣은 내용에 날짜와 금액이 있는지 확인해 주세요.</div>`}
+    </div>
+    <div class="tiny muted" style="margin-top:8px">
+      넣을 것: <b>${use.length}건</b> · 지출 ${num(sum)}원${inc? ` · 수입 ${num(inc)}원`:''}</div>
+    <button class="btn block" style="margin-top:11px" data-act="stmtRun">${use.length}건 넣기</button>
+    <button class="btn ghost block sm" style="margin-top:7px" data-act="pasteTx">← 다시 붙여넣기</button>
+  </div>`);
+}
+function buildStmtDraft(text){
+  const recs = parseStatement(text);
+  if(!recs.length){ toast('날짜와 금액을 찾지 못했어요'); return; }
+  const have = new Set(state.entries.map(e=>`${e.date}|${Math.round(e.amount)}|${(e.memo||'').trim()}`));
+  stmtDraft = recs.map(r=>{
+    const guess = guessItemFor(r.memo, r.type);
+    const dup = have.has(`${r.date}|${Math.round(r.amount)}|${r.memo}`);
+    return { ...r, dup, item: (r.skip || dup) ? '__skip__' : (guess || '') };
+  });
+  drawStmtPreview();
+}
+function runStmtImport(){
+  const list = (stmtDraft||[]).filter(r=>r.item && r.item!=='__skip__');
+  if(!list.length){ toast('넣을 것이 없어요'); return; }
+  let n = 0;
+  list.forEach(r=>{
+    state.entries.push({ id:uid(), itemId:r.item, date:r.date, amount:r.amount, memo:r.memo });
+    if(r.memo) (state.payeeMap = state.payeeMap||{})[payeeKey(r.memo)] = r.item;   /* 다음부터 자동 */
+    n++;
+  });
+  /* 사용자가 직접 "넣지 않음"으로 둔 가게도 기억한다 (중복·취소 건은 제외) */
+  (stmtDraft||[]).filter(r=>r.item==='__skip__' && !r.dup && !r.skip && r.memo)
+    .forEach(r=>{ (state.payeeMap = state.payeeMap||{})[payeeKey(r.memo)] = '__skip__'; });
+  stmtDraft = null;
+  save(); closeModal(); render();
+  toast(`${n}건 넣었어요`);
 }
 
 /* ---------- 5-5-1. 💳 결제수단 ---------- */
@@ -2023,6 +2267,11 @@ document.addEventListener('click', async (e)=>{
     state.items.push({ id:uid(), section:b.dataset.sec, name, auto:$('#niAuto').checked });
     save(); closeModal(); render(); toast(`${name} 추가했어요`); break;
   }
+  /* ---- 📋 내역 붙여넣기 ---- */
+  case 'pasteTx': openPasteTx(); break;
+  case 'stmtParse': buildStmtDraft($('#stmtBox').value); break;
+  case 'stmtRun': runStmtImport(); break;
+
   /* ---- 💳 카드 대조 ---- */
   case 'payManage': openPayManage(); break;
   case 'payAssign': openPayAssign(); break;
@@ -2324,6 +2573,11 @@ document.addEventListener('input', e=>{
 });
 document.addEventListener('change', e=>{
   const t = e.target;
+  if(t.dataset.stmtItem !== undefined){
+    const r = (stmtDraft||[])[+t.dataset.stmtItem];
+    if(r){ r.item = t.value; drawStmtPreview(); }
+    return;
+  }
   /* 💳 명세서 금액 · 결제수단 지정 */
   if(t.dataset.stmt !== undefined){
     const v = parseAmount(t.value)||0, k = `${t.dataset.stmt}|${mk(ui.m)}`;
@@ -2409,7 +2663,7 @@ async function fsPut(path, json, rev){
 }
 const CORE_KEYS = ['year','settings','items','cells','entries','assetRows','assetCells',
                    'fixed','loans','goal','habits','habitLog','memo',
-                   'pays','itemPay','stmt','stmtFill'];
+                   'pays','itemPay','stmt','stmtFill','payeeMap'];
 function corePayload(){
   const o = {}; CORE_KEYS.forEach(k=>o[k]=state[k]);
   return JSON.stringify(o);
@@ -2491,6 +2745,7 @@ if(!state.pays) state.pays = DEF_PAYS.map(p=>({...p}));
 state.itemPay = state.itemPay || {};
 state.stmt = state.stmt || {};
 state.stmtFill = state.stmtFill || {};
+state.payeeMap = state.payeeMap || {};
 /* 🧊 냉장고 앱 기록이 같은 브라우저에 있으면 처음 한 번 자동으로 켠다 */
 if(!state.link) state.link = blankLink();
 if(!state.link.asked && fridgeHere()){ state.link.enabled = true; state.link.asked = true; }
