@@ -1,0 +1,1847 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#1d4b46">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="우리집 자산">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-180.png">
+<link rel="manifest" href="manifest.json">
+<title>우리집 자산</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f4f2ed; --card:#fffdf8; --ink:#1e2430; --muted:#6f7683;
+  --brand:#1d4b46; --brand-d:#153833; --soft:#e3eeea; --soft-d:#c9ded7;
+  --up:#d1453b; --up-s:#fdeceb;      /* 국내 관례: 상승 = 빨강 */
+  --down:#2f62c4; --down-s:#eaf0fd;  /* 하락 = 파랑 */
+  --gold:#c9862b; --gold-s:#fdf2e2;
+  --line:#e5e2d8; --shadow:0 1px 2px rgba(30,36,48,.06), 0 8px 22px rgba(30,36,48,.06);
+  --r:16px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  font-family:'Noto Sans KR',-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;
+  background:var(--bg); color:var(--ink); line-height:1.5;
+  padding-bottom:calc(96px + env(safe-area-inset-bottom));
+  -webkit-font-smoothing:antialiased;
+}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;border:none;background:none}
+input,select,textarea{background:#fff;border:1px solid var(--line);border-radius:10px;padding:9px 11px;width:100%}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--soft-d);outline-offset:1px}
+textarea{resize:vertical;min-height:70px}
+.wrap{max-width:920px;margin:0 auto;padding:0 14px}
+.hidden{display:none !important}
+.num{font-variant-numeric:tabular-nums}
+
+/* ---------- header ---------- */
+header{background:var(--card);border-bottom:1px solid var(--line);padding-top:env(safe-area-inset-top)}
+.head-in{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;padding:14px 0 12px}
+.brand{font-size:12px;font-weight:700;color:var(--gold);letter-spacing:.02em}
+h1{font-size:clamp(17px,4.6vw,22px);font-weight:900;letter-spacing:-.03em;margin-top:2px;white-space:nowrap}
+.head-right{display:flex;align-items:center;gap:8px}
+.head-meta{text-align:right;font-size:clamp(9.5px,2.6vw,11.5px);color:var(--muted);white-space:nowrap;line-height:1.35}
+.head-meta b{color:var(--brand);font-weight:700}
+.gear{font-size:18px;padding:4px 6px;border-radius:8px}
+.gear:hover{background:var(--soft)}
+.spin{display:inline-block;animation:sp 1s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* ---------- tabs ---------- */
+nav.tabs{position:sticky;top:0;z-index:30;background:var(--bg);padding:10px 0 8px;
+  box-shadow:0 6px 14px -12px rgba(0,0,0,.4)}
+.tabbar{display:flex;gap:4px;background:var(--soft);border-radius:14px;padding:4px}
+.tabbar button{flex:1;padding:9px 4px;border-radius:11px;font-size:12.5px;font-weight:700;color:var(--brand-d);
+  white-space:nowrap;transition:.15s}
+.tabbar button.on{background:var(--brand);color:#fff;box-shadow:0 2px 8px rgba(29,75,70,.3)}
+
+/* ---------- card ---------- */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);
+  padding:14px;margin-bottom:12px}
+.card.tight{padding:12px}
+.card h2{font-size:13.5px;font-weight:900;letter-spacing:-.02em;display:flex;align-items:center;
+  justify-content:space-between;gap:8px;margin-bottom:10px}
+.card h2 .sub{font-size:11px;font-weight:500;color:var(--muted)}
+.tiny{font-size:11px}
+.muted{color:var(--muted)}
+.center{text-align:center}
+.right{text-align:right}
+.row{display:flex;align-items:center;gap:8px}
+.between{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.mt{margin-top:10px}
+.up{color:var(--up)}
+.down{color:var(--down)}
+.flat{color:var(--muted)}
+
+/* ---------- hero ---------- */
+.hero{background:linear-gradient(160deg,var(--brand) 0%,var(--brand-d) 100%);color:#fff;border:none;
+  border-radius:var(--r);padding:18px 16px 16px;margin-bottom:12px;box-shadow:0 10px 26px -12px rgba(21,56,51,.8)}
+.hero .lab{font-size:11.5px;opacity:.72;font-weight:500}
+.hero .big{font-size:clamp(26px,8vw,38px);font-weight:900;letter-spacing:-.04em;margin-top:2px;line-height:1.15}
+.hero .sub2{font-size:12px;opacity:.85;margin-top:6px}
+.hero .pill{display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,.16);
+  border-radius:999px;padding:3px 10px;font-size:11.5px;font-weight:700}
+.hero .pill.u{background:rgba(255,190,185,.24)}
+.hero .pill.d{background:rgba(185,210,255,.24)}
+.hero-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}
+.hero-grid div{background:rgba(255,255,255,.1);border-radius:12px;padding:9px 8px;text-align:center}
+.hero-grid .k{font-size:10.5px;opacity:.75}
+.hero-grid .v{font-size:14px;font-weight:800;margin-top:2px;letter-spacing:-.02em}
+
+/* ---------- 종목 줄 ---------- */
+.hold{display:flex;align-items:center;gap:10px;padding:11px 2px;border-bottom:1px solid var(--line);cursor:pointer}
+.hold:last-child{border-bottom:none}
+.hold .ic{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;font-size:15px;flex:none;
+  background:var(--soft);font-weight:800}
+.hold .mid{flex:1;min-width:0}
+.hold .nm{font-size:13.5px;font-weight:700;letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hold .sb{font-size:10.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.hold .rt{text-align:right;flex:none}
+.hold .amt{font-size:13.5px;font-weight:800;letter-spacing:-.02em}
+.hold .pl{font-size:11px;font-weight:700;margin-top:1px}
+.badge{display:inline-block;font-size:9.5px;font-weight:700;padding:1px 5px;border-radius:5px;
+  background:var(--gold-s);color:var(--gold);margin-left:4px;vertical-align:middle}
+.badge.err{background:#f7e7e5;color:var(--up)}
+.badge.man{background:var(--soft);color:var(--brand)}
+
+/* ---------- 그룹 헤더 ---------- */
+.ghead{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 2px 8px}
+.ghead .gl{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:900;letter-spacing:-.02em}
+.ghead .gr{font-size:12px;font-weight:800}
+.dot{width:9px;height:9px;border-radius:3px;flex:none}
+
+/* ---------- chips / buttons ---------- */
+.chip{display:inline-flex;align-items:center;gap:4px;background:var(--soft);color:var(--brand-d);
+  border-radius:999px;padding:6px 11px;font-size:11.5px;font-weight:700;white-space:nowrap}
+.chip.line{background:#fff;border:1px solid var(--line)}
+.chip.on{background:var(--brand);color:#fff}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips.scroll{flex-wrap:nowrap;overflow-x:auto;padding-bottom:2px;-webkit-overflow-scrolling:touch}
+.chips.scroll::-webkit-scrollbar{display:none}
+.btn{background:var(--brand);color:#fff;border-radius:12px;padding:11px 16px;font-size:13.5px;font-weight:800;
+  box-shadow:0 3px 10px -4px rgba(29,75,70,.7)}
+.btn.block{display:block;width:100%;text-align:center}
+.btn.ghost{background:#fff;color:var(--brand);border:1px solid var(--soft-d);box-shadow:none}
+.btn.sm{padding:8px 12px;font-size:12px;border-radius:10px}
+.btn.warn{background:var(--up)}
+.fab{position:fixed;right:16px;bottom:calc(20px + env(safe-area-inset-bottom));z-index:40;border-radius:999px;
+  padding:13px 20px;font-size:14px;box-shadow:0 8px 22px -6px rgba(29,75,70,.8)}
+
+/* ---------- 도넛 · 막대 ---------- */
+.donut-wrap{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.donut{width:132px;height:132px;flex:none}
+.legend{flex:1;min-width:150px;display:flex;flex-direction:column;gap:5px}
+.legend div{display:flex;align-items:center;gap:6px;font-size:11.5px}
+.legend .lname{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.legend .lval{font-weight:800;font-variant-numeric:tabular-nums}
+.legend .lpct{color:var(--muted);width:38px;text-align:right}
+.bar{height:8px;border-radius:99px;background:var(--soft);overflow:hidden}
+.bar > i{display:block;height:100%;border-radius:99px}
+
+/* ---------- 검색 ---------- */
+.srch{position:relative}
+.srch input{padding-left:34px;font-size:14px;padding-top:11px;padding-bottom:11px}
+.srch .mag{position:absolute;left:11px;top:50%;transform:translateY(-50%);font-size:14px;opacity:.5}
+.res{margin-top:8px;max-height:52vh;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.res .r{display:flex;align-items:center;gap:9px;padding:10px 4px;border-bottom:1px solid var(--line);cursor:pointer}
+.res .r:active{background:var(--soft)}
+.res .r .tag{font-size:9.5px;font-weight:800;padding:2px 6px;border-radius:6px;background:var(--soft);
+  color:var(--brand-d);flex:none}
+.res .r .n{flex:1;min-width:0;font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.res .r .c{font-size:11px;color:var(--muted);flex:none;font-variant-numeric:tabular-nums}
+.empty{text-align:center;color:var(--muted);font-size:12.5px;padding:26px 10px;line-height:1.7}
+
+/* ---------- modal ---------- */
+.mask{position:fixed;inset:0;background:rgba(20,24,30,.44);z-index:60;display:flex;align-items:flex-end;
+  justify-content:center;padding:0}
+.modal{background:var(--card);border-radius:20px 20px 0 0;width:100%;max-width:560px;max-height:92vh;
+  overflow-y:auto;padding:16px 16px calc(20px + env(safe-area-inset-bottom));animation:up .2s ease-out}
+@keyframes up{from{transform:translateY(18px);opacity:.4}}
+@media(min-width:620px){.mask{align-items:center;padding:20px}.modal{border-radius:20px}}
+.mhead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+.mhead h3{font-size:15.5px;font-weight:900;letter-spacing:-.03em}
+.mhead .x{font-size:19px;color:var(--muted);padding:2px 6px}
+.f{margin-bottom:10px}
+.f label{display:block;font-size:11.5px;font-weight:700;color:var(--muted);margin-bottom:4px}
+.f .hint{font-size:10.5px;color:var(--muted);margin-top:4px;line-height:1.5}
+.seg{display:flex;gap:4px;background:var(--soft);border-radius:11px;padding:3px}
+.seg button{flex:1;padding:7px 4px;border-radius:9px;font-size:11.5px;font-weight:700;color:var(--brand-d)}
+.seg button.on{background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.12)}
+
+/* ---------- toast ---------- */
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom));
+  background:var(--ink);color:#fff;padding:10px 16px;border-radius:12px;font-size:12.5px;font-weight:600;
+  z-index:80;opacity:0;pointer-events:none;transition:.2s;max-width:90vw;text-align:center}
+#toast.on{opacity:.96}
+
+/* ---------- 표 ---------- */
+.tbl{width:100%;border-collapse:collapse;font-size:11.5px;font-variant-numeric:tabular-nums}
+.tbl th,.tbl td{padding:7px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
+.tbl th{font-size:10.5px;color:var(--muted);font-weight:700;text-align:right}
+.tbl th:first-child,.tbl td:first-child{text-align:left}
+.tbl td{text-align:right}
+.scrollx{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.note{background:var(--gold-s);border:1px solid #f0dcbb;border-radius:12px;padding:10px 12px;font-size:11.5px;
+  line-height:1.6;color:#7a5518}
+.note.info{background:var(--soft);border-color:var(--soft-d);color:var(--brand-d)}
+.note b{font-weight:800}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap head-in">
+    <div>
+      <div class="brand">OUR ASSETS</div>
+      <h1>우리집 자산</h1>
+    </div>
+    <div class="head-right">
+      <div class="head-meta" id="headMeta"></div>
+      <button class="gear" id="btnRefresh" data-act="refresh" title="시세 새로고침">🔄</button>
+      <button class="gear" data-act="tab" data-tab="set">⚙️</button>
+    </div>
+  </div>
+</header>
+
+<nav class="tabs">
+  <div class="wrap">
+    <div class="tabbar" id="tabbar"></div>
+  </div>
+</nav>
+
+<main class="wrap"><div id="view"></div></main>
+
+<button class="btn fab" id="fab" data-act="tab" data-tab="add">＋ 담기</button>
+<div id="modalRoot"></div>
+<div id="toast"></div>
+
+<script>
+"use strict";
+/* ============================================================
+   0. 상수 · 유틸
+   ============================================================ */
+const KEY = 'myAssets.v1';
+
+/* 자산 종류 — auto:true 는 시세를 자동으로 가져오는 것들 */
+const CATS = [
+  { k:'kr',   label:'국내주식·ETF', emo:'🇰🇷', unit:'주', ccy:'KRW', auto:true,  color:'#d0729a' },
+  { k:'us',   label:'미국주식·ETF', emo:'🇺🇸', unit:'주', ccy:'USD', auto:true,  color:'#3f6fa8' },
+  { k:'coin', label:'코인',        emo:'🪙', unit:'개', ccy:'KRW', auto:true,  color:'#e08b2e' },
+  { k:'gold', label:'금',          emo:'🥇', unit:'g',  ccy:'KRW', auto:true,  color:'#c9a227' },
+  { k:'fx',   label:'달러·외화',    emo:'💵', unit:'달러',  ccy:'KRW', auto:true,  color:'#2e7d6b' },
+  { k:'real', label:'부동산',       emo:'🏠', unit:'채', ccy:'KRW', auto:false, color:'#5a6dab' },
+  { k:'cash', label:'예적금·현금',  emo:'💰', unit:'',   ccy:'KRW', auto:false, color:'#7c8390' },
+  { k:'etc',  label:'연금·펀드·기타',emo:'💼', unit:'',  ccy:'KRW', auto:false, color:'#9b5aa8' }
+];
+const CAT = k => CATS.find(c=>c.k===k) || CATS[6];
+const catLabel = k => { const c=CAT(k); return c.emo+' '+c.label; };
+/* 수량 없이 '금액'만 적는 종류 */
+const isAmountCat = k => k==='cash' || k==='etc' || k==='real';
+
+const $  = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const esc = s => String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+const num = n => (Math.round(n)||0).toLocaleString('ko-KR');
+const won = n => num(n)+'원';
+const pad2 = n => String(n).padStart(2,'0');
+const iso = d => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
+const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+const OZ_G = 31.1034768;                       /* 금 1트로이온스 = 31.1034768g */
+
+/* 소수점 자리: 코인처럼 잘게 쪼개지는 건 많이, 주식은 적게 */
+function qtyS(q, cat){
+  q = +q || 0;
+  if(cat==='coin' || cat==='gold') return q.toLocaleString('ko-KR',{maximumFractionDigits:8});
+  return q.toLocaleString('ko-KR',{maximumFractionDigits:4});
+}
+function priceS(p, ccy){
+  p = +p || 0;
+  if(ccy==='USD') return '$'+p.toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2});
+  if(p>0 && p<100) return num(p*100)/100+'원';
+  return won(p);
+}
+/* 큰 금액을 억·만으로 짧게 */
+function bigWon(n){
+  n = Math.round(n||0); const neg = n<0; n = Math.abs(n);
+  const eok = Math.floor(n/100000000), man = Math.floor((n%100000000)/10000);
+  let s;
+  if(eok) s = `${eok}억${man? ' '+num(man)+'만' : ''}`;
+  else if(man) s = `${num(man)}만`;
+  else s = num(n);
+  return (neg?'-':'')+s;
+}
+function shortWon(n){
+  const neg = (n||0)<0; n = Math.round(Math.abs(n||0));
+  let s;
+  if(n >= 100000000) s = Math.round(n/10000000)/10+'억';
+  else if(n >= 10000) s = (n%10000===0 ? n/10000 : Math.round(n/1000)/10)+'만';
+  else s = String(n);
+  return (neg?'-':'')+s;
+}
+const pctS = (v,d=2) => (v>0?'+':'')+(v*100).toFixed(d).replace(/\.?0+$/,'')+'%';
+const sgn = v => v>0 ? 'up' : (v<0 ? 'down' : 'flat');
+const arrow = v => v>0 ? '▲' : (v<0 ? '▼' : '–');
+
+/* '1억 2,000' · '3.5억' · '1,250만' 같은 입력도 알아듣게 */
+function parseAmount(s){
+  if(typeof s === 'number') return s;
+  let t = String(s??'').trim();
+  if(!t) return NaN;
+  const neg = /^\(.*\)$/.test(t) || /^-/.test(t);
+  t = t.replace(/[()]/g,'');
+  const eok = /억/.test(t), man = /만/.test(t);
+  const head = parseFloat(t.replace(/[^0-9.\-]/g,''));
+  if(!isFinite(head)) return NaN;
+  let v = head;
+  if(eok && head < 100000000) v = head*100000000;
+  else if(man && head < 10000) v = head*10000;
+  v = Math.abs(v);
+  return neg ? -v : v;
+}
+const parseQty = s => { const v = parseFloat(String(s??'').replace(/[,\s]/g,'')); return isFinite(v)? v : NaN; };
+function timeAgo(ts){
+  if(!ts) return '아직';
+  const s = Math.floor((Date.now()-ts)/1000);
+  if(s < 60) return '방금';
+  if(s < 3600) return Math.floor(s/60)+'분 전';
+  if(s < 86400) return Math.floor(s/3600)+'시간 전';
+  return Math.floor(s/86400)+'일 전';
+}
+function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('on');
+  clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove('on'),2400); }
+const b64e = s => btoa(unescape(encodeURIComponent(s))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+const b64d = s => decodeURIComponent(escape(atob(s.replace(/-/g,'+').replace(/_/g,'/'))));
+
+/* ============================================================
+   1. 상태
+   ============================================================ */
+/* holdings 한 줄
+   { id, cat, code, sym, name, owner, qty, avg, avgFx, loan, mp, mpAt, memo, at }
+   · qty  수량 (예적금·연금·부동산은 1)
+   · avg  평균단가 (예적금·연금·부동산은 원금/매입가)
+   · avgFx 매수 당시 환율 (미국주식에서 원화 수익률을 보고 싶을 때만)
+   · loan 부동산에 남은 대출 (순자산에서 뺍니다)
+   · mp   직접 적어 넣은 시세 (자동 조회를 이깁니다)
+*/
+let state, ui = { tab:'home', q:'', qcat:'kr', res:[], searching:false, owner:'전체' };
+let saveTimer=null, pushTimer=null, syncTimer=null, priceTimer=null;
+let syncBusy=false, applyingRemote=false, refreshing=false, pendingInvite=null;
+
+function blankState(){
+  return {
+    v: 1,
+    settings: { owners:['진주','성우'], goal:0 },
+    holdings: [],
+    px: {},                       /* 시세 캐시  'kr:005930' -> {p,prev,ccy,name,at,src} */
+    fx: { v:0, at:0, src:'' },    /* 원/달러 */
+    snap: {},                     /* 'YYYY-MM-DD' -> {tot,net} 하루 한 번 기록 */
+    coins: { list:[], at:0 },     /* 업비트 코인 목록 캐시 */
+    relay: 0,                     /* 마지막에 성공한 우회 경로 */
+    memo: '',
+    sync: { enabled:false }
+  };
+}
+function load(){
+  try{ const d = JSON.parse(localStorage.getItem(KEY)||'null');
+    return (d && Array.isArray(d.holdings)) ? d : null; }catch(e){ return null; }
+}
+function writeLocal(){
+  try{ localStorage.setItem(KEY, JSON.stringify(state)); }
+  catch(e){ toast('저장 공간이 부족해요'); }
+}
+function save(push=true){
+  writeLocal();
+  if(push && !applyingRemote) schedulePush();
+}
+const owners = () => state.settings.owners || ['진주','성우'];
+const ownerList = () => [...owners(), '공동'];
+
+/* ============================================================
+   2. 시세 가져오기
+   ------------------------------------------------------------
+   정적 웹페이지라 서버가 없습니다. 그래서
+   ① 브라우저에서 바로 열리는 곳(업비트·두나무)은 그대로 부르고
+   ② 막히는 곳(야후)은 공개 중계 서버를 순서대로 시도합니다.
+   ③ 다 막히면 마지막으로 받아 둔 시세를 그대로 보여주고,
+      종목을 눌러 '시세 직접 입력'으로 고칠 수 있게 합니다.
+   ============================================================ */
+const RELAYS = [
+  { n:'직접',       f:u=>u },
+  { n:'allorigins', f:u=>'https://api.allorigins.win/raw?url='+encodeURIComponent(u) },
+  { n:'corsproxy',  f:u=>'https://corsproxy.io/?url='+encodeURIComponent(u) },
+  { n:'codetabs',   f:u=>'https://api.codetabs.com/v1/proxy?quote='+encodeURIComponent(u) },
+  { n:'isomorphic', f:u=>'https://cors.isomorphic-git.org/'+u }
+];
+async function getJSON(url, ms=9000){
+  const ac = new AbortController();
+  const t = setTimeout(()=>ac.abort(), ms);
+  try{
+    const r = await fetch(url, { signal:ac.signal, cache:'no-store' });
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const txt = await r.text();
+    return JSON.parse(txt);
+  } finally { clearTimeout(t); }
+}
+/* 중계 서버를 돌려가며 시도. 성공한 경로를 기억해 다음엔 그것부터 씁니다. */
+async function relayJSON(url){
+  const order = [state.relay|0, ...RELAYS.map((_,i)=>i).filter(i=>i!==(state.relay|0))];
+  let last;
+  for(const i of order){
+    try{
+      const j = await getJSON(RELAYS[i].f(url));
+      if(state.relay !== i){ state.relay = i; writeLocal(); }
+      return j;
+    }catch(e){ last = e; }
+  }
+  throw new Error('시세 서버에 닿지 못했어요');
+}
+/* 야후 시세 한 종목 */
+async function yahoo(sym){
+  const u = 'https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(sym)
+          + '?range=5d&interval=1d';
+  const j = await relayJSON(u);
+  const m = j?.chart?.result?.[0]?.meta;
+  const p = +(m?.regularMarketPrice);
+  if(!m || !isFinite(p) || p<=0) throw new Error('시세를 못 찾았어요');
+  const prev = +(m.chartPreviousClose ?? m.previousClose ?? p);
+  return { p, prev: isFinite(prev)&&prev>0 ? prev : p, ccy: m.currency || 'KRW',
+           name: m.longName || m.shortName || '', ex: m.exchangeName || '' };
+}
+/* 야후 종목 검색 */
+async function yahooSearch(q){
+  const u = 'https://query1.finance.yahoo.com/v1/finance/search?q='+encodeURIComponent(q)
+          + '&quotesCount=12&newsCount=0&listsCount=0';
+  const j = await relayJSON(u);
+  return (j?.quotes||[]).filter(x=>x.symbol);
+}
+/* 원/달러 환율 */
+async function fetchFx(){
+  try{
+    const j = await getJSON('https://quotation-api-cdn.dunamu.com/v1/forex/recent?codes=FRX.KRWUSD');
+    const v = +(Array.isArray(j)? j[0]?.basePrice : j?.basePrice);
+    if(v>0) return { v, src:'두나무' };
+  }catch(e){}
+  try{
+    const j = await getJSON('https://open.er-api.com/v6/latest/USD');
+    const v = +j?.rates?.KRW; if(v>0) return { v, src:'er-api' };
+  }catch(e){}
+  const y = await yahoo('KRW=X');
+  return { v:y.p, src:'야후' };
+}
+/* 업비트 코인 시세 — 여러 개를 한 번에 */
+async function fetchCoins(codes){
+  if(!codes.length) return {};
+  const markets = codes.map(c=>'KRW-'+c).join(',');
+  const u = 'https://api.upbit.com/v1/ticker?markets='+encodeURIComponent(markets);
+  let arr;
+  try{ arr = await getJSON(u); }catch(e){ arr = await relayJSON(u); }
+  const out = {};
+  (arr||[]).forEach(t=>{
+    const c = String(t.market||'').replace('KRW-','');
+    out[c] = { p:+t.trade_price, prev:+(t.prev_closing_price||t.trade_price), ccy:'KRW', src:'업비트' };
+  });
+  return out;
+}
+/* 업비트 코인 목록(한글 이름 검색용) — 하루 한 번만 */
+async function loadCoinList(){
+  const c = state.coins || (state.coins={list:[],at:0});
+  if(c.list.length && Date.now()-c.at < 86400000) return c.list;
+  const u = 'https://api.upbit.com/v1/market/all?isDetails=false';
+  let arr;
+  try{ arr = await getJSON(u); }catch(e){ arr = await relayJSON(u); }
+  c.list = (arr||[]).filter(m=>String(m.market).startsWith('KRW-'))
+    .map(m=>({ code:String(m.market).replace('KRW-',''), kn:m.korean_name||'', en:m.english_name||'' }));
+  c.at = Date.now(); writeLocal();
+  return c.list;
+}
+/* 금 — 국제 시세(달러/트로이온스)를 원/g 으로 */
+async function fetchGold(fxv){
+  const y = await yahoo('GC=F');
+  const per = x => x * (fxv||0) / OZ_G;
+  return { p: per(y.p), prev: per(y.prev), ccy:'KRW', src:'국제금시세' };
+}
+
+const pxKey = h => h.cat + ':' + (h.sym || h.code || h.id);
+/* 이 종목의 현재 시세 (직접 입력한 값이 있으면 그게 우선) */
+function priceOf(h){
+  const c = CAT(h.cat);
+  if(h.mp !== undefined && h.mp !== null && h.mp !== '')
+    return { p:+h.mp, prev:+h.mp, ccy:c.ccy, at:h.mpAt||0, src:'직접 입력', manual:true };
+  if(!c.auto) return { p:0, prev:0, ccy:'KRW', at:0, src:'', manual:false, none:true };
+  const q = state.px[pxKey(h)];
+  if(!q) return { p:0, prev:0, ccy:c.ccy, at:0, src:'', manual:false, none:true };
+  return { ...q, manual:false };
+}
+
+/* 원화 환산 계산 — 한 종목의 평가금액 · 원금 · 손익 */
+function calc(h){
+  const c = CAT(h.cat);
+  const q = +h.qty || 0;
+  const px = priceOf(h);
+  const fx = +state.fx?.v || 0;
+  const toKrw = v => (px.ccy==='USD' ? v*fx : v);
+
+  const nowP = +px.p || 0;
+  const prevP = +px.prev || nowP;
+  const value = toKrw(nowP * q);                       /* 지금 평가금액(원) */
+  const prevValue = toKrw(prevP * q);                  /* 어제 종가 기준(원) */
+
+  const avg = +h.avg || 0;
+  const avgFx = +h.avgFx || 0;                         /* 매수 당시 환율(있을 때만) */
+  const cost = px.ccy==='USD' ? avg*q*(avgFx>0? avgFx : fx) : avg*q;
+
+  const loan = +h.loan || 0;                           /* 부동산 대출 */
+  const pl = cost>0 ? value - cost : 0;
+  const plRate = cost>0 ? pl/cost : 0;
+  const day = prevValue>0 ? value - prevValue : 0;
+  const dayRate = prevP>0 ? (nowP-prevP)/prevP : 0;
+  return { px, value, cost, loan, net:value-loan, pl, plRate, day, dayRate,
+           ready: !px.none && nowP>0 };
+}
+const activeHoldings = () => (state.holdings||[]).filter(h=>!h.hide);
+function inOwner(h){ return ui.owner==='전체' || (h.owner||'공동')===ui.owner; }
+/* 전체 합계 */
+function totals(list){
+  list = list || activeHoldings().filter(inOwner);
+  let value=0, cost=0, loan=0, day=0, missing=0;
+  list.forEach(h=>{
+    const r = calc(h);
+    value += r.value; cost += r.cost; loan += r.loan; day += r.day;
+    if(!r.ready) missing++;
+  });
+  return { value, cost, loan, net:value-loan, pl: cost>0? value-cost : 0,
+           plRate: cost>0? (value-cost)/cost : 0, day, missing, n:list.length };
+}
+function byCat(list){
+  list = list || activeHoldings().filter(inOwner);
+  const m = {};
+  list.forEach(h=>{ const r=calc(h); (m[h.cat] = m[h.cat] || {value:0,cost:0,loan:0,day:0,n:0,items:[]});
+    m[h.cat].value += r.value; m[h.cat].cost += r.cost; m[h.cat].loan += r.loan;
+    m[h.cat].day += r.day; m[h.cat].n++; m[h.cat].items.push(h); });
+  return m;
+}
+
+/* ---------- 시세 새로고침 ---------- */
+async function refreshPrices(manual){
+  if(refreshing) return;
+  const list = activeHoldings().filter(h=>CAT(h.cat).auto && !(h.mp!==undefined && h.mp!==null && h.mp!==''));
+  refreshing = true; renderHeadMeta();
+  let ok=0, fail=0;
+  try{
+    /* ① 환율 — 미국주식·달러·금 계산에 먼저 필요합니다 */
+    const needFx = list.some(h=>h.cat==='us'||h.cat==='fx'||h.cat==='gold') || !state.fx?.v;
+    if(needFx){
+      try{ const f = await fetchFx(); state.fx = { v:f.v, at:Date.now(), src:f.src }; ok++; }
+      catch(e){ fail++; }
+    }
+    /* ② 달러(현금) 는 환율이 곧 시세입니다 */
+    list.filter(h=>h.cat==='fx').forEach(h=>{
+      if(state.fx?.v>0) state.px[pxKey(h)] = { p:state.fx.v, prev:state.px[pxKey(h)]?.p || state.fx.v,
+        ccy:'KRW', name:'원/달러', at:Date.now(), src:state.fx.src };
+    });
+    /* ③ 코인 — 한 번에 모아서 */
+    const coins = [...new Set(list.filter(h=>h.cat==='coin').map(h=>h.code))];
+    if(coins.length){
+      try{
+        const m = await fetchCoins(coins);
+        list.filter(h=>h.cat==='coin').forEach(h=>{
+          const q = m[h.code]; if(!q) return;
+          state.px[pxKey(h)] = { ...q, name:h.name, at:Date.now() };
+        });
+        ok += Object.keys(m).length; fail += coins.length - Object.keys(m).length;
+      }catch(e){ fail += coins.length; }
+    }
+    /* ④ 주식 — 야후에서 3개씩 나눠서 */
+    const stocks = list.filter(h=>h.cat==='kr'||h.cat==='us');
+    for(let i=0;i<stocks.length;i+=3){
+      const part = stocks.slice(i,i+3);
+      await Promise.all(part.map(async h=>{
+        try{
+          const q = await quoteStock(h);
+          state.px[pxKey(h)] = { p:q.p, prev:q.prev, ccy:q.ccy, name:q.name||h.name,
+                                 at:Date.now(), src:'야후' };
+          if(q.name && !h.official){ h.official = q.name; }
+          ok++;
+        }catch(e){ fail++; state.px[pxKey(h)] = { ...(state.px[pxKey(h)]||{}), err:e.message }; }
+      }));
+    }
+    /* ⑤ 금 */
+    if(list.some(h=>h.cat==='gold') && state.fx?.v>0){
+      try{
+        const g = await fetchGold(state.fx.v);
+        list.filter(h=>h.cat==='gold').forEach(h=>{
+          state.px[pxKey(h)] = { ...g, name:'금 1g', at:Date.now() };
+        });
+        ok++;
+      }catch(e){ fail++; }
+    }
+    state.lastRefresh = Date.now();
+    state.lastFail = fail;
+    takeSnapshot();
+    writeLocal();
+  } finally {
+    refreshing = false;
+    render();
+    if(manual) toast(fail ? `${ok}건 갱신 · ${fail}건 실패 — 종목을 눌러 직접 넣을 수 있어요`
+                          : (ok? '시세를 새로 가져왔어요' : '가져올 시세가 없어요'));
+  }
+}
+/* 국내 주식은 코스피(.KS) → 코스닥(.KQ) 순서로 붙여 보고, 되는 쪽을 기억합니다 */
+async function quoteStock(h){
+  const cands = h.cat==='kr'
+    ? [...new Set([h.sym || (h.code+'.KS'), h.code+'.KS', h.code+'.KQ'])]
+    : [h.sym || h.code];
+  let last;
+  for(const s of cands){
+    try{ const q = await yahoo(s); h.sym = s; return q; }
+    catch(e){ last = e; }
+  }
+  throw last || new Error('시세를 못 찾았어요');
+}
+const symOf = h => h.sym || (h.cat==='kr' ? h.code+'.KS' : h.code);
+/* 하루 한 번 총자산을 적어 둡니다 (추이 그래프용) */
+function takeSnapshot(){
+  const t = totals(activeHoldings());
+  if(!t.n || !t.value) return;
+  state.snap = state.snap || {};
+  state.snap[iso(new Date())] = { tot:Math.round(t.value), net:Math.round(t.net) };
+  const keys = Object.keys(state.snap).sort();
+  if(keys.length > 400) keys.slice(0, keys.length-400).forEach(k=>delete state.snap[k]);
+}
+
+/* ============================================================
+   3. 종목 찾기
+   ------------------------------------------------------------
+   · 자주 찾는 종목은 앱 안에 미리 담아 뒀습니다 — 인터넷 없이도 바로 뜹니다.
+   · 목록에 없으면 야후 검색으로 이어서 찾습니다.
+   · 코인은 업비트 원화마켓 전체를 한글 이름으로 찾습니다.
+   ============================================================ */
+const KR_RAW = `
+삼성전자|005930|KS
+삼성전자우|005935|KS
+SK하이닉스|000660|KS
+LG에너지솔루션|373220|KS
+삼성바이오로직스|207940|KS
+현대차|005380|KS
+기아|000270|KS
+셀트리온|068270|KS
+NAVER 네이버|035420|KS
+카카오|035720|KS
+POSCO홀딩스 포스코|005490|KS
+LG화학|051910|KS
+삼성SDI|006400|KS
+KB금융|105560|KS
+신한지주|055550|KS
+하나금융지주|086790|KS
+우리금융지주|316140|KS
+기업은행|024110|KS
+삼성물산|028260|KS
+현대모비스|012330|KS
+SK이노베이션|096770|KS
+SK|034730|KS
+KT&G|033780|KS
+삼성생명|032830|KS
+삼성화재|000810|KS
+LG전자|066570|KS
+LG|003550|KS
+한화에어로스페이스|012450|KS
+한화솔루션|009830|KS
+한화|000880|KS
+HD현대중공업|329180|KS
+HD한국조선해양|009540|KS
+한화오션|042660|KS
+삼성중공업|010140|KS
+두산에너빌리티|034020|KS
+두산|000150|KS
+두산밥캣|241560|KS
+현대로템|064350|KS
+LIG넥스원|079550|KS
+한국항공우주 KAI|047810|KS
+포스코퓨처엠|003670|KS
+LG이노텍|011070|KS
+삼성전기|009150|KS
+SK스퀘어|402340|KS
+한미반도체|042700|KS
+현대글로비스|086280|KS
+대한항공|003490|KS
+HMM|011200|KS
+한국전력 한전|015760|KS
+한국가스공사|036460|KS
+SK텔레콤 SKT|017670|KS
+KT|030200|KS
+LG유플러스|032640|KS
+아모레퍼시픽|090430|KS
+LG생활건강|051900|KS
+CJ제일제당|097950|KS
+오리온|271560|KS
+농심|004370|KS
+삼양식품|003230|KS
+유한양행|000100|KS
+녹십자 GC녹십자|006280|KS
+대웅제약|069620|KS
+한미약품|128940|KS
+SK바이오팜|326030|KS
+SK바이오사이언스|302440|KS
+종근당|185750|KS
+고려아연|010130|KS
+현대제철|004020|KS
+S-Oil 에쓰오일|010950|KS
+GS|078930|KS
+롯데케미칼|011170|KS
+금호석유|011780|KS
+효성첨단소재|298050|KS
+코웨이|021240|KS
+현대건설|000720|KS
+GS건설|006360|KS
+DL이앤씨|375500|KS
+대우건설|047040|KS
+이마트|139480|KS
+BGF리테일|282330|KS
+호텔신라|008770|KS
+강원랜드|035250|KS
+CJ ENM|035760|KS
+하이브 HYBE|352820|KS
+크래프톤|259960|KS
+엔씨소프트 NC|036570|KS
+넷마블|251270|KS
+카카오뱅크|323410|KS
+카카오페이|377300|KS
+미래에셋증권|006800|KS
+삼성증권|016360|KS
+NH투자증권|005940|KS
+키움증권|039490|KS
+메리츠금융지주|138040|KS
+DB손해보험|005830|KS
+현대해상|001450|KS
+에스원|012750|KS
+CJ대한통운|000120|KS
+한샘|009240|KS
+LS ELECTRIC|010120|KS
+LS|006260|KS
+SKC|011790|KS
+OCI홀딩스|010060|KS
+제일기획|030000|KS
+더존비즈온|012510|KS
+와이지엔터테인먼트 YG|122870|KS
+KODEX 200|069500|KS
+KODEX 레버리지|122630|KS
+KODEX 인버스|114800|KS
+TIGER 미국S&P500|360750|KS
+TIGER 미국나스닥100|133690|KS
+KODEX 미국S&P500TR|379800|KS
+TIGER 미국배당다우존스|458730|KS
+ACE 미국배당다우존스|402970|KS
+TIGER 차이나전기차SOLACTIVE|371460|KS
+알테오젠|196170|KQ
+에코프로비엠|247540|KQ
+에코프로|086520|KQ
+HLB|028300|KQ
+리노공업|058470|KQ
+클래시스|214150|KQ
+파마리서치|214450|KQ
+휴젤|145020|KQ
+레인보우로보틱스|277810|KQ
+JYP Ent. 제이와이피|035900|KQ
+에스엠 SM|041510|KQ
+펄어비스|263750|KQ
+카카오게임즈|293490|KQ
+셀트리온제약|068760|KQ
+씨젠|096530|KQ
+엔켐|348370|KQ
+이오테크닉스|039030|KQ
+주성엔지니어링|036930|KQ
+원익IPS|240810|KQ
+동진쎄미켐|005290|KQ
+솔브레인|357780|KQ
+덕산네오룩스|213420|KQ
+심텍|222800|KQ
+대주전자재료|078600|KQ
+나노신소재|121600|KQ
+실리콘투|257720|KQ
+삼천당제약|000250|KQ
+차바이오텍|085660|KQ
+루닛|328130|KQ
+뷰노|338220|KQ
+로보티즈|108490|KQ
+고영|098460|KQ
+서진시스템|178320|KQ
+에스티팜|237690|KQ
+NHN KCP|060250|KQ
+안랩|053800|KQ
+케이엠더블유 KMW|032500|KQ
+스튜디오드래곤|253450|KQ
+`;
+const US_RAW = `
+AAPL|Apple 애플
+MSFT|Microsoft 마이크로소프트
+NVDA|NVIDIA 엔비디아
+GOOGL|Alphabet 구글 알파벳
+AMZN|Amazon 아마존
+META|Meta 메타 페이스북
+TSLA|Tesla 테슬라
+AVGO|Broadcom 브로드컴
+BRK-B|Berkshire Hathaway 버크셔해서웨이
+LLY|Eli Lilly 일라이릴리
+JPM|JPMorgan 제이피모건
+V|Visa 비자
+MA|Mastercard 마스터카드
+UNH|UnitedHealth 유나이티드헬스
+XOM|Exxon Mobil 엑슨모빌
+JNJ|Johnson & Johnson 존슨앤드존슨
+WMT|Walmart 월마트
+PG|Procter & Gamble P&G
+HD|Home Depot 홈디포
+COST|Costco 코스트코
+NFLX|Netflix 넷플릭스
+AMD|AMD 에이엠디
+INTC|Intel 인텔
+QCOM|Qualcomm 퀄컴
+TSM|TSMC 대만반도체
+ASML|ASML 에이에스엠엘
+MU|Micron 마이크론
+ARM|Arm Holdings 암홀딩스
+SMCI|Super Micro 슈퍼마이크로
+PLTR|Palantir 팔란티어
+CRM|Salesforce 세일즈포스
+ADBE|Adobe 어도비
+ORCL|Oracle 오라클
+CSCO|Cisco 시스코
+IBM|IBM 아이비엠
+TXN|Texas Instruments 텍사스인스트루먼트
+AMAT|Applied Materials 어플라이드머티어리얼즈
+LRCX|Lam Research 램리서치
+KLAC|KLA 케이엘에이
+NOW|ServiceNow 서비스나우
+UBER|Uber 우버
+ABNB|Airbnb 에어비앤비
+SHOP|Shopify 쇼피파이
+PYPL|PayPal 페이팔
+COIN|Coinbase 코인베이스
+MSTR|MicroStrategy 마이크로스트래티지
+HOOD|Robinhood 로빈후드
+RIVN|Rivian 리비안
+NIO|NIO 니오
+BABA|Alibaba 알리바바
+PDD|PDD 핀둬둬
+JD|JD.com 징둥
+DIS|Disney 디즈니
+KO|Coca-Cola 코카콜라
+PEP|PepsiCo 펩시코
+MCD|McDonald's 맥도날드
+SBUX|Starbucks 스타벅스
+NKE|Nike 나이키
+BA|Boeing 보잉
+CAT|Caterpillar 캐터필러
+GE|GE 제너럴일렉트릭
+LMT|Lockheed Martin 록히드마틴
+RTX|RTX 레이시온
+T|AT&T 에이티앤티
+VZ|Verizon 버라이즌
+PFE|Pfizer 화이자
+MRK|Merck 머크
+ABBV|AbbVie 애브비
+NVO|Novo Nordisk 노보노디스크
+AZN|AstraZeneca 아스트라제네카
+GS|Goldman Sachs 골드만삭스
+BAC|Bank of America 뱅크오브아메리카
+WFC|Wells Fargo 웰스파고
+C|Citigroup 씨티그룹
+AXP|American Express 아멕스
+CVX|Chevron 셰브론
+COP|ConocoPhillips 코노코필립스
+FDX|FedEx 페덱스
+UPS|UPS 유피에스
+CRWD|CrowdStrike 크라우드스트라이크
+PANW|Palo Alto Networks 팔로알토
+SNOW|Snowflake 스노우플레이크
+DDOG|Datadog 데이터독
+NET|Cloudflare 클라우드플레어
+ANET|Arista Networks 아리스타
+DELL|Dell 델
+VST|Vistra 비스트라
+CEG|Constellation Energy 컨스텔레이션
+SPY|S&P500 ETF 스파이
+VOO|Vanguard S&P500 ETF
+IVV|iShares S&P500 ETF
+QQQ|나스닥100 ETF 큐큐큐
+QQQM|나스닥100 ETF (저보수)
+VTI|미국 전체시장 ETF
+SCHD|미국 배당 ETF 슈드
+JEPI|월배당 ETF 제피
+JEPQ|나스닥 월배당 ETF
+DIA|다우 ETF
+IWM|러셀2000 ETF
+ARKK|ARK 이노베이션 ETF
+SOXX|반도체 ETF
+SMH|반도체 ETF 에스엠에이치
+TQQQ|나스닥100 3배 ETF
+SOXL|반도체 3배 ETF
+TLT|미국 장기채 ETF
+GLD|금 ETF
+IAU|금 ETF 아이에이유
+SLV|은 ETF
+VNQ|미국 리츠 ETF
+XLK|기술주 ETF
+XLF|금융주 ETF
+XLE|에너지 ETF
+VYM|고배당 ETF
+BND|미국 채권 ETF
+IBIT|비트코인 현물 ETF 블랙록
+FBTC|비트코인 현물 ETF 피델리티
+VXUS|미국 외 전세계 ETF
+VEA|선진국 ETF
+VWO|신흥국 ETF
+EWY|한국 ETF
+`;
+const KR_LIST = KR_RAW.trim().split('\n').map(l=>{
+  const [name, code, mkt] = l.split('|');
+  return { cat:'kr', name:name.trim(), code:(code||'').trim(),
+           sym:(code||'').trim() + '.' + ((mkt||'KS').trim()==='KQ'?'KQ':'KS') };
+}).filter(x=>/^\d{6}$/.test(x.code));
+const US_LIST = US_RAW.trim().split('\n').map(l=>{
+  const [code, name] = l.split('|');
+  return { cat:'us', code:(code||'').trim(), sym:(code||'').trim(), name:(name||'').trim() };
+}).filter(x=>x.code);
+
+const norm = s => String(s||'').toLowerCase().replace(/[\s.\-&']/g,'');
+function localSearch(cat, q){
+  const n = norm(q); if(!n) return [];
+  const pool = cat==='kr' ? KR_LIST : US_LIST;
+  const hit = pool.filter(x => norm(x.name).includes(n) || norm(x.code).includes(n));
+  /* 이름이 앞에서부터 맞는 것을 위로 */
+  hit.sort((a,b)=>{
+    const A = norm(a.name).startsWith(n) || norm(a.code).startsWith(n) ? 0 : 1;
+    const B = norm(b.name).startsWith(n) || norm(b.code).startsWith(n) ? 0 : 1;
+    return A-B;
+  });
+  return hit.slice(0, 12);
+}
+async function coinSearch(q){
+  const list = await loadCoinList();
+  const n = norm(q);
+  const hit = !n ? list.slice(0, 20)
+    : list.filter(c => norm(c.kn).includes(n) || norm(c.en).includes(n) || norm(c.code).includes(n));
+  return hit.slice(0, 20).map(c=>({ cat:'coin', code:c.code, sym:c.code, name:c.kn || c.en }));
+}
+/* 앱 목록에 없으면 야후로 더 찾아봅니다 */
+async function remoteSearch(cat, q){
+  const qs = await yahooSearch(q);
+  const out = [];
+  qs.forEach(x=>{
+    const sym = String(x.symbol);
+    const isKr = /\.(KS|KQ)$/.test(sym);
+    if(cat==='kr' && !isKr) return;
+    if(cat==='us' && isKr) return;
+    if(cat==='us' && /\.[A-Z]{1,2}$/.test(sym)) return;      /* 다른 나라 거래소는 뺍니다 */
+    out.push({ cat, sym, code: isKr ? sym.replace(/\.(KS|KQ)$/,'') : sym,
+               name: x.longname || x.shortname || sym,
+               ex: x.exchDisp || '' });
+  });
+  return out.slice(0, 12);
+}
+
+/* ============================================================
+   4. 공통 그리기 조각
+   ============================================================ */
+const TABS = [
+  { k:'home', label:'🏠 한눈에' },
+  { k:'list', label:'📈 내 종목' },
+  { k:'add',  label:'＋ 담기' },
+  { k:'set',  label:'⚙️ 설정' }
+];
+function renderTabs(){
+  $('#tabbar').innerHTML = TABS.map(t=>
+    `<button data-act="tab" data-tab="${t.k}" class="${ui.tab===t.k?'on':''}">${t.label}</button>`).join('');
+}
+function renderHeadMeta(){
+  const t = totals(activeHoldings());
+  const c = state.sync?.enabled ? (state.sync.error ? '⚠️' : '🔗') : '';
+  $('#headMeta').innerHTML =
+    `<b>${bigWon(t.net)}</b>원<br>` +
+    `${refreshing ? '<span class="spin">↻</span> 불러오는 중'
+                  : `시세 ${timeAgo(state.lastRefresh)}${state.lastFail? ' · <span class="up">'+state.lastFail+'건 실패</span>':''}`} ${c}`;
+  $('#btnRefresh').innerHTML = refreshing ? '<span class="spin">↻</span>' : '🔄';
+}
+/* 도넛 */
+function donut(parts, total){
+  const R = 52, C = 2*Math.PI*R;
+  let acc = 0;
+  const segs = parts.filter(p=>p.v>0).map(p=>{
+    const frac = total>0 ? p.v/total : 0;
+    const dash = `${(C*frac).toFixed(2)} ${(C*(1-frac)).toFixed(2)}`;
+    const off = (-C*acc).toFixed(2);
+    acc += frac;
+    return `<circle cx="66" cy="66" r="${R}" fill="none" stroke="${p.c}" stroke-width="19"
+             stroke-dasharray="${dash}" stroke-dashoffset="${off}"
+             transform="rotate(-90 66 66)"></circle>`;
+  }).join('');
+  return `<svg class="donut" viewBox="0 0 132 132" aria-hidden="true">
+    <circle cx="66" cy="66" r="${R}" fill="none" stroke="#eceae2" stroke-width="19"></circle>
+    ${segs}</svg>`;
+}
+/* 추이 꺾은선 */
+function spark(points, w=300, h=64){
+  if(points.length < 2) return '';
+  const vs = points.map(p=>p.v);
+  const mn = Math.min(...vs), mx = Math.max(...vs), sp = (mx-mn) || 1;
+  const X = i => (i/(points.length-1))*(w-6)+3;
+  const Y = v => h-6 - ((v-mn)/sp)*(h-14);
+  const d = points.map((p,i)=>`${i?'L':'M'}${X(i).toFixed(1)},${Y(p.v).toFixed(1)}`).join('');
+  const area = d + `L${X(points.length-1).toFixed(1)},${h} L${X(0).toFixed(1)},${h} Z`;
+  const rise = vs[vs.length-1] >= vs[0];
+  const col = rise ? '#d1453b' : '#2f62c4';
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:${h}px" preserveAspectRatio="none">
+    <path d="${area}" fill="${col}" opacity=".08"></path>
+    <path d="${d}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></path>
+  </svg>`;
+}
+/* 종목 한 줄 */
+function holdRow(h){
+  const c = CAT(h.cat), r = calc(h);
+  const px = r.px;
+  const cls = sgn(r.dayRate);
+  let sub;
+  if(!r.ready){
+    sub = px.err ? '<span class="up">시세 실패 — 눌러서 직접 입력</span>'
+                 : (c.auto ? '시세 기다리는 중…' : '금액을 눌러 적어 주세요');
+  } else if(isAmountCat(h.cat)){
+    sub = (h.loan>0 ? `대출 ${shortWon(h.loan)}원 · ` : '') + (h.memo ? esc(h.memo) : (h.owner||'공동'));
+  } else {
+    sub = `${qtyS(h.qty,h.cat)}${c.unit} · ${priceS(px.p, px.ccy)}` +
+          (r.dayRate ? ` <span class="${cls}">${arrow(r.dayRate)}${pctS(Math.abs(r.dayRate))}</span>` : '');
+  }
+  const plCls = sgn(r.pl);
+  return `<div class="hold" data-act="open" data-id="${h.id}">
+    <div class="ic" style="background:${c.color}1f;color:${c.color}">${c.emo}</div>
+    <div class="mid">
+      <div class="nm">${esc(h.name)}${px.manual?'<span class="badge man">직접</span>':''}${
+        h.owner && h.owner!=='공동' ? `<span class="badge">${esc(h.owner)}</span>`:''}</div>
+      <div class="sb">${sub}</div>
+    </div>
+    <div class="rt">
+      <div class="amt num">${r.ready||isAmountCat(h.cat) ? num(r.value)+'원' : '—'}</div>
+      ${r.cost>0
+        ? `<div class="pl num ${plCls}">${arrow(r.pl)} ${shortWon(Math.abs(r.pl))} (${pctS(r.plRate,1)})</div>`
+        : `<div class="pl muted">${h.loan>0 ? '순 '+shortWon(r.net)+'원' : ''}</div>`}
+    </div>
+  </div>`;
+}
+function ownerChips(){
+  const opts = ['전체', ...owners(), '공동'];
+  return `<div class="chips scroll" style="margin-bottom:10px">${opts.map(o=>
+    `<button class="chip ${ui.owner===o?'on':''}" data-act="owner" data-o="${esc(o)}">${esc(o)}</button>`
+  ).join('')}</div>`;
+}
+
+/* ============================================================
+   5. 🏠 한눈에
+   ============================================================ */
+function viewHome(){
+  const list = activeHoldings().filter(inOwner);
+  if(!list.length) return emptyHome();
+  const t = totals(list);
+  const m = byCat(list);
+  const parts = CATS.filter(c=>m[c.k]?.value>0)
+    .map(c=>({ k:c.k, name:catLabel(c.k), v:m[c.k].value, c:c.color, day:m[c.k].day }));
+  parts.sort((a,b)=>b.v-a.v);
+
+  const dayCls = sgn(t.day), plCls = sgn(t.pl);
+  const snaps = Object.keys(state.snap||{}).sort().slice(-60)
+    .map(k=>({ k, v:state.snap[k].net }));
+
+  const goal = +state.settings.goal || 0;
+  const goalPct = goal>0 ? clamp(t.net/goal, 0, 1) : 0;
+
+  return `
+  <div class="hero">
+    <div class="lab">${ui.owner==='전체'?'우리집':esc(ui.owner)} 순자산 ${t.loan>0?'(대출 뺀 금액)':''}</div>
+    <div class="big num">${bigWon(t.net)}<span style="font-size:.5em;font-weight:700"> 원</span></div>
+    <div class="sub2">
+      <span class="pill ${dayCls==='up'?'u':(dayCls==='down'?'d':'')}">${arrow(t.day)} 오늘 ${shortWon(Math.abs(t.day))}원</span>
+      ${t.cost>0 ? `<span class="pill ${plCls==='up'?'u':(plCls==='down'?'d':'')}" style="margin-left:5px">
+        총수익 ${arrow(t.pl)} ${shortWon(Math.abs(t.pl))}원 (${pctS(t.plRate,1)})</span>`:''}
+    </div>
+    <div class="hero-grid">
+      <div><div class="k">총자산</div><div class="v num">${shortWon(t.value)}</div></div>
+      <div><div class="k">대출</div><div class="v num">${t.loan? '-'+shortWon(t.loan) : '0'}</div></div>
+      <div><div class="k">원금</div><div class="v num">${t.cost? shortWon(t.cost) : '—'}</div></div>
+    </div>
+  </div>
+
+  ${ownerChips()}
+
+  ${t.missing ? `<div class="note" style="margin-bottom:12px">
+     ⚠️ ${t.missing}개 종목의 시세를 아직 못 가져왔어요.
+     <b>🔄</b> 를 한 번 더 누르거나, 종목을 눌러 <b>시세 직접 입력</b>으로 채울 수 있습니다.</div>`:''}
+
+  ${goal>0 ? `<div class="card tight">
+    <div class="between" style="margin-bottom:6px">
+      <div style="font-size:12.5px;font-weight:800">🎯 목표 ${bigWon(goal)}원</div>
+      <div style="font-size:12.5px;font-weight:800;color:var(--brand)">${(goalPct*100).toFixed(1)}%</div>
+    </div>
+    <div class="bar"><i style="width:${(goalPct*100).toFixed(1)}%;background:var(--brand)"></i></div>
+    <div class="tiny muted mt">${bigWon(Math.max(0,goal-t.net))}원 남았어요</div>
+  </div>`:''}
+
+  <div class="card">
+    <h2>자산 구성 <span class="sub">${parts.length}종류 · ${t.n}종목</span></h2>
+    <div class="donut-wrap">
+      ${donut(parts, t.value)}
+      <div class="legend">${parts.map(p=>`
+        <div>
+          <span class="dot" style="background:${p.c}"></span>
+          <span class="lname">${p.name}</span>
+          <span class="lval">${shortWon(p.v)}</span>
+          <span class="lpct">${t.value>0?((p.v/t.value)*100).toFixed(0):0}%</span>
+        </div>`).join('')}</div>
+    </div>
+  </div>
+
+  ${snaps.length>2 ? `<div class="card">
+    <h2>순자산 추이 <span class="sub">최근 ${snaps.length}일 기록</span></h2>
+    ${spark(snaps)}
+    <div class="between tiny muted mt">
+      <span>${snaps[0].k.slice(5)} · ${shortWon(snaps[0].v)}</span>
+      <span>${snaps[snaps.length-1].k.slice(5)} · <b>${shortWon(snaps[snaps.length-1].v)}</b></span>
+    </div>
+  </div>`:''}
+
+  <div class="card">
+    <h2>오늘 많이 움직인 종목</h2>
+    ${(()=>{
+      const mv = list.map(h=>({h, r:calc(h)})).filter(x=>x.r.ready && x.r.day)
+                     .sort((a,b)=>Math.abs(b.r.day)-Math.abs(a.r.day)).slice(0,5);
+      if(!mv.length) return '<div class="empty">아직 오늘 움직임이 없어요</div>';
+      return mv.map(x=>`<div class="hold" data-act="open" data-id="${x.h.id}">
+        <div class="ic" style="background:${CAT(x.h.cat).color}1f;color:${CAT(x.h.cat).color}">${CAT(x.h.cat).emo}</div>
+        <div class="mid"><div class="nm">${esc(x.h.name)}</div>
+          <div class="sb">${priceS(x.r.px.p, x.r.px.ccy)}</div></div>
+        <div class="rt"><div class="amt num ${sgn(x.r.day)}">${arrow(x.r.day)} ${shortWon(Math.abs(x.r.day))}원</div>
+          <div class="pl num ${sgn(x.r.dayRate)}">${pctS(x.r.dayRate)}</div></div>
+      </div>`).join('');
+    })()}
+  </div>
+
+  <div class="card tight">
+    <div class="between tiny">
+      <span class="muted">💵 원/달러</span>
+      <span><b class="num">${state.fx?.v ? num(state.fx.v)+'원' : '—'}</b>
+        <span class="muted"> ${state.fx?.src||''} ${timeAgo(state.fx?.at)}</span></span>
+    </div>
+  </div>`;
+}
+function emptyHome(){
+  return `<div class="card" style="margin-top:20px">
+    <div class="empty">
+      <div style="font-size:38px;margin-bottom:8px">📊</div>
+      <b style="font-size:14px;color:var(--ink)">아직 담은 자산이 없어요</b><br>
+      주식·코인·달러·금·부동산·예적금을 한 번만 담아 두면<br>
+      그 다음부터는 열 때마다 <b>시세가 자동으로</b> 붙습니다.
+    </div>
+    <button class="btn block" data-act="tab" data-tab="add">＋ 첫 자산 담기</button>
+  </div>`;
+}
+
+/* ============================================================
+   6. 📈 내 종목
+   ============================================================ */
+function viewList(){
+  const list = activeHoldings().filter(inOwner);
+  if(!activeHoldings().length) return emptyHome();
+  const m = byCat(list);
+  const t = totals(list);
+  const cats = CATS.filter(c=>m[c.k]);
+  return `
+  ${ownerChips()}
+  <div class="card tight">
+    <div class="between">
+      <div><div class="tiny muted">평가금액 합계</div>
+        <div style="font-size:19px;font-weight:900;letter-spacing:-.03em" class="num">${won(t.value)}</div></div>
+      <div class="right">
+        ${t.cost>0? `<div class="tiny muted">평가손익</div>
+        <div style="font-size:15px;font-weight:800" class="num ${sgn(t.pl)}">${arrow(t.pl)} ${num(Math.abs(t.pl))}원</div>
+        <div class="tiny num ${sgn(t.pl)}">${pctS(t.plRate,1)}</div>`
+        : `<div class="tiny muted">오늘</div>
+        <div style="font-size:15px;font-weight:800" class="num ${sgn(t.day)}">${arrow(t.day)} ${shortWon(Math.abs(t.day))}원</div>`}
+      </div>
+    </div>
+  </div>
+  ${cats.map(c=>{
+    const g = m[c.k];
+    const items = g.items.slice().sort((a,b)=>calc(b).value-calc(a).value);
+    const pct = t.value>0 ? (g.value/t.value*100) : 0;
+    return `<div class="card">
+      <div class="ghead">
+        <div class="gl"><span class="dot" style="background:${c.color}"></span>${catLabel(c.k)}
+          <span class="muted" style="font-weight:600">${g.n}</span></div>
+        <div class="gr num">${won(g.value)} <span class="muted" style="font-weight:600">${pct.toFixed(0)}%</span></div>
+      </div>
+      <div class="bar" style="margin-bottom:6px"><i style="width:${pct.toFixed(1)}%;background:${c.color}"></i></div>
+      ${items.map(holdRow).join('')}
+    </div>`;
+  }).join('')}
+  ${!cats.length? '<div class="empty">이 이름으로 담아 둔 자산이 없어요</div>':''}`;
+}
+
+/* ============================================================
+   7. ＋ 담기
+   ============================================================ */
+function viewAdd(){
+  const cat = ui.qcat, c = CAT(cat);
+  const manual = !c.auto;
+  return `
+  <div class="card">
+    <h2>무엇을 담을까요?</h2>
+    <div class="chips" style="margin-bottom:12px">${CATS.map(x=>
+      `<button class="chip ${x.k===cat?'on':''}" data-act="qcat" data-c="${x.k}">${x.emo} ${x.label}</button>`
+    ).join('')}</div>
+
+    ${manual ? manualAddForm(cat) : `
+      <div class="srch">
+        <span class="mag">🔎</span>
+        <input id="q" placeholder="${cat==='kr'?'삼성전자, 005930, 에코프로…'
+                                   : cat==='us'?'애플, AAPL, 나스닥100…'
+                                   : cat==='coin'?'비트코인, 리플, BTC…'
+                                   : '금'}"
+               value="${esc(ui.q)}" autocomplete="off" enterkeyhint="search">
+      </div>
+      <div class="res" id="res">${resultsHTML()}</div>
+    `}
+  </div>
+
+  ${!manual && cat!=='gold' ? `<div class="note info">
+    💡 앱 안에 자주 찾는 종목이 미리 들어 있어서 <b>인터넷 없이도</b> 바로 뜹니다.
+    목록에 없으면 이어서 <b>인터넷 검색</b>까지 해 봅니다.
+    담은 뒤에는 실제 종목 이름이 같이 표시되니 확인해 주세요.</div>`:''}`;
+}
+function resultsHTML(){
+  if(ui.qcat==='gold'){
+    return `<div class="res"><div class="r" data-act="pick" data-json='${esc(JSON.stringify(
+      {cat:'gold', code:'GOLD', sym:'GC=F', name:'금 (1g)'}))}'>
+      <span class="tag">금</span><span class="n">금 — 국제시세 기준 1g</span><span class="c">원/g</span></div></div>`;
+  }
+  if(ui.searching) return '<div class="empty">찾는 중…</div>';
+  if(!ui.q.trim() && ui.qcat!=='coin') return '<div class="empty">종목 이름이나 코드를 적어 주세요</div>';
+  if(!ui.res.length) return `<div class="empty">못 찾았어요.<br>
+    <button class="chip line" data-act="manualCode">코드로 직접 담기</button></div>`;
+  return ui.res.map(r=>`<div class="r" data-act="pick" data-json='${esc(JSON.stringify(r))}'>
+    <span class="tag">${r.remote?'검색':'추천'}</span>
+    <span class="n">${esc(r.name||r.code)}</span>
+    <span class="c">${esc(r.code)}${r.ex?' · '+esc(r.ex):''}</span></div>`).join('');
+}
+let searchSeq = 0;
+async function doSearch(){
+  const q = ui.q.trim(), cat = ui.qcat, seq = ++searchSeq;
+  if(cat==='gold'){ ui.res=[]; return paintRes(); }
+  if(cat==='coin'){
+    ui.searching = true; paintRes();
+    try{ ui.res = await coinSearch(q); }catch(e){ ui.res = []; }
+    if(seq!==searchSeq) return;
+    ui.searching = false; paintRes(); return;
+  }
+  if(!q){ ui.res = []; ui.searching=false; return paintRes(); }
+  ui.res = localSearch(cat, q); ui.searching = true; paintRes();
+  try{
+    const more = await remoteSearch(cat, q);
+    if(seq!==searchSeq) return;
+    const have = new Set(ui.res.map(r=>r.sym||r.code));
+    ui.res = [...ui.res, ...more.filter(r=>!have.has(r.sym||r.code)).map(r=>({...r, remote:true}))].slice(0,16);
+  }catch(e){ /* 인터넷이 막혀도 앱 안 목록은 그대로 보입니다 */ }
+  if(seq!==searchSeq) return;
+  ui.searching = false; paintRes();
+}
+function paintRes(){ const el = $('#res'); if(el) el.innerHTML = resultsHTML(); }
+
+/* 부동산·예적금·연금 처럼 금액만 적는 것 */
+function manualAddForm(cat){
+  const c = CAT(cat);
+  const preset = cat==='real' ? ['우리집 아파트','전세보증금','토지','오피스텔']
+               : cat==='cash' ? ['예금','적금','CMA','파킹통장','비상금']
+               : ['연금저축','IRP','ISA','퇴직금','펀드'];
+  return `
+    <div class="f"><label>이름</label>
+      <input id="mName" placeholder="${c.label} 이름" autocomplete="off">
+      <div class="chips" style="margin-top:6px">${preset.map(p=>
+        `<button class="chip line" data-act="fillName" data-v="${esc(p)}">${esc(p)}</button>`).join('')}</div>
+    </div>
+    <div class="f"><label>지금 평가금액 (원)</label>
+      <input id="mVal" inputmode="decimal" placeholder="예: 3억 5000 · 350000000">
+      <div class="hint">‘3.5억’, ‘1200만’ 처럼 적어도 알아듣습니다.</div></div>
+    <div class="grid2">
+      <div class="f"><label>산 가격 · 원금 (선택)</label>
+        <input id="mCost" inputmode="decimal" placeholder="수익률 보고 싶을 때만"></div>
+      <div class="f"><label>${cat==='real'?'남은 대출 (선택)':'메모 (선택)'}</label>
+        ${cat==='real' ? `<input id="mLoan" inputmode="decimal" placeholder="순자산에서 뺍니다">`
+                       : `<input id="mMemo" placeholder="은행·상품명 등">`}</div>
+    </div>
+    <div class="f"><label>누구 명의</label>
+      <div class="seg" id="mOwner">${ownerList().map((o,i)=>
+        `<button class="${i===0?'on':''}" data-act="segOwner" data-v="${esc(o)}">${esc(o)}</button>`).join('')}</div></div>
+    <button class="btn block mt" data-act="saveManual" data-c="${cat}">담기</button>`;
+}
+
+/* ============================================================
+   8. 모달 — 담기 폼 · 종목 상세
+   ============================================================ */
+function openModal(html){
+  $('#modalRoot').innerHTML = `<div class="mask" data-act="maskClose"><div class="modal">${html}</div></div>`;
+}
+const closeModal = () => { $('#modalRoot').innerHTML = ''; };
+
+/* 검색에서 고른 종목을 담는 폼 */
+function openPickForm(pick){
+  const c = CAT(pick.cat);
+  const isUs = pick.cat==='us';
+  openModal(`
+    <div class="mhead"><h3>${esc(pick.name||pick.code)}</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted" style="margin:-6px 0 12px">${c.emo} ${c.label} · ${esc(pick.sym||pick.code)}</div>
+    <div class="grid2">
+      <div class="f"><label>수량 (${c.unit})</label>
+        <input id="pQty" inputmode="decimal" placeholder="예: ${pick.cat==='coin'?'0.05':(pick.cat==='gold'?'100':'10')}" autofocus></div>
+      <div class="f"><label>평균 매수가 ${isUs?'($)':'(원)'} <span class="muted">선택</span></label>
+        <input id="pAvg" inputmode="decimal" placeholder="수익률용"></div>
+    </div>
+    ${isUs? `<div class="f"><label>살 때 환율 <span class="muted">선택</span></label>
+      <input id="pAvgFx" inputmode="decimal" placeholder="비우면 달러 기준 수익률로 봅니다">
+      <div class="hint">적어 두면 <b>원화 기준</b> 수익률로 계산합니다.</div></div>`:''}
+    <div class="f"><label>누구 명의</label>
+      <div class="seg" id="pOwner">${ownerList().map((o,i)=>
+        `<button class="${i===0?'on':''}" data-act="segOwner" data-v="${esc(o)}">${esc(o)}</button>`).join('')}</div></div>
+    <button class="btn block mt" data-act="savePick" data-json='${esc(JSON.stringify(pick))}'>담기</button>`);
+}
+
+/* 담아 둔 종목 하나 자세히 보기 · 고치기 */
+function openHold(id){
+  const h = state.holdings.find(x=>x.id===id); if(!h) return;
+  const c = CAT(h.cat), r = calc(h), px = r.px;
+  const isUs = h.cat==='us', amt = isAmountCat(h.cat);
+  openModal(`
+    <div class="mhead"><h3>${esc(h.name)}</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted" style="margin:-6px 0 12px">
+      ${c.emo} ${c.label}${h.code&&!amt? ' · '+esc(h.code):''}${h.official? ' · '+esc(h.official):''}
+      ${px.src? ' · 시세 '+esc(px.src)+' '+timeAgo(px.at) : ''}</div>
+
+    <div class="card tight" style="margin-bottom:12px">
+      <div class="between">
+        <div><div class="tiny muted">평가금액</div>
+          <div style="font-size:20px;font-weight:900;letter-spacing:-.03em" class="num">${won(r.value)}</div>
+          ${h.loan>0? `<div class="tiny muted">대출 ${won(h.loan)} 빼면 <b>${won(r.net)}</b></div>`:''}</div>
+        <div class="right">
+          ${r.cost>0? `<div class="tiny muted">평가손익</div>
+            <div style="font-size:15px;font-weight:800" class="num ${sgn(r.pl)}">${arrow(r.pl)} ${num(Math.abs(r.pl))}원</div>
+            <div class="tiny num ${sgn(r.pl)}">${pctS(r.plRate,1)} · 원금 ${shortWon(r.cost)}</div>`
+          : '<div class="tiny muted">원금을 적으면<br>수익률이 나옵니다</div>'}
+        </div>
+      </div>
+      ${!amt? `<div class="between tiny mt" style="border-top:1px solid var(--line);padding-top:8px">
+        <span class="muted">현재가</span>
+        <span><b class="num">${r.ready? priceS(px.p,px.ccy) : '—'}</b>
+        ${r.dayRate? `<span class="num ${sgn(r.dayRate)}"> ${arrow(r.dayRate)}${pctS(Math.abs(r.dayRate))}</span>`:''}
+        ${px.manual? '<span class="badge man">직접 입력</span>':''}</span></div>`:''}
+      ${px.err? `<div class="tiny up mt">⚠️ ${esc(px.err)}</div>`:''}
+    </div>
+
+    ${amt ? `
+      <div class="f"><label>지금 평가금액 (원)</label>
+        <input id="hMp" inputmode="decimal" value="${h.mp!==undefined&&h.mp!==''?esc(h.mp):''}" placeholder="예: 3.5억"></div>
+      <div class="grid2">
+        <div class="f"><label>산 가격 · 원금</label>
+          <input id="hAvg" inputmode="decimal" value="${h.avg?esc(h.avg):''}"></div>
+        <div class="f"><label>남은 대출</label>
+          <input id="hLoan" inputmode="decimal" value="${h.loan?esc(h.loan):''}"></div>
+      </div>
+    ` : `
+      <div class="grid2">
+        <div class="f"><label>수량 (${c.unit})</label>
+          <input id="hQty" inputmode="decimal" value="${h.qty?esc(h.qty):''}"></div>
+        <div class="f"><label>평균 매수가 ${isUs?'($)':'(원)'}</label>
+          <input id="hAvg" inputmode="decimal" value="${h.avg?esc(h.avg):''}"></div>
+      </div>
+      ${isUs? `<div class="f"><label>살 때 환율 <span class="muted">선택</span></label>
+        <input id="hAvgFx" inputmode="decimal" value="${h.avgFx?esc(h.avgFx):''}" placeholder="비우면 달러 기준"></div>`:''}
+      <div class="f"><label>시세 직접 입력 ${isUs?'($)':'(원)'} <span class="muted">선택</span></label>
+        <input id="hMp" inputmode="decimal" value="${h.mp!==undefined&&h.mp!==''?esc(h.mp):''}"
+               placeholder="비워 두면 자동으로 가져옵니다">
+        <div class="hint">시세가 안 붙거나 값이 이상할 때만 적어 주세요. 적으면 자동 조회보다 <b>이 값이 우선</b>입니다.</div></div>
+    `}
+    <div class="f"><label>누구 명의</label>
+      <div class="seg" id="hOwner">${ownerList().map(o=>
+        `<button class="${(h.owner||'공동')===o?'on':''}" data-act="segOwner" data-v="${esc(o)}">${esc(o)}</button>`).join('')}</div></div>
+    <div class="f"><label>메모</label><input id="hMemo" value="${esc(h.memo||'')}" placeholder="선택"></div>
+
+    <button class="btn block" data-act="saveHold" data-id="${h.id}">저장</button>
+    <div class="row mt" style="gap:6px">
+      ${!amt? `<button class="btn ghost sm" style="flex:1" data-act="oneRefresh" data-id="${h.id}">🔄 이 종목만 새로고침</button>`:''}
+      ${!amt? `<button class="btn ghost sm" style="flex:1" data-act="openChart" data-id="${h.id}">📊 차트·뉴스 보기</button>`:''}
+    </div>
+    <button class="btn warn block mt" data-act="delHold" data-id="${h.id}">이 자산 지우기</button>`);
+}
+/* 종목 차트·뉴스로 바로 가기 */
+function chartUrl(h){
+  if(h.cat==='kr')   return 'https://m.stock.naver.com/domestic/stock/'+encodeURIComponent(h.code)+'/total';
+  if(h.cat==='us')   return 'https://m.stock.naver.com/worldstock/stock/'+encodeURIComponent(h.code)+'/total';
+  if(h.cat==='coin') return 'https://upbit.com/exchange?code=CRIX.UPBIT.KRW-'+encodeURIComponent(h.code);
+  if(h.cat==='gold') return 'https://finance.naver.com/marketindex/goldDetail.naver';
+  if(h.cat==='fx')   return 'https://finance.naver.com/marketindex/exchangeDetail.naver?marketindexCd=FX_USDKRW';
+  return '';
+}
+
+/* ============================================================
+   9. ⚙️ 설정
+   ============================================================ */
+function viewSet(){
+  const c = state.sync || {};
+  const t = totals(activeHoldings());
+  return `
+  <div class="card">
+    <h2>우리집</h2>
+    <div class="f"><label>이름 두 개 (쉼표로)</label>
+      <input id="sOwners" value="${esc(owners().join(', '))}"></div>
+    <div class="f"><label>🎯 목표 순자산 (선택)</label>
+      <input id="sGoal" inputmode="decimal" value="${state.settings.goal? esc(state.settings.goal):''}" placeholder="예: 15억">
+      <div class="hint">적어 두면 한눈에 화면에 달성률 막대가 생깁니다.</div></div>
+    <button class="btn block" data-act="saveSettings">저장</button>
+  </div>
+
+  <div class="card">
+    <h2>시세 상태</h2>
+    <table class="tbl"><tbody>
+      <tr><td>마지막 갱신</td><td>${timeAgo(state.lastRefresh)}</td></tr>
+      <tr><td>못 가져온 종목</td><td class="${state.lastFail?'up':''}">${state.lastFail||0}건</td></tr>
+      <tr><td>원/달러</td><td>${state.fx?.v? num(state.fx.v)+'원 ('+esc(state.fx.src||'')+')' : '—'}</td></tr>
+      <tr><td>연결 경로</td><td>${esc(RELAYS[state.relay|0]?.n || '직접')}</td></tr>
+      <tr><td>담은 자산</td><td>${t.n}개</td></tr>
+    </tbody></table>
+    <button class="btn ghost block mt" data-act="refresh">🔄 지금 새로고침</button>
+    <div class="note mt">
+      주식 시세는 브라우저가 증권사 서버를 바로 부르지 못해서 <b>공개 중계 서버</b>를 거칩니다.
+      가끔 막히면 마지막으로 받아 둔 값을 그대로 보여주고, 종목을 눌러
+      <b>시세 직접 입력</b>으로 언제든 고칠 수 있습니다.
+      코인(업비트)과 환율은 중계 없이 바로 가져옵니다.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>💑 배우자와 함께 보기</h2>
+    ${c.enabled ? `
+      <div class="note info">연결됨 · 방 이름 <b>${esc(c.room||'')}</b><br>
+        ${c.error? '<span class="up">⚠️ '+esc(c.error)+'</span>' : '마지막 동기화 '+timeAgo(c.lastAt)}</div>
+      <div class="row mt" style="gap:6px">
+        <button class="btn ghost sm" style="flex:1" data-act="copyInvite">🔗 초대 링크 복사</button>
+        <button class="btn ghost sm" style="flex:1" data-act="syncOff">연결 끊기</button>
+      </div>`
+    : `
+      <div class="tiny muted" style="margin-bottom:10px">
+        무료 Firebase 프로젝트 하나만 있으면 두 사람 폰에서 <b>같은 자산 목록</b>을 봅니다.
+        ${fbFromOtherApp()? '가계부·냉장고 앱에 쓰던 설정이 있어서 <b>버튼 하나로</b> 연결됩니다.':''}
+      </div>
+      ${fbFromOtherApp()? `<button class="btn block" data-act="syncReuse">
+        🔗 가계부와 같은 Firebase로 연결하기</button><div style="height:8px"></div>`:''}
+      <div class="f"><label>Firebase 설정 붙여넣기</label>
+        <textarea id="fbCfg" placeholder="firebaseConfig = { apiKey: '...', projectId: '...' } 통째로 붙여넣기"></textarea></div>
+      <div class="f"><label>방 이름 (두 사람이 같아야 합니다)</label>
+        <input id="fbRoom" placeholder="예: ourassets2026"></div>
+      <button class="btn block" data-act="syncOn">연결하기</button>`}
+  </div>
+
+  <div class="card">
+    <h2>🧾 가계부 앱과 연동</h2>
+    <div class="tiny muted" style="line-height:1.7">
+      가계부 앱 <b>💎 자산</b> 탭에서 이 앱의 금액을 그대로 불러올 수 있습니다.<br>
+      · 두 앱을 <b>같은 폰</b>에서 쓰면 아무 설정 없이 바로 읽힙니다.<br>
+      · 다른 폰이라면 위에서 <b>배우자와 함께 보기</b>를 켜고, 가계부에서 같은 방으로 연결하면 됩니다.
+    </div>
+    <a class="btn ghost block mt" style="text-decoration:none" href="../household-budget/">가계부 앱 열기 →</a>
+  </div>
+
+  <div class="card">
+    <h2>내 자료</h2>
+    <div class="row" style="gap:6px">
+      <button class="btn ghost sm" style="flex:1" data-act="exportJson">⬇️ 내보내기</button>
+      <button class="btn ghost sm" style="flex:1" data-act="importJson">⬆️ 불러오기</button>
+    </div>
+    <button class="btn warn block mt" data-act="wipe">전부 지우고 처음부터</button>
+    <div class="tiny muted mt">모든 기록은 이 폰 안(그리고 연결했다면 우리 Firebase 방)에만 있습니다.</div>
+  </div>`;
+}
+/* 가계부·냉장고 앱이 같은 브라우저에 써 둔 Firebase 설정 재사용 */
+function fbFromOtherApp(){
+  for(const k of ['homeLedger.v2','fridgeMealPlanner.v1']){
+    try{
+      const d = JSON.parse(localStorage.getItem(k)||'null');
+      const s = d?.sync;
+      if(s?.apiKey && s?.projectId) return { apiKey:s.apiKey, projectId:s.projectId, room:s.room||'' };
+    }catch(e){}
+  }
+  return null;
+}
+
+/* ============================================================
+   10. 부부 공유 (Firestore REST) — 가계부·냉장고와 같은 방식
+   ============================================================ */
+const DEVICE = (()=>{ let d=localStorage.getItem('ma.device');
+  if(!d){ d=uid(); localStorage.setItem('ma.device',d); } return d; })();
+const fsUrl = path => `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(state.sync.projectId)}`
+  + `/databases/(default)/documents/${path}?key=${encodeURIComponent(state.sync.apiKey)}`;
+async function fsErr(r){
+  try{ const j = await r.json(); return j?.error?.message || ('오류 '+r.status); }
+  catch(e){ return '오류 '+r.status; }
+}
+async function fsGet(path){
+  const r = await fetch(fsUrl(path));
+  if(r.status===404) return null;
+  if(!r.ok) throw new Error(await fsErr(r));
+  const d = await r.json();
+  return { json:d.fields?.json?.stringValue||'', rev:+(d.fields?.rev?.integerValue||0), by:d.fields?.by?.stringValue||'' };
+}
+async function fsPut(path, json, rev){
+  const r = await fetch(fsUrl(path), { method:'PATCH', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ fields:{ json:{stringValue:json}, rev:{integerValue:String(rev)}, by:{stringValue:DEVICE} } }) });
+  if(!r.ok) throw new Error(await fsErr(r));
+}
+/* 가계부 앱이 이 목록을 읽어 갑니다 — 이름을 바꾸지 마세요 */
+const CORE_KEYS = ['settings','holdings','memo'];
+function corePayload(){
+  const o = {}; CORE_KEYS.forEach(k=>o[k]=state[k]);
+  return JSON.stringify(o);
+}
+function applyCore(txt){
+  const d = JSON.parse(txt);
+  CORE_KEYS.forEach(k=>{ if(d[k]!==undefined) state[k]=d[k]; });
+}
+function schedulePush(){
+  if(!state.sync?.enabled) return;
+  state.sync.dirty = true;
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(syncPush, 1200);
+}
+async function syncPush(){
+  const c = state.sync;
+  if(!c?.enabled || syncBusy) return;
+  syncBusy = true;
+  try{
+    const rev = Date.now();
+    await fsPut(`rooms/${c.room}/assets/core`, corePayload(), rev);
+    c.rev = rev; c.lastAt = rev; c.error = ''; c.dirty = false;
+  }catch(e){ c.error = e.message; }
+  finally{ syncBusy=false; writeLocal(); renderHeadMeta(); }
+}
+async function syncPull(){
+  const c = state.sync;
+  if(!c?.enabled || syncBusy) return;
+  if(c.dirty){ await syncPush(); return; }
+  syncBusy = true;
+  try{
+    const doc = await fsGet(`rooms/${c.room}/assets/core`);
+    if(doc && doc.rev > (c.rev||0) && doc.by !== DEVICE){
+      applyingRemote = true; applyCore(doc.json); applyingRemote = false;
+      c.rev = doc.rev; writeLocal(); render();
+      toast('배우자가 바꾼 내용을 받아왔어요');
+      refreshPrices();
+    }
+    c.lastAt = Date.now(); c.error = '';
+  }catch(e){ c.error = e.message; }
+  finally{ syncBusy=false; writeLocal(); renderHeadMeta(); }
+}
+function syncStart(){
+  clearInterval(syncTimer); syncTimer = null;
+  if(!state.sync?.enabled) return;
+  syncPull();
+  syncTimer = setInterval(()=>{ if(!document.hidden) syncPull(); }, 20000);
+}
+function parseFbConfig(text){
+  const t = String(text||'');
+  const api = t.match(/apiKey["'\s:]+([A-Za-z0-9_\-]{20,})/);
+  const pid = t.match(/projectId["'\s:]+([a-z0-9\-]{4,})/i);
+  if(!api || !pid) return null;
+  return { apiKey: api[1], projectId: pid[1] };
+}
+function inviteLink(){
+  const c = state.sync || {};
+  return location.href.split('#')[0] + '#join='
+       + b64e(JSON.stringify({ k:c.apiKey, p:c.projectId, r:c.room }));
+}
+(function readInvite(){
+  const m = location.hash.match(/join=([A-Za-z0-9_\-]+)/);
+  if(!m) return;
+  try{ const v = JSON.parse(b64d(m[1])); if(v.k&&v.p&&v.r) pendingInvite = v; }catch(e){}
+  history.replaceState(null, '', location.pathname + location.search);
+})();
+function openJoinPrompt(){
+  const v = pendingInvite; pendingInvite = null; if(!v) return;
+  openModal(`<div class="mhead"><h3>배우자 초대</h3><button class="x" data-act="close">✕</button></div>
+    <div class="note info">방 <b>${esc(v.r)}</b> 에 연결하면 두 사람이 <b>같은 자산 목록</b>을 보게 됩니다.
+      이 폰에 담아 둔 내용은 방에 있는 내용으로 바뀝니다.</div>
+    <button class="btn block mt" data-act="joinYes" data-json='${esc(JSON.stringify(v))}'>연결하기</button>
+    <button class="btn ghost block mt" data-act="close">나중에</button>`);
+}
+
+/* ============================================================
+   11. 그리기 · 손가락 동작
+   ============================================================ */
+function render(){
+  renderTabs();
+  const v = ui.tab==='home' ? viewHome()
+          : ui.tab==='list' ? viewList()
+          : ui.tab==='add'  ? viewAdd()
+          : viewSet();
+  $('#view').innerHTML = v;
+  $('#fab').classList.toggle('hidden', ui.tab==='add' || ui.tab==='set');
+  renderHeadMeta();
+  const q = $('#q');
+  if(q){ q.oninput = e => { ui.q = e.target.value; clearTimeout(doSearch._t);
+           doSearch._t = setTimeout(doSearch, 240); };
+         if(ui.q) q.setSelectionRange(ui.q.length, ui.q.length); }
+}
+const segPick = (wrapId, def) => {
+  const el = $('#'+wrapId); if(!el) return def;
+  const on = el.querySelector('button.on');
+  return on ? on.dataset.v : def;
+};
+function addHolding(o){
+  state.holdings.push({ id:uid(), at:Date.now(), ...o });
+  save();
+}
+
+document.addEventListener('click', async ev=>{
+  const b = ev.target.closest('[data-act]'); if(!b) return;
+  const act = b.dataset.act, id = b.dataset.id;
+
+  switch(act){
+
+  /* ---------- 이동 ---------- */
+  case 'tab':
+    ui.tab = b.dataset.tab;
+    if(ui.tab==='add'){ ui.res = []; }
+    render();
+    if(ui.tab==='add' && ui.qcat==='coin') doSearch();
+    window.scrollTo(0,0);
+    break;
+  case 'owner': ui.owner = b.dataset.o; render(); break;
+  case 'qcat':
+    ui.qcat = b.dataset.c; ui.q=''; ui.res=[]; render();
+    if(ui.qcat==='coin' || ui.qcat==='gold') doSearch();
+    break;
+  case 'close': case 'maskClose':
+    if(act==='maskClose' && ev.target !== b) break;
+    closeModal(); break;
+
+  /* ---------- 담기 ---------- */
+  case 'pick': openPickForm(JSON.parse(b.dataset.json)); break;
+  case 'manualCode': {
+    const code = prompt(ui.qcat==='kr' ? '종목코드 6자리를 적어 주세요 (예: 005930)'
+                                       : '티커를 적어 주세요 (예: AAPL)');
+    if(!code) break;
+    const cd = code.trim().toUpperCase();
+    openPickForm({ cat:ui.qcat, code:cd, sym: ui.qcat==='kr'? cd+'.KS' : cd, name:cd });
+    break; }
+  case 'segOwner':
+    [...b.parentElement.children].forEach(x=>x.classList.remove('on'));
+    b.classList.add('on'); break;
+  case 'fillName': { const el=$('#mName'); if(el){ el.value = b.dataset.v; el.focus(); } break; }
+
+  case 'savePick': {
+    const p = JSON.parse(b.dataset.json);
+    const qty = parseQty($('#pQty')?.value);
+    if(!isFinite(qty) || qty<=0){ toast('수량을 적어 주세요'); break; }
+    const avg = parseQty($('#pAvg')?.value);
+    const avgFx = parseQty($('#pAvgFx')?.value);
+    addHolding({ cat:p.cat, code:p.code, sym:p.sym, name:p.name || p.code,
+                 owner: segPick('pOwner', ownerList()[0]),
+                 qty, avg: isFinite(avg)? avg : 0,
+                 avgFx: isFinite(avgFx)? avgFx : 0 });
+    closeModal(); ui.tab='list'; render();
+    toast(`${p.name||p.code} 담았어요`);
+    refreshPrices();
+    break; }
+
+  case 'saveManual': {
+    const cat = b.dataset.c;
+    const name = ($('#mName')?.value||'').trim();
+    const val = parseAmount($('#mVal')?.value);
+    if(!name){ toast('이름을 적어 주세요'); break; }
+    if(!isFinite(val)){ toast('평가금액을 적어 주세요'); break; }
+    const cost = parseAmount($('#mCost')?.value);
+    const loan = parseAmount($('#mLoan')?.value);
+    addHolding({ cat, code:'', sym:'', name,
+                 owner: segPick('mOwner', ownerList()[0]),
+                 qty:1, avg: isFinite(cost)? cost : 0,
+                 loan: isFinite(loan)? loan : 0,
+                 memo: ($('#mMemo')?.value||'').trim(),
+                 mp: val, mpAt: Date.now() });
+    ui.tab='list'; render(); toast(`${name} 담았어요`);
+    break; }
+
+  /* ---------- 종목 상세 ---------- */
+  case 'open': openHold(id); break;
+  case 'saveHold': {
+    const h = state.holdings.find(x=>x.id===id); if(!h) break;
+    const amt = isAmountCat(h.cat);
+    if(amt){
+      const v = parseAmount($('#hMp')?.value);
+      h.mp = isFinite(v)? v : ''; h.mpAt = Date.now();
+      h.qty = 1;
+      const a = parseAmount($('#hAvg')?.value); h.avg = isFinite(a)? a : 0;
+      const l = parseAmount($('#hLoan')?.value); h.loan = isFinite(l)? l : 0;
+    } else {
+      const q = parseQty($('#hQty')?.value); if(isFinite(q)) h.qty = q;
+      const a = parseQty($('#hAvg')?.value); h.avg = isFinite(a)? a : 0;
+      const fxv = parseQty($('#hAvgFx')?.value); h.avgFx = isFinite(fxv)? fxv : 0;
+      const raw = ($('#hMp')?.value||'').trim();
+      if(raw===''){ h.mp = ''; }
+      else { const v = parseQty(raw); if(isFinite(v)){ h.mp = v; h.mpAt = Date.now(); } }
+    }
+    h.owner = segPick('hOwner', h.owner||'공동');
+    h.memo = ($('#hMemo')?.value||'').trim();
+    save(); closeModal(); render(); toast('저장했어요');
+    break; }
+  case 'delHold': {
+    const h = state.holdings.find(x=>x.id===id); if(!h) break;
+    if(!confirm(`'${h.name}' 을(를) 지울까요?`)) break;
+    state.holdings = state.holdings.filter(x=>x.id!==id);
+    save(); closeModal(); render(); toast('지웠어요');
+    break; }
+  case 'oneRefresh': {
+    const h = state.holdings.find(x=>x.id===id); if(!h) break;
+    b.innerHTML = '<span class="spin">↻</span> 가져오는 중';
+    try{
+      if(!state.fx?.v && (h.cat==='us'||h.cat==='gold'||h.cat==='fx')){
+        const f = await fetchFx(); state.fx = { v:f.v, at:Date.now(), src:f.src };
+      }
+      let q;
+      if(h.cat==='coin')      q = (await fetchCoins([h.code]))[h.code];
+      else if(h.cat==='gold') q = await fetchGold(state.fx.v);
+      else if(h.cat==='fx')   q = { p:state.fx.v, prev:state.fx.v, ccy:'KRW', src:state.fx.src };
+      else { const y = await quoteStock(h); q = { p:y.p, prev:y.prev, ccy:y.ccy, src:'야후' }; h.official = y.name||h.official; }
+      if(!q) throw new Error('시세를 못 찾았어요');
+      state.px[pxKey(h)] = { ...q, name:h.name, at:Date.now() };
+      save(); openHold(id); toast('시세를 가져왔어요');
+    }catch(e){ toast(e.message + ' — 아래에 직접 적어 주세요'); b.innerHTML = '🔄 다시 시도'; }
+    break; }
+  case 'openChart': {
+    const h = state.holdings.find(x=>x.id===id); if(!h) break;
+    const u = chartUrl(h); if(u) window.open(u, '_blank', 'noopener');
+    break; }
+
+  /* ---------- 시세 ---------- */
+  case 'refresh': refreshPrices(true); break;
+
+  /* ---------- 설정 ---------- */
+  case 'saveSettings': {
+    const list = ($('#sOwners')?.value||'').split(/[,·\s]+/).filter(Boolean).slice(0,2);
+    if(list.length===2){
+      const [o1,o2] = owners();
+      state.holdings.forEach(h=>{ if(h.owner===o1) h.owner=list[0]; else if(h.owner===o2) h.owner=list[1]; });
+      if(ui.owner===o1) ui.owner=list[0]; else if(ui.owner===o2) ui.owner=list[1];
+      state.settings.owners = list;
+    }
+    const g = parseAmount($('#sGoal')?.value);
+    state.settings.goal = isFinite(g)? g : 0;
+    save(); render(); toast('저장했어요');
+    break; }
+  case 'syncOn': {
+    const cfg = parseFbConfig($('#fbCfg')?.value);
+    const room = ($('#fbRoom')?.value||'').trim().replace(/[^A-Za-z0-9_\-]/g,'');
+    if(!cfg){ toast('firebaseConfig 를 통째로 붙여넣어 주세요'); break; }
+    if(!room){ toast('방 이름을 적어 주세요'); break; }
+    state.sync = { enabled:true, ...cfg, room, rev:0, lastAt:0, error:'', dirty:true };
+    save(false); await syncPush(); render(); syncStart();
+    toast('연결했어요 — 초대 링크를 배우자에게 보내세요');
+    break; }
+  case 'syncReuse': {
+    const c = fbFromOtherApp(); if(!c){ toast('다른 앱 설정을 못 찾았어요'); break; }
+    const room = prompt('방 이름 (두 사람이 같아야 합니다)', c.room || 'ourassets') || '';
+    const r = room.trim().replace(/[^A-Za-z0-9_\-]/g,''); if(!r) break;
+    state.sync = { enabled:true, apiKey:c.apiKey, projectId:c.projectId, room:r, rev:0, lastAt:0, error:'', dirty:true };
+    save(false); await syncPush(); render(); syncStart();
+    toast('연결했어요');
+    break; }
+  case 'syncOff':
+    if(!confirm('연결을 끊을까요? 이 폰의 내용은 그대로 남습니다.')) break;
+    clearInterval(syncTimer); syncTimer=null;
+    state.sync = { enabled:false }; save(false); render();
+    break;
+  case 'copyInvite': {
+    const link = inviteLink();
+    try{ await navigator.clipboard.writeText(link); toast('초대 링크를 복사했어요'); }
+    catch(e){ prompt('이 링크를 배우자에게 보내세요', link); }
+    break; }
+  case 'joinYes': {
+    const v = JSON.parse(b.dataset.json);
+    state.sync = { enabled:true, apiKey:v.k, projectId:v.p, room:v.r, rev:0, lastAt:0, error:'' };
+    save(false); closeModal(); syncStart(); render();
+    toast('연결했어요');
+    break; }
+  case 'exportJson': {
+    const blob = new Blob([JSON.stringify(state,null,2)], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `우리집자산-${iso(new Date())}.json`;
+    a.click(); setTimeout(()=>URL.revokeObjectURL(a.href), 3000);
+    break; }
+  case 'importJson': {
+    const inp = document.createElement('input');
+    inp.type='file'; inp.accept='.json,application/json';
+    inp.onchange = () => {
+      const f = inp.files?.[0]; if(!f) return;
+      const rd = new FileReader();
+      rd.onload = () => {
+        try{
+          const d = JSON.parse(rd.result);
+          if(!Array.isArray(d.holdings)) throw 0;
+          state = { ...blankState(), ...d, sync: state.sync };
+          save(); render(); toast('불러왔어요'); refreshPrices();
+        }catch(e){ toast('이 파일은 못 읽겠어요'); }
+      };
+      rd.readAsText(f);
+    };
+    inp.click();
+    break; }
+  case 'wipe':
+    if(!confirm('담아 둔 자산을 전부 지울까요? 되돌릴 수 없습니다.')) break;
+    state = { ...blankState(), sync: state.sync, settings: state.settings };
+    save(); ui.tab='home'; render(); toast('처음으로 되돌렸어요');
+    break;
+  }
+});
+/* 검색창에서 엔터 */
+document.addEventListener('keydown', e=>{
+  if(e.key==='Enter' && e.target.id==='q'){ e.preventDefault(); clearTimeout(doSearch._t); doSearch(); }
+});
+
+/* ============================================================
+   12. 시작
+   ============================================================ */
+state = load() || blankState();
+state.settings = state.settings || { owners:['진주','성우'], goal:0 };
+state.settings.owners = state.settings.owners || ['진주','성우'];
+state.px = state.px || {};
+state.fx = state.fx || { v:0, at:0, src:'' };
+state.snap = state.snap || {};
+state.coins = state.coins || { list:[], at:0 };
+state.sync = state.sync || { enabled:false };
+writeLocal();
+render();
+syncStart();
+if(pendingInvite) openJoinPrompt();
+/* 열 때마다 한 번, 그리고 보고 있는 동안 2분마다 시세를 새로 가져옵니다 */
+if(state.holdings.length) refreshPrices();
+priceTimer = setInterval(()=>{ if(!document.hidden && state.holdings.length) refreshPrices(); }, 120000);
+document.addEventListener('visibilitychange', ()=>{
+  if(document.hidden) return;
+  syncPull();
+  if(Date.now() - (state.lastRefresh||0) > 60000 && state.holdings.length) refreshPrices();
+});
+</script>
+</body>
+</html>
