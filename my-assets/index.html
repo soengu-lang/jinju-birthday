@@ -360,6 +360,7 @@ function writeLocal(){
   catch(e){ toast('저장 공간이 부족해요'); }
 }
 function save(push=true){
+  buildLedger();
   writeLocal();
   if(push && !applyingRemote) schedulePush();
 }
@@ -588,7 +589,12 @@ async function refreshPrices(manual){
     state.lastRefresh = Date.now();
     state.lastFail = fail;
     takeSnapshot();
+    buildLedger();
     writeLocal();
+    /* 배우자 방의 금액표도 가끔(10분에 한 번) 갱신해 둡니다 */
+    if(state.sync?.enabled && Date.now() - (state.sync.ledAt||0) > 600000){
+      state.sync.ledAt = Date.now(); schedulePush();
+    }
   } finally {
     refreshing = false;
     render();
@@ -609,6 +615,20 @@ async function quoteStock(h){
   throw last || new Error('시세를 못 찾았어요');
 }
 const symOf = h => h.sym || (h.cat==='kr' ? h.code+'.KS' : h.code);
+/* ------------------------------------------------------------
+   가계부 앱이 읽어 갈 '계산이 끝난 금액표'를 만들어 둡니다.
+   가계부에는 시세가 없으니, 원화로 환산된 값을 여기서 미리 적어 둡니다.
+   ------------------------------------------------------------ */
+function buildLedger(){
+  state.led = {
+    at: Date.now(),
+    rows: activeHoldings().map(h=>{
+      const r = calc(h);
+      return { owner:h.owner||'공동', cat:h.cat, name:h.name,
+               value:Math.round(r.value), loan:Math.round(r.loan) };
+    }).filter(r=>r.value>0 || r.loan>0)
+  };
+}
 /* 하루 한 번 총자산을 적어 둡니다 (추이 그래프용) */
 function takeSnapshot(){
   const t = totals(activeHoldings());
@@ -1510,7 +1530,7 @@ async function fsPut(path, json, rev){
   if(!r.ok) throw new Error(await fsErr(r));
 }
 /* 가계부 앱이 이 목록을 읽어 갑니다 — 이름을 바꾸지 마세요 */
-const CORE_KEYS = ['settings','holdings','memo'];
+const CORE_KEYS = ['settings','holdings','memo','led'];
 function corePayload(){
   const o = {}; CORE_KEYS.forEach(k=>o[k]=state[k]);
   return JSON.stringify(o);
@@ -1830,6 +1850,7 @@ state.fx = state.fx || { v:0, at:0, src:'' };
 state.snap = state.snap || {};
 state.coins = state.coins || { list:[], at:0 };
 state.sync = state.sync || { enabled:false };
+buildLedger();
 writeLocal();
 render();
 syncStart();
