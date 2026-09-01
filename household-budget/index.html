@@ -413,18 +413,29 @@ function shortWon(n){
   if(n >= 1000) return Math.round(n/100)/10+'천';
   return String(n);
 }
+/* '350000000' · '3.5억' · '3억 5000' · '3억 5000만' · '1,250만' 모두 알아듣습니다.
+   억 뒤에 붙은 숫자는 만 단위로 봅니다 — '3억 5000' = 3억 5000만 = 350,000,000 */
 function parseAmount(s){
   if(typeof s === 'number') return s;
   let t = String(s??'').trim();
   if(!t) return NaN;
   const neg = /^\(.*\)$/.test(t) || /^-/.test(t);
-  t = t.replace(/[()]/g,'');
-  const eok = /억/.test(t), man = /만/.test(t);
-  const head = parseFloat(t.replace(/[^0-9.\-]/g,''));
-  if(!isFinite(head)) return NaN;
-  let v = head;
-  if(eok && head < 100000000) v = head*100000000;
-  else if(man && head < 10000) v = head*10000;
+  t = t.replace(/[()\s,원]/g,'').replace(/^-/,'');
+  if(!t) return NaN;
+  let v;
+  if(/[억만]/.test(t)){
+    let sum = 0, rest = t;
+    const e = rest.match(/^([0-9.]+)억/);
+    if(e){ sum += parseFloat(e[1])*100000000; rest = rest.slice(e[0].length); }
+    const m = rest.match(/^([0-9.]+)만/);
+    if(m){ sum += parseFloat(m[1])*10000; rest = rest.slice(m[0].length); }
+    else if(e && /^[0-9.]+$/.test(rest)){ sum += parseFloat(rest)*10000; rest = ''; }
+    if(/^[0-9.]+$/.test(rest)) sum += parseFloat(rest);
+    v = sum;
+  } else {
+    v = parseFloat(t.replace(/[^0-9.]/g,''));
+  }
+  if(!isFinite(v)) return NaN;
   v = Math.abs(v);
   return neg ? -v : v;
 }
