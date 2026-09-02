@@ -413,18 +413,29 @@ function shortWon(n){
   if(n >= 1000) return Math.round(n/100)/10+'천';
   return String(n);
 }
+/* '350000000' · '3.5억' · '3억 5000' · '3억 5000만' · '1,250만' 모두 알아듣습니다.
+   억 뒤에 붙은 숫자는 만 단위로 봅니다 — '3억 5000' = 3억 5000만 = 350,000,000 */
 function parseAmount(s){
   if(typeof s === 'number') return s;
   let t = String(s??'').trim();
   if(!t) return NaN;
   const neg = /^\(.*\)$/.test(t) || /^-/.test(t);
-  t = t.replace(/[()]/g,'');
-  const eok = /억/.test(t), man = /만/.test(t);
-  const head = parseFloat(t.replace(/[^0-9.\-]/g,''));
-  if(!isFinite(head)) return NaN;
-  let v = head;
-  if(eok && head < 100000000) v = head*100000000;
-  else if(man && head < 10000) v = head*10000;
+  t = t.replace(/[()\s,원]/g,'').replace(/^-/,'');
+  if(!t) return NaN;
+  let v;
+  if(/[억만]/.test(t)){
+    let sum = 0, rest = t;
+    const e = rest.match(/^([0-9.]+)억/);
+    if(e){ sum += parseFloat(e[1])*100000000; rest = rest.slice(e[0].length); }
+    const m = rest.match(/^([0-9.]+)만/);
+    if(m){ sum += parseFloat(m[1])*10000; rest = rest.slice(m[0].length); }
+    else if(e && /^[0-9.]+$/.test(rest)){ sum += parseFloat(rest)*10000; rest = ''; }
+    if(/^[0-9.]+$/.test(rest)) sum += parseFloat(rest);
+    v = sum;
+  } else {
+    v = parseFloat(t.replace(/[^0-9.]/g,''));
+  }
+  if(!isFinite(v)) return NaN;
   v = Math.abs(v);
   return neg ? -v : v;
 }
@@ -897,6 +908,194 @@ async function refreshLink(){
   if(JSON.stringify(L.cells||{}) !== before) render();
 }
 
+/* ============================================================
+   2-2. 📊 자산 앱 연동 (읽기 전용)
+   ------------------------------------------------------------
+   · 자산 앱(my-assets)이 계산해 둔 '원화로 환산된 금액표'를 읽어옵니다.
+   · 같은 브라우저면 localStorage에서 바로, 아니면 같은 Firebase 방에서.
+   · 자산 앱에는 아무것도 쓰지 않습니다(읽기만).
+   · 읽어온 금액은 보여주기만 하고, 💎 자산 칸은 '반영'을 눌렀을 때만 바뀝니다.
+   ============================================================ */
+const INVEST_KEY = 'myAssets.v1';
+/* 자산 앱 종류 → 가계부 자산 항목 이름 규칙 */
+const INV_CATS = [
+  { k:'kr',   label:'🇰🇷 국내주식', match:/주식|펀드|ETF/ },
+  { k:'us',   label:'🇺🇸 미국주식', match:/주식|펀드|ETF/ },
+  { k:'coin', label:'🪙 코인',      match:/코인|비트|가상/ },
+  { k:'gold', label:'🥇 금',        match:/기타/ },
+  { k:'fx',   label:'💵 달러',      match:/기타|CMA|현금/ },
+  { k:'real', label:'🏠 부동산',    match:/아파트|부동산|주택(?!대출)|토지|땅/ },
+  { k:'cash', label:'💰 예적금',    match:/예적금|예금|적금|CMA|현금|통장/ },
+  { k:'etc',  label:'💼 연금·기타', match:/연금|ISA|IRP|퇴직|펀드/ }
+];
+const invCat = k => INV_CATS.find(c=>c.k===k) || INV_CATS[7];
+function blankInv(){ return { enabled:false, asked:false, mode:'local', room:'', rows:[], map:{}, at:0, error:'' }; }
+function readInvestLocal(){
+  try{ const d = JSON.parse(localStorage.getItem(INVEST_KEY)||'null');
+    return Array.isArray(d?.led?.rows) ? d.led : null; }catch(e){ return null; }
+}
+const investHere = () => !!readInvestLocal();
+/* 자산 앱이 쓰는 Firebase 설정 — ① 가계부가 이미 쓰는 값 ② 같은 브라우저의 자산 앱 값 */
+function investFbConfig(){
+  const c = state.sync;
+  if(c?.apiKey && c?.projectId) return { apiKey:c.apiKey, projectId:c.projectId, room:c.room };
+  try{
+    const v = JSON.parse(localStorage.getItem(INVEST_KEY)||'null')?.sync;
+    if(v?.apiKey && v?.projectId) return { apiKey:v.apiKey, projectId:v.projectId, room:v.room };
+  }catch(e){}
+  return null;
+}
+async function investRemote(cfg){
+  const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(cfg.projectId)}`
+            + `/databases/(default)/documents/rooms/${cfg.room}/assets/core?key=${encodeURIComponent(cfg.apiKey)}`;
+  const r = await fetch(url);                               /* 읽기만 합니다 */
+  if(r.status===404) throw new Error('자산 앱 방이 아직 비어 있어요');
+  if(!r.ok) throw new Error(r.status===403? '자산 앱 방을 읽을 권한이 없어요' : `오류 ${r.status}`);
+  const d = await r.json();
+  const core = JSON.parse(d.fields?.json?.stringValue || '{}');
+  if(!Array.isArray(core?.led?.rows)) throw new Error('자산 앱에서 아직 금액을 올리지 않았어요');
+  return core.led;
+}
+async function refreshInvest(){
+  const V = state.inv;
+  if(!V?.enabled) return;
+  const before = JSON.stringify(V.rows||[]);
+  try{
+    let led;
+    if(V.mode==='remote'){
+      const cfg = investFbConfig();
+      if(!cfg) throw new Error('Firebase 설정을 못 찾았어요');
+      led = await investRemote({ ...cfg, room: V.room || cfg.room });
+    } else {
+      led = readInvestLocal();
+      if(!led) throw new Error('이 브라우저에는 자산 앱 기록이 없어요');
+    }
+    V.rows = led.rows || []; V.at = led.at || Date.now(); V.error = '';
+  }catch(e){ V.error = e.message; }
+  writeLocal();
+  if(JSON.stringify(V.rows||[]) !== before) render();
+}
+/* 자산 앱 한 줄 → 가계부 자산 항목 id 정하기 */
+const invSig = r => `${r.owner}|${r.cat}|${r.name}`;
+function invRowTarget(r){
+  const m = state.inv?.map || {};
+  const sig = invSig(r);
+  if(Object.prototype.hasOwnProperty.call(m, sig))
+    return (m[sig] && state.assetRows.some(x=>x.id===m[sig])) ? m[sig] : '';
+  const os = state.settings.owners || [];
+  /* 공동 명의는 첫 번째 사람 칸으로 보냅니다 (직접 바꿀 수 있어요) */
+  const owner = os.includes(r.owner) ? r.owner : os[0];
+  const pool = state.assetRows.filter(x=>x.owner===owner);
+  /* ① ISA·연금저축·IRP 계좌에 든 것은 종목이 무엇이든 연금·ISA 칸으로 */
+  if(/^(ISA|연금저축|IRP)$/.test(String(r.atype||''))){
+    const hitP = pool.find(x=>/연금|ISA|IRP|퇴직/.test(x.name));
+    if(hitP) return hitP.id;
+  }
+  /* ② 이름이 겹치는 항목 (예: '우리집 아파트' → '아파트') */
+  const n = String(r.name||'');
+  let hit = pool.find(x => x.name && (n.includes(x.name) || x.name.includes(n)));
+  if(hit) return hit.id;
+  /* ③ 종류 규칙으로 */
+  hit = pool.find(x => invCat(r.cat).match.test(x.name));
+  return hit ? hit.id : '';
+}
+/* 반영할 것들을 항목별로 묶기 → [{ rowId, name, owner, sum, from:[] }] */
+function invPlan(){
+  const V = state.inv;
+  if(!V?.enabled || !V.rows?.length) return [];
+  const g = {};
+  V.rows.forEach(r=>{
+    if(!(+r.value > 0)) return;
+    const id = invRowTarget(r);
+    (g[id] = g[id] || { rowId:id, sum:0, from:[] });
+    g[id].sum += +r.value || 0;
+    g[id].from.push(r);
+  });
+  return Object.values(g).map(x=>{
+    const row = state.assetRows.find(y=>y.id===x.rowId);
+    return { ...x, name: row? row.name : '', owner: row? row.owner : '', ok: !!row };
+  }).sort((a,b)=>b.sum-a.sum);
+}
+
+/* 💎 자산 탭 맨 위에 뜨는 '자산 앱' 카드 */
+function invCard(key){
+  const V = state.inv || (state.inv = blankInv());
+  const cfg = investFbConfig();
+  if(!V.enabled){
+    if(!investHere() && !cfg) return '';        /* 자산 앱 흔적이 없으면 아예 안 보입니다 */
+    return `<div class="card pad" style="margin-top:12px">
+      <div style="font-size:13px;font-weight:900;margin-bottom:6px">📊 자산 앱 연동</div>
+      <div class="tiny muted" style="line-height:1.7">
+        자산 앱에 담아 둔 주식·코인·달러·금·부동산 금액을 여기로 불러올 수 있어요.
+        ${investHere()? '이 브라우저에 자산 앱 기록이 있습니다.'
+                      : '다른 폰의 자산 앱이라면 같은 Firebase 방에서 읽어옵니다.'}
+      </div>
+      <div class="row wrap" style="margin-top:9px">
+        ${investHere()? `<button class="btn sm" data-act="invOn" data-mode="local">이 브라우저에서 읽기</button>`:''}
+        ${cfg? `<button class="btn ghost sm" data-act="invOn" data-mode="remote">자산 앱 방에서 읽기</button>`:''}
+      </div>
+    </div>`;
+  }
+  const plan = invPlan();
+  const total = plan.reduce((a,b)=>a+b.sum, 0);
+  const diffs = plan.filter(p=>p.ok && Math.round(p.sum) !== Math.round(assetRaw(p.rowId,key) ?? -1));
+  return `<div class="card" style="margin-top:12px">
+    <div class="sec-head">
+      <div class="t">📊 자산 앱 ${V.mode==='remote'?'<span class="tiny muted" style="font-weight:600">방에서 읽는 중</span>':''}</div>
+      <div class="v">${bigWon(total)}원</div>
+    </div>
+    ${V.error? `<div class="pad tiny" style="color:var(--spend)">⚠️ ${esc(V.error)}</div>` : ''}
+    ${plan.map(p=>{
+      const cur = assetRaw(p.rowId, key);
+      const same = cur !== undefined && Math.round(cur) === Math.round(p.sum);
+      const names = p.from.map(f=>f.name + (f.atype && f.atype!=='일반' ? ` (${f.atype})` : '')).join(', ');
+      return `<div class="line-item" style="cursor:default">
+        <div class="grow" style="min-width:0">
+          <div class="nm">${p.ok? esc(p.owner)+' · '+esc(p.name)
+                                : '<span style="color:var(--spend)">받을 항목을 골라 주세요</span>'}</div>
+          <div class="sub" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(names)}</div>
+        </div>
+        <div style="text-align:right;flex:none">
+          <div class="val">${num(p.sum)}</div>
+          ${p.ok && cur!==undefined && !same
+            ? `<div class="tiny muted">지금 ${num(cur)}</div>` : ''}
+        </div>
+        <button class="chip line" style="flex:none" data-act="invPick" data-sig="${esc(p.from.map(invSig).join('§'))}">바꾸기</button>
+        ${p.ok? (same? '<span class="tiny muted" style="flex:none">반영됨</span>'
+                     : `<button class="chip" style="flex:none" data-act="invApply" data-row="${p.rowId}" data-v="${Math.round(p.sum)}">반영</button>`)
+              : ''}
+      </div>`;
+    }).join('')}
+    <div class="sec-foot" style="padding:10px 12px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+      ${diffs.length? `<button class="chip" data-act="invApplyAll" data-key="${esc(key)}">${assetKeyLabel(key)}에 모두 반영 (${diffs.length})</button>`
+                    : '<span class="tiny muted">모두 반영되어 있어요</span>'}
+      <button class="chip line" data-act="invRefresh">🔄 다시 읽기</button>
+      <button class="chip line" data-act="invOff">연동 끄기</button>
+      <span class="tiny muted">자산 앱 기준 ${V.at? new Date(V.at).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '-'}</span>
+    </div>
+    <div class="pad tiny muted" style="padding-top:0;line-height:1.7">
+      부동산 대출은 여기 금액에서 빼지 않았습니다 — 💳 부채 칸에서 따로 관리하세요.
+    </div>
+  </div>`;
+}
+/* 어느 자산 항목으로 보낼지 고르기 */
+function openInvPick(sigs){
+  const list = sigs.split('§');
+  const os = [...(state.settings.owners||[])];
+  openModal(`<div class="modal">
+    <div class="mhead"><h3>어느 항목에 넣을까요?</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted" style="margin-bottom:10px">${esc(list.map(x=>x.split('|')[2]).join(', '))}</div>
+    ${os.map(o=>`
+      <div class="field"><label>${esc(o)}</label>
+        <div class="row wrap">
+          ${state.assetRows.filter(r=>r.owner===o).map(r=>
+            `<button class="chip line" data-act="invSetRow" data-sigs="${esc(sigs)}" data-row="${r.id}">${esc(r.name)}</button>`
+          ).join('')}
+        </div></div>`).join('')}
+    <button class="btn ghost block" data-act="invSetRow" data-sigs="${esc(sigs)}" data-row="">넣지 않기</button>
+  </div>`);
+}
+
 /* ---------- 절약 ---------- */
 const habitCount = (hid, key) => +((state.habitLog||{})[key]||{})[hid] || 0;
 const habitMonthTotal = key => (state.habits||[]).reduce((s,h)=>s+(+h.per||0)*habitCount(h.id,key), 0);
@@ -1223,6 +1422,8 @@ function viewAsset(){
       <div class="b3">총자산 ${bigWon(tot)}원 − 부채 ${bigWon(debt)}원
         · 지난달 대비 <b>${dNw>=0?'+':''}${bigWon(dNw)}원</b></div>
     </div>
+
+    ${invCard(cur)}
 
     ${owners.map(o=>{
       const rows = ownerRows(o);
@@ -1901,6 +2102,24 @@ function openSettings(){
       <button class="btn sm block" style="margin-top:8px" data-act="linkSetup">연동 설정 열기</button>
     </div>
 
+    <div class="field"><label>📊 자산 앱 연동</label>
+      ${(()=>{ const V = state.inv || {};
+        return V.enabled
+          ? `<div class="box">
+               <div style="font-size:12.5px;font-weight:800;color:var(--navy)">켜짐 · ${V.mode==='remote'?'자산 앱 방에서 읽는 중':'이 브라우저에서 읽는 중'}</div>
+               <div class="tiny muted" style="margin-top:4px;line-height:1.7">
+                 종목 ${(V.rows||[]).length}개 · 합계 <b>${bigWon((V.rows||[]).reduce((a,r)=>a+(+r.value||0),0))}원</b><br>
+                 ${V.error? `<span style="color:var(--spend)">⚠️ ${esc(V.error)}</span>`
+                   : `💎 자산 탭 맨 위에서 <b>반영</b>을 누르면 그 달 평가액이 채워집니다`}
+               </div></div>`
+          : `<div class="tiny muted" style="line-height:1.7;margin-bottom:8px">
+               자산 앱에 담아 둔 <b>주식·코인·달러·금·부동산</b> 금액을 💎 자산 칸으로 불러옵니다.
+               ${investHere()? '' : '<br>이 브라우저에는 자산 앱 기록이 없어요 — 자산 앱에서 부부 공유를 켜면 방에서 읽어옵니다.'}</div>`;
+      })()}
+      <a class="btn ghost sm block" style="margin-top:8px;text-decoration:none;text-align:center;display:block"
+         href="../my-assets/">자산 앱 열기 →</a>
+    </div>
+
     <div class="field"><label>기본값</label>
       <div class="g2">
         <div><div class="tiny muted" style="font-weight:800;margin-bottom:4px">기준 연도</div>
@@ -2507,6 +2726,54 @@ document.addEventListener('click', async (e)=>{
     save(); render(); toast(n? `${n}개 항목을 지난달 값으로 채웠어요` : '채울 항목이 없어요'); break;
   }
 
+  /* ---- 📊 자산 앱 연동 ---- */
+  case 'invOn': {
+    const V = state.inv = state.inv || blankInv();
+    V.enabled = true; V.asked = true; V.mode = b.dataset.mode || 'local';
+    if(V.mode==='remote'){
+      const cfg = investFbConfig();
+      const room = prompt('자산 앱 방 이름', V.room || cfg?.room || '') || '';
+      V.room = room.trim().replace(/[^A-Za-z0-9_\-]/g,'');
+      if(!V.room){ V.enabled = false; break; }
+    }
+    save(); await refreshInvest(); render();
+    toast(state.inv.error ? state.inv.error : '자산 앱에서 금액을 읽어왔어요');
+    break;
+  }
+  case 'invOff':
+    state.inv = blankInv(); state.inv.asked = true; save(); render();
+    toast('연동을 껐어요 — 이미 반영한 금액은 그대로 남습니다'); break;
+  case 'invRefresh':
+    await refreshInvest(); render();
+    toast(state.inv?.error || '다시 읽었어요'); break;
+  case 'invApply': {
+    const v = +b.dataset.v || 0, rowId = b.dataset.row;
+    if(!rowId) break;
+    state.assetCells[`${rowId}|${ui.aKey}`] = v;
+    save(); render(); toast(`${assetKeyLabel(ui.aKey)} 값을 ${num(v)}원으로 맞췄어요`);
+    break;
+  }
+  case 'invApplyAll': {
+    const key = b.dataset.key || ui.aKey;
+    let n = 0;
+    invPlan().forEach(p=>{
+      if(!p.ok) return;
+      const cur = assetRaw(p.rowId, key);
+      if(cur !== undefined && Math.round(cur) === Math.round(p.sum)) return;
+      state.assetCells[`${p.rowId}|${key}`] = Math.round(p.sum); n++;
+    });
+    save(); render(); toast(n? `${n}개 항목을 자산 앱 금액으로 맞췄어요` : '바꿀 게 없었어요');
+    break;
+  }
+  case 'invPick': openInvPick(b.dataset.sig); break;
+  case 'invSetRow': {
+    const V = state.inv = state.inv || blankInv();
+    V.map = V.map || {};
+    (b.dataset.sigs||'').split('§').filter(Boolean).forEach(sig=>{ V.map[sig] = b.dataset.row || ''; });
+    save(); closeModal(); render();
+    break;
+  }
+
   /* ---- 고정비 · 대출 ---- */
   case 'editFixed': openFixedForm(id); break;
   case 'saveFixed': {
@@ -2830,7 +3097,7 @@ function syncStart(){
   syncPull();
   syncTimer = setInterval(()=>{ if(!document.hidden) syncPull(); }, 15000);
 }
-document.addEventListener('visibilitychange', ()=>{ if(!document.hidden){ syncPull(); refreshLink(); } });
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden){ syncPull(); refreshLink(); refreshInvest(); } });
 
 function parseFbConfig(text){
   const t = String(text||'');
@@ -2867,12 +3134,16 @@ state.payeeMap = state.payeeMap || {};
 /* 🧊 냉장고 앱 기록이 같은 브라우저에 있으면 처음 한 번 자동으로 켠다 */
 if(!state.link) state.link = blankLink();
 if(!state.link.asked && fridgeHere()){ state.link.enabled = true; state.link.asked = true; }
+/* 📊 자산 앱 기록이 같은 브라우저에 있으면 처음 한 번 자동으로 켠다 */
+if(!state.inv) state.inv = blankInv();
+if(!state.inv.asked && investHere()){ state.inv.enabled = true; state.inv.asked = true; }
 ui.m = nowMonthIdx();
 ui.aKey = latestAssetKey();
 writeLocal();          /* 처음 열었을 때도 바로 저장해 둔다 */
 render();
 syncStart();
 refreshLink();
+refreshInvest();
 if(pendingInvite) openJoinPrompt();
 </script>
 </body>
