@@ -986,11 +986,16 @@ function invRowTarget(r){
   /* 공동 명의는 첫 번째 사람 칸으로 보냅니다 (직접 바꿀 수 있어요) */
   const owner = os.includes(r.owner) ? r.owner : os[0];
   const pool = state.assetRows.filter(x=>x.owner===owner);
-  /* ① 이름이 겹치는 항목 (예: '우리집 아파트' → '아파트') */
+  /* ① ISA·연금저축·IRP 계좌에 든 것은 종목이 무엇이든 연금·ISA 칸으로 */
+  if(/^(ISA|연금저축|IRP)$/.test(String(r.atype||''))){
+    const hitP = pool.find(x=>/연금|ISA|IRP|퇴직/.test(x.name));
+    if(hitP) return hitP.id;
+  }
+  /* ② 이름이 겹치는 항목 (예: '우리집 아파트' → '아파트') */
   const n = String(r.name||'');
   let hit = pool.find(x => x.name && (n.includes(x.name) || x.name.includes(n)));
   if(hit) return hit.id;
-  /* ② 종류 규칙으로 */
+  /* ③ 종류 규칙으로 */
   hit = pool.find(x => invCat(r.cat).match.test(x.name));
   return hit ? hit.id : '';
 }
@@ -1043,7 +1048,7 @@ function invCard(key){
     ${plan.map(p=>{
       const cur = assetRaw(p.rowId, key);
       const same = cur !== undefined && Math.round(cur) === Math.round(p.sum);
-      const names = p.from.map(f=>f.name).join(', ');
+      const names = p.from.map(f=>f.name + (f.atype && f.atype!=='일반' ? ` (${f.atype})` : '')).join(', ');
       return `<div class="line-item" style="cursor:default">
         <div class="grow" style="min-width:0">
           <div class="nm">${p.ok? esc(p.owner)+' · '+esc(p.name)

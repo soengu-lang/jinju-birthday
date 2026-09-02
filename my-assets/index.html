@@ -112,6 +112,13 @@ nav.tabs{position:sticky;top:0;z-index:30;background:var(--bg);padding:10px 0 8p
   background:var(--gold-s);color:var(--gold);margin-left:4px;vertical-align:middle}
 .badge.err{background:#f7e7e5;color:var(--up)}
 .badge.man{background:var(--soft);color:var(--brand)}
+.badge.tgt{background:#e4f1ec;color:#2e7d6b}
+.diary{border-left:3px solid var(--soft-d);padding:2px 0 2px 11px;margin-bottom:14px}
+.diary .d1{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.diary .dt{font-size:11.5px;font-weight:800;color:var(--brand)}
+.diary .dn{font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.diary .dx{font-size:13px;line-height:1.65;margin-top:3px;white-space:pre-wrap;word-break:break-word}
+.diary .dm{font-size:10.5px;color:var(--muted);margin-top:4px}
 
 /* ---------- 그룹 헤더 ---------- */
 .ghead{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 2px 8px}
@@ -266,6 +273,59 @@ const catLabel = k => { const c=CAT(k); return c.emo+' '+c.label; };
 /* 수량 없이 '금액'만 적는 종류 */
 const isAmountCat = k => k==='cash' || k==='etc' || k==='real';
 
+/* 계좌 종류 — 세금·인출 규칙이 달라서 따로 봅니다 */
+const ACCT_TYPES = [
+  { k:'일반',    label:'일반·위탁',   emo:'📋', color:'#5a6dab' },
+  { k:'ISA',     label:'ISA',        emo:'🧾', color:'#2e7d6b' },
+  { k:'연금저축', label:'연금저축',    emo:'🌱', color:'#7aa03f' },
+  { k:'IRP',     label:'IRP·퇴직연금', emo:'🏦', color:'#9b5aa8' },
+  { k:'기타',    label:'기타',        emo:'📦', color:'#7c8390' }
+];
+const ACCT_T = k => ACCT_TYPES.find(x=>x.k===k) || ACCT_TYPES[0];
+/* 세금 혜택이 있는(=바로 못 빼는) 계좌 */
+const isPension = t => t==='연금저축' || t==='IRP';
+const isTaxAcct = t => isPension(t) || t==='ISA';
+
+/* 자산 성격 — '무엇에 투자했나'.
+   금을 현물로 갖든 금 ETF로 갖든 '금'이고,
+   달러를 외화예금으로 갖든 미국채 ETF로 갖든 성격이 다릅니다. */
+const KINDS = [
+  { k:'stock', label:'주식',      emo:'🏢', color:'#d0729a' },
+  { k:'bond',  label:'채권',      emo:'📜', color:'#5a6dab' },
+  { k:'gold',  label:'금·원자재',  emo:'🥇', color:'#c9a227' },
+  { k:'fx',    label:'달러·외화',  emo:'💵', color:'#2e7d6b' },
+  { k:'real',  label:'부동산',    emo:'🏠', color:'#7a6a55' },
+  { k:'cash',  label:'현금성',    emo:'💰', color:'#7c8390' },
+  { k:'coin',  label:'코인',      emo:'🪙', color:'#e08b2e' },
+  { k:'etc',   label:'기타',      emo:'📦', color:'#9b5aa8' }
+];
+const KIND = k => KINDS.find(x=>x.k===k) || KINDS[7];
+const kindLabel = k => { const x = KIND(k); return x.emo+' '+x.label; };
+/* 이름·티커를 보고 성격을 짐작합니다 (언제든 직접 바꿀 수 있어요) */
+const GOLD_RE = /골드(?!만)|금현물|금선물|\bGLD\b|\bIAU\b|\bGC=F\b|원자재|\bDBC\b|은현물|\bSLV\b|팔라듐|백금/i;
+const BOND_RE = /채권|국채|회사채|\bBOND\b|\bTLT\b|\bIEF\b|\bSHY\b|\bAGG\b|\bBND\b|\bTIPS\b|\bLQD\b|만기매칭|종합채/i;
+const REIT_RE = /리츠|\bREIT\b|\bVNQ\b/i;
+const DOLL_RE = /달러|\bUUP\b|외화예금|외화/i;
+const CASH_RE = /예금|적금|예치|파킹|\bMMF\b|\bCMA\b|비상금|통장/i;
+function guessKind(h){
+  const n = `${h.name||''} ${h.code||''}`;
+  if(GOLD_RE.test(n)) return 'gold';
+  if(h.cat!=='fx' && CASH_RE.test(n)) return 'cash';
+  if(BOND_RE.test(n)) return 'bond';
+  if(REIT_RE.test(n)) return 'real';
+  if(h.cat!=='cash' && DOLL_RE.test(n)) return 'fx';
+  switch(h.cat){
+    case 'kr': case 'us': return 'stock';
+    case 'coin': return 'coin';
+    case 'gold': return 'gold';
+    case 'fx':   return 'fx';
+    case 'real': return 'real';
+    case 'cash': return 'cash';
+    default:     return 'etc';
+  }
+}
+const kindOf = h => h.kind || guessKind(h);
+
 const $  = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -363,7 +423,7 @@ const b64d = s => decodeURIComponent(escape(atob(s.replace(/-/g,'+').replace(/_/
    · loan 부동산에 남은 대출 (순자산에서 뺍니다)
    · mp   직접 적어 넣은 시세 (자동 조회를 이깁니다)
 */
-let state, ui = { tab:'home', q:'', qcat:'kr', res:[], searching:false, owner:'전체' };
+let state, ui = { tab:'home', q:'', qcat:'kr', res:[], searching:false, owner:'전체', slice:'cat', group:'cat' };
 let saveTimer=null, pushTimer=null, syncTimer=null, priceTimer=null;
 let syncBusy=false, applyingRemote=false, refreshing=false, pendingInvite=null;
 
@@ -376,6 +436,8 @@ function blankState(){
     fx: { v:0, at:0, src:'' },    /* 원/달러 */
     snap: {},                     /* 'YYYY-MM-DD' -> {tot,net} 하루 한 번 기록 */
     coins: { list:[], at:0 },     /* 업비트 코인 목록 캐시 */
+    accts: {},                    /* 계좌 등록부  '미래에셋 ISA' -> {type:'ISA'} */
+    diary: [],                    /* 투자 일기 */
     relay: 0,                     /* 마지막에 성공한 우회 경로 */
     memo: '',
     sync: { enabled:false }
@@ -545,23 +607,76 @@ function inOwner(h){ return ui.owner==='전체' || (h.owner||'공동')===ui.owne
 /* 전체 합계 */
 function totals(list){
   list = list || activeHoldings().filter(inOwner);
-  let value=0, cost=0, loan=0, day=0, missing=0;
+  let value=0, cost=0, cval=0, loan=0, day=0, missing=0;
   list.forEach(h=>{
     const r = calc(h);
     value += r.value; loan += r.loan; day += r.day;
-    if(r.ready) cost += r.cost; else missing++;
+    if(!r.ready){ missing++; return; }
+    /* 원금을 적어 둔 자산끼리만 견줘야 수익률이 맞습니다
+       (원금 없이 금액만 적은 예적금이 섞이면 수익률이 부풀려집니다) */
+    if(r.cost > 0){ cost += r.cost; cval += r.value; }
   });
-  return { value, cost, loan, net:value-loan, pl: cost>0? value-cost : 0,
-           plRate: cost>0? (value-cost)/cost : 0, day, missing, n:list.length };
+  return { value, cost, cval, loan, net:value-loan, pl: cost>0? cval-cost : 0,
+           plRate: cost>0? (cval-cost)/cost : 0, day, missing, n:list.length };
 }
-function byCat(list){
+/* 같은 자산을 세 가지로 나눠 볼 수 있습니다
+   · cat  어디에 담았나 (국내주식 · 코인 · 부동산 …)
+   · kind 무엇에 투자했나 (주식 · 채권 · 금 · 달러 …)
+   · acct 어느 계좌인가 (미래에셋 · ISA · IRP …) */
+const AXES = [
+  { k:'cat',  label:'종류별' },
+  { k:'kind', label:'성격별' },
+  { k:'acct', label:'계좌별' }
+];
+function axisOf(h, mode){
+  if(mode==='kind'){ const x = KIND(kindOf(h)); return { key:x.k, label:kindLabel(x.k), color:x.color }; }
+  if(mode==='acct'){
+    const name = h.acct || '계좌 안 적음';
+    const t = acctTypeOf(h);
+    return { key:name, color: h.acct? acctColor(name) : '#b9b7ae',
+             label: (h.acct? ACCT_T(t).emo+' ' : '📭 ') + name + (h.acct && t!=='일반' ? ` · ${t}` : '') };
+  }
+  const c = CAT(h.cat); return { key:c.k, label:catLabel(c.k), color:c.color };
+}
+/* 축 하나로 묶어서 합계 내기 — 큰 것부터 */
+function byAxis(list, mode){
   list = list || activeHoldings().filter(inOwner);
-  const m = {};
-  list.forEach(h=>{ const r=calc(h); (m[h.cat] = m[h.cat] || {value:0,cost:0,loan:0,day:0,n:0,items:[]});
-    m[h.cat].value += r.value; m[h.cat].loan += r.loan;
-    if(r.ready) m[h.cat].cost += r.cost;
-    m[h.cat].day += r.day; m[h.cat].n++; m[h.cat].items.push(h); });
-  return m;
+  const m = new Map();
+  list.forEach(h=>{
+    const a = axisOf(h, mode), r = calc(h);
+    if(!m.has(a.key)) m.set(a.key, { ...a, value:0, cost:0, cval:0, loan:0, day:0, n:0, items:[] });
+    const g = m.get(a.key);
+    g.value += r.value; g.loan += r.loan; g.day += r.day; g.n++; g.items.push(h);
+    if(r.ready && r.cost > 0){ g.cost += r.cost; g.cval += r.value; }
+  });
+  return [...m.values()].sort((a,b)=>b.value-a.value);
+}
+function axisChips(act, cur){
+  return `<div class="chips" style="margin-bottom:10px">${AXES.map(a=>
+    `<button class="chip ${cur===a.k?'on':'line'}" data-act="${act}" data-v="${a.k}">${a.label}</button>`
+  ).join('')}</div>`;
+}
+
+/* 목표가·손절가에 닿았는지 */
+function hitOf(h){
+  const r = calc(h);
+  if(!r.ready) return '';
+  const p = +r.px.p || 0;
+  if(+h.target > 0 && p >= +h.target) return 'target';
+  if(+h.stop   > 0 && p <= +h.stop)   return 'stop';
+  return '';
+}
+const alertList = () => activeHoldings().map(h=>({h, hit:hitOf(h)})).filter(x=>x.hit);
+
+/* 투자 일기 — 적을 때 그 순간의 순자산도 같이 남겨 둡니다 */
+function addDiary(text, holdId){
+  const t = String(text||'').trim(); if(!t) return null;
+  const s = totals(activeHoldings());
+  state.diary = state.diary || [];
+  const e = { id:uid(), at:Date.now(), date:iso(new Date()), text:t,
+              hold:holdId||'', net:Math.round(s.net), tot:Math.round(s.value) };
+  state.diary.push(e);
+  return e;
 }
 
 /* ------------------------------------------------------------
@@ -579,17 +694,17 @@ function groupOf(items){
 }
 /* 묶인 종목의 합계 — 평단은 수량으로 가중평균 */
 function calcGroup(list){
-  let qty=0, value=0, cost=0, loan=0, day=0, wSum=0, wQty=0, ready=false, px=null;
+  let qty=0, value=0, cost=0, cval=0, loan=0, day=0, wSum=0, wQty=0, ready=false, px=null;
   list.forEach(h=>{
     const r = calc(h);
     qty += +h.qty||0; value += r.value; loan += r.loan; day += r.day;
-    if(r.ready){ cost += r.cost; ready = true; }
+    if(r.ready){ ready = true; if(r.cost>0){ cost += r.cost; cval += r.value; } }
     if((+h.avg||0) > 0){ wSum += (+h.qty||0)*(+h.avg); wQty += (+h.qty||0); }
     if(!px || px.none) px = r.px;
   });
   const prevValue = value - day;
-  return { qty, avg: wQty>0 ? wSum/wQty : 0, value, cost, loan, net:value-loan,
-           pl: cost>0? value-cost : 0, plRate: cost>0? (value-cost)/cost : 0,
+  return { qty, avg: wQty>0 ? wSum/wQty : 0, value, cost, cval, loan, net:value-loan,
+           pl: cost>0? cval-cost : 0, plRate: cost>0? (cval-cost)/cost : 0,
            day, dayRate: prevValue>0 ? day/prevValue : 0, px: px||{}, ready };
 }
 const acctLabel = h => h.acct || '';
@@ -687,6 +802,7 @@ function buildLedger(){
     rows: activeHoldings().map(h=>{
       const r = calc(h);
       return { owner:h.owner||'공동', cat:h.cat, name:h.name,
+               acct:h.acct||'', atype:acctTypeOf(h), kind:kindOf(h),
                value:Math.round(r.value), loan:Math.round(r.loan) };
     }).filter(r=>r.value>0 || r.loan>0)
   };
@@ -1268,8 +1384,8 @@ const dupOf = (r, owner, acct) => (state.holdings||[]).find(h=>
 const TABS = [
   { k:'home', label:'🏠 한눈에' },
   { k:'list', label:'📈 내 종목' },
-  { k:'add',  label:'＋ 담기' },
-  { k:'set',  label:'⚙️ 설정' }
+  { k:'note', label:'📝 기록' },
+  { k:'add',  label:'＋ 담기' }
 ];
 function renderTabs(){
   $('#tabbar').innerHTML = TABS.map(t=>
@@ -1338,6 +1454,8 @@ function holdRow(h){
     <div class="ic" style="background:${c.color}1f;color:${c.color}">${c.emo}</div>
     <div class="mid">
       <div class="nm">${esc(h.name)}${px.manual?'<span class="badge man">직접</span>':''}${
+        hitOf(h)==='target'? '<span class="badge tgt">🎯 목표가</span>' :
+        hitOf(h)==='stop'?   '<span class="badge err">🛑 손절가</span>' : ''}${
         h.owner && h.owner!=='공동' ? `<span class="badge">${esc(h.owner)}</span>`:''}</div>
       <div class="sb">${sub}</div>
     </div>
@@ -1389,10 +1507,8 @@ function viewHome(){
   const list = activeHoldings().filter(inOwner);
   if(!list.length) return emptyHome();
   const t = totals(list);
-  const m = byCat(list);
-  const parts = CATS.filter(c=>m[c.k]?.value>0)
-    .map(c=>({ k:c.k, name:catLabel(c.k), v:m[c.k].value, c:c.color, day:m[c.k].day }));
-  parts.sort((a,b)=>b.v-a.v);
+  const parts = byAxis(list, ui.slice).filter(g=>g.value>0)
+    .map(g=>({ k:g.key, name:g.label, v:g.value, c:g.color, day:g.day }));
 
   const dayCls = sgn(t.day), plCls = sgn(t.pl);
   const snaps = Object.keys(state.snap||{}).sort().slice(-60)
@@ -1433,7 +1549,8 @@ function viewHome(){
   </div>`:''}
 
   <div class="card">
-    <h2>자산 구성 <span class="sub">${parts.length}종류 · ${t.n}종목</span></h2>
+    <h2>자산 구성 <span class="sub">${parts.length}가지 · ${t.n}종목</span></h2>
+    ${axisChips('slice', ui.slice)}
     <div class="donut-wrap">
       ${donut(parts, t.value)}
       <div class="legend">${parts.map(p=>`
@@ -1502,11 +1619,11 @@ function emptyHome(){
 function viewList(){
   const list = activeHoldings().filter(inOwner);
   if(!activeHoldings().length) return emptyHome();
-  const m = byCat(list);
   const t = totals(list);
-  const cats = CATS.filter(c=>m[c.k]);
+  const gs = byAxis(list, ui.group);
   return `
   ${ownerChips()}
+  ${axisChips('group', ui.group)}
   <div class="card tight">
     <div class="between">
       <div><div class="tiny muted">평가금액 합계</div>
@@ -1520,21 +1637,98 @@ function viewList(){
       </div>
     </div>
   </div>
-  ${cats.map(c=>{
-    const g = m[c.k];
+  ${gs.map(g=>{
     const groups = groupOf(g.items).sort((a,b)=>calcGroup(b).value-calcGroup(a).value);
     const pct = t.value>0 ? (g.value/t.value*100) : 0;
+    const gc = g.cost>0 ? (g.cval-g.cost)/g.cost : 0;
     return `<div class="card">
       <div class="ghead">
-        <div class="gl"><span class="dot" style="background:${c.color}"></span>${catLabel(c.k)}
+        <div class="gl"><span class="dot" style="background:${g.color}"></span>${g.label}
           <span class="muted" style="font-weight:600">${g.n}</span></div>
-        <div class="gr num">${won(g.value)} <span class="muted" style="font-weight:600">${pct.toFixed(0)}%</span></div>
+        <div class="gr num">${won(g.value)} <span class="muted" style="font-weight:600">${pct.toFixed(0)}%</span>
+          ${g.cost>0? `<span class="${sgn(gc)}"> ${pctS(gc,1)}</span>`:''}</div>
       </div>
-      <div class="bar" style="margin-bottom:6px"><i style="width:${pct.toFixed(1)}%;background:${c.color}"></i></div>
+      <div class="bar" style="margin-bottom:6px"><i style="width:${pct.toFixed(1)}%;background:${g.color}"></i></div>
       ${groups.map(holdGroupRow).join('')}
     </div>`;
   }).join('')}
-  ${!cats.length? '<div class="empty">이 이름으로 담아 둔 자산이 없어요</div>':''}`;
+  ${!gs.length? '<div class="empty">이 이름으로 담아 둔 자산이 없어요</div>':''}`;
+}
+
+/* ============================================================
+   6-2. 📝 기록 — 투자 일기 · 종목 코멘트
+   ============================================================ */
+function viewNote(){
+  const al = alertList();
+  const withWhy = activeHoldings().filter(h=>(h.why||'').trim() || +h.target>0 || +h.stop>0);
+  const days = (state.diary||[]).slice().sort((a,b)=>b.at-a.at);
+  const byDate = {};
+  days.forEach(d=>{ (byDate[d.date] = byDate[d.date] || []).push(d); });
+  const dates = Object.keys(byDate).sort().reverse();
+  const nameOf = id => (state.holdings||[]).find(h=>h.id===id)?.name || '';
+
+  return `
+  <div class="card">
+    <h2>오늘 한 줄 <span class="sub">${iso(new Date())}</span></h2>
+    <div class="f" style="margin-bottom:8px">
+      <textarea id="dText" placeholder="예) 환율 1,400 넘어서 달러 더 안 사기로. 삼성전자는 9만원까지 들고 간다."></textarea>
+    </div>
+    <button class="btn block" data-act="dAdd">기록에 남기기</button>
+    <div class="tiny muted mt">적을 때 <b>그 순간 순자산</b>도 같이 저장돼서, 나중에 그때 무슨 생각이었는지 같이 보입니다.</div>
+  </div>
+
+  ${al.length? `<div class="card">
+    <h2>지금 봐야 할 것 <span class="sub">${al.length}건</span></h2>
+    ${al.map(x=>{
+      const r = calc(x.h), c = CAT(x.h.cat);
+      const isT = x.hit==='target';
+      return `<div class="hold" data-act="open" data-id="${x.h.id}">
+        <div class="ic" style="background:${isT?'#e4f1ec':'#fbe9e7'};color:${isT?'#2e7d6b':'var(--up)'}">${isT?'🎯':'🛑'}</div>
+        <div class="mid"><div class="nm">${esc(x.h.name)}</div>
+          <div class="sb">${isT? '목표가' : '손절가'} ${priceS(isT? x.h.target : x.h.stop, r.px.ccy)} ${isT?'넘었어요':'밑으로 내려왔어요'}</div></div>
+        <div class="rt"><div class="amt num">${priceS(r.px.p, r.px.ccy)}</div>
+          ${r.cost>0? `<div class="pl num ${sgn(r.pl)}">${pctS(r.plRate,1)}</div>`:''}</div>
+      </div>`;
+    }).join('')}
+  </div>`:''}
+
+  ${withWhy.length? `<div class="card">
+    <h2>종목별 메모 <span class="sub">${withWhy.length}개</span></h2>
+    ${withWhy.map(h=>{
+      const r = calc(h), c = CAT(h.cat);
+      return `<div class="hold" data-act="open" data-id="${h.id}" style="align-items:flex-start">
+        <div class="ic" style="background:${c.color}1f;color:${c.color}">${c.emo}</div>
+        <div class="mid">
+          <div class="nm">${esc(h.name)}${h.acct? `<span class="badge">${esc(h.acct)}</span>`:''}</div>
+          ${(+h.target>0 || +h.stop>0)? `<div class="sb">
+            ${+h.target>0? `🎯 ${priceS(h.target, r.px.ccy||CAT(h.cat).ccy)}` : ''}
+            ${+h.stop>0? ` &nbsp;🛑 ${priceS(h.stop, r.px.ccy||CAT(h.cat).ccy)}` : ''}
+            ${r.ready? ` &nbsp;· 지금 ${priceS(r.px.p, r.px.ccy)}` : ''}</div>`:''}
+          ${(h.why||'').trim()? `<div class="dx" style="font-size:12px;color:var(--muted);margin-top:4px">${esc(h.why)}</div>`:''}
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`:''}
+
+  ${dates.length? `<div class="card">
+    <h2>투자 일기 <span class="sub">${days.length}개</span></h2>
+    ${dates.map(dt=>`
+      ${byDate[dt].map(d=>`<div class="diary">
+        <div class="d1">
+          <span class="dt">${esc(dt.replace(/-/g,'.'))}${d.hold&&nameOf(d.hold)? ' · '+esc(nameOf(d.hold)) : ''}</span>
+          <span class="dn">순자산 ${shortWon(d.net)}</span>
+        </div>
+        <div class="dx">${esc(d.text)}</div>
+        <div class="dm"><button class="chip line" style="padding:2px 8px;font-size:10px"
+          data-act="dDel" data-id="${d.id}">지우기</button></div>
+      </div>`).join('')}
+    `).join('')}
+  </div>`
+  : (al.length||withWhy.length? '' : `<div class="card"><div class="empty">
+      아직 적어 둔 기록이 없어요.<br>
+      <b style="color:var(--ink)">왜 샀는지</b>, <b style="color:var(--ink)">언제 팔지</b>를 한 줄만 적어 둬도<br>
+      나중에 팔지 말지 정할 때 큰 도움이 됩니다.
+    </div></div>`)}`;
 }
 
 /* ============================================================
@@ -1669,8 +1863,9 @@ function openPickForm(pick){
     <div class="f"><label>어느 계좌 <span class="muted">선택</span></label>
       <input id="pAcct" list="acctList" value="${esc(lastAcct)}" placeholder="예: 미래에셋, 키움, 업비트" autocomplete="off">
       ${acctDatalist()}
+      ${acctTypeChips('pAT', acctTypeOfName(lastAcct))}
       <div class="hint">계좌를 적어 두면 <b>같은 종목을 증권사마다 따로</b> 담을 수 있고,
-        화면에서는 하나로 합쳐 보여줍니다.</div></div>
+        화면에서는 하나로 합쳐 보여줍니다. ISA·연금·IRP는 따로 묶어 볼 수 있어요.</div></div>
     <div class="f"><label>누구 명의</label>
       <div class="seg" id="pOwner">${ownerList().map((o,i)=>
         `<button class="${i===0?'on':''}" data-act="segOwner" data-v="${esc(o)}">${esc(o)}</button>`).join('')}</div></div>
@@ -1692,6 +1887,7 @@ function openPasteForm(){
     <div class="f"><label>어느 계좌인가요 <span class="muted">선택</span></label>
       <input id="pasteAcct" list="acctList" value="${esc(lastAcct)}" placeholder="예: 미래에셋, 키움, 업비트" autocomplete="off">
       ${acctDatalist()}
+      ${acctTypeChips('pasteAT', acctTypeOfName(lastAcct))}
       <div class="hint">증권사가 여러 곳이면 <b>계좌마다 따로 붙여넣고 이름을 적어</b> 주세요.
         같은 종목이 두 계좌에 있어도 각각 담기고, 화면에서는 <b>합쳐서</b> 보여줍니다.</div></div>
     <div class="f"><label>누구 명의로 담을까요</label>
@@ -1799,11 +1995,41 @@ function openHold(id){
     `}
     ${!amt? `<div class="f"><label>어느 계좌 <span class="muted">선택</span></label>
       <input id="hAcct" list="acctList" value="${esc(h.acct||'')}" placeholder="예: 미래에셋, 키움, 업비트">
-      ${acctDatalist()}</div>`:''}
+      ${acctDatalist()}
+      <div class="chips" style="margin-top:6px">${ACCT_TYPES.map(a=>
+        `<button class="chip ${acctTypeOf(h)===a.k?'on':'line'}" data-act="segChip" data-g="hAT" data-v="${a.k}">${a.emo} ${a.label}</button>`
+      ).join('')}</div>
+      <div id="hAT" class="hidden">${esc(acctTypeOf(h))}</div>
+      <div class="hint">ISA·연금저축·IRP는 세금과 인출 규칙이 달라서 따로 묶어 볼 수 있게 해 둡니다.</div></div>`:''}
+    <div class="f"><label>이 자산의 성격</label>
+      <div class="chips">${KINDS.map(k=>
+        `<button class="chip ${kindOf(h)===k.k?'on':'line'}" data-act="segChip" data-g="hKind" data-v="${k.k}">${k.emo} ${k.label}</button>`
+      ).join('')}</div>
+      <div id="hKind" class="hidden">${esc(kindOf(h))}</div>
+      <div class="hint">금을 현물로 갖든 <b>금 ETF</b>로 갖든 '금'으로 묶여 보입니다. 채권 ETF도 마찬가지예요.</div></div>
     <div class="f"><label>누구 명의</label>
       <div class="seg" id="hOwner">${ownerList().map(o=>
         `<button class="${(h.owner||'공동')===o?'on':''}" data-act="segOwner" data-v="${esc(o)}">${esc(o)}</button>`).join('')}</div></div>
     <div class="f"><label>메모</label><input id="hMemo" value="${esc(h.memo||'')}" placeholder="선택"></div>
+
+    <div style="border-top:1px solid var(--line);margin:14px 0 12px;padding-top:12px">
+      <div style="font-size:12.5px;font-weight:900;margin-bottom:8px">📝 투자 메모</div>
+      ${!amt? `<div class="grid2">
+        <div class="f"><label>🎯 목표가 ${isUs?'($)':'(원)'}</label>
+          <input id="hTarget" inputmode="decimal" value="${h.target?esc(h.target):''}" placeholder="선택"></div>
+        <div class="f"><label>🛑 손절가 ${isUs?'($)':'(원)'}</label>
+          <input id="hStop" inputmode="decimal" value="${h.stop?esc(h.stop):''}" placeholder="선택"></div>
+      </div>`:''}
+      <div class="f"><label>왜 샀나 · 언제까지 들고 갈까</label>
+        <textarea id="hWhy" placeholder="예) 2026.3 매수. 반도체 사이클 회복 보고 담음. 10만원 가면 절반 정리.">${esc(h.why||'')}</textarea>
+      </div>
+      ${(h.notes||[]).length? `<div class="tiny muted" style="margin-bottom:6px">지난 기록</div>
+        ${(h.notes||[]).slice().reverse().slice(0,5).map(n=>
+          `<div class="praw" style="margin-bottom:5px"><b>${esc(n.date)}</b> · ${esc(n.text)}</div>`).join('')}`:''}
+      <div class="f"><label>오늘 한 줄 남기기 <span class="muted">선택</span></label>
+        <input id="hNote" placeholder="예) 추가 매수함 / 실적 확인 필요">
+        <div class="hint">적으면 날짜와 함께 <b>📝 기록</b> 탭 일기에도 같이 올라갑니다.</div></div>
+    </div>
 
     <button class="btn block" data-act="saveHold" data-id="${h.id}">저장</button>
     <div class="row mt" style="gap:6px">
@@ -1812,9 +2038,32 @@ function openHold(id){
     </div>
     <button class="btn warn block mt" data-act="delHold" data-id="${h.id}">이 자산 지우기</button>`);
 }
+/* 계좌 종류 고르는 칩 한 줄 (숨은 칸에 값이 담깁니다) */
+function acctTypeChips(boxId, cur){
+  return `<div class="chips" style="margin-top:6px">${ACCT_TYPES.map(a=>
+    `<button class="chip ${cur===a.k?'on':'line'}" data-act="segChip" data-g="${boxId}" data-v="${a.k}">${a.emo} ${a.label}</button>`
+  ).join('')}</div><div id="${boxId}" class="hidden">${esc(cur||'일반')}</div>`;
+}
 /* 이미 쓴 적 있는 계좌 이름을 자동완성으로 */
 let lastAcct = '';
-const acctNames = () => [...new Set((state.holdings||[]).map(h=>h.acct).filter(Boolean))];
+const acctNames = () => [...new Set([
+  ...Object.keys(state.accts||{}),
+  ...(state.holdings||[]).map(h=>h.acct).filter(Boolean)
+])];
+/* 이 계좌(또는 이 자산)의 계좌 종류 */
+const acctTypeOfName = n => (state.accts||{})[n]?.type || '일반';
+const acctTypeOf = h => h.acct ? acctTypeOfName(h.acct) : (h.cat==='etc' ? '기타' : '일반');
+function setAcctType(name, type){
+  if(!name) return;
+  state.accts = state.accts || {};
+  state.accts[name] = { ...(state.accts[name]||{}), type: type||'일반' };
+}
+/* 계좌 이름마다 색을 하나씩 (계좌별로 볼 때 씁니다) */
+const ACCT_COLORS = ['#3f6fa8','#2e7d6b','#c9862b','#9b5aa8','#d0729a','#5a6dab','#7a6a55','#487f7a'];
+function acctColor(name){
+  let n = 0; for(const ch of String(name||'')) n = (n*31 + ch.charCodeAt(0)) >>> 0;
+  return ACCT_COLORS[n % ACCT_COLORS.length];
+}
 const acctDatalist = () =>
   `<datalist id="acctList">${acctNames().map(a=>`<option value="${esc(a)}">`).join('')}</datalist>`;
 
@@ -1899,6 +2148,26 @@ function viewSet(){
       <div class="hint">적어 두면 한눈에 화면에 달성률 막대가 생깁니다.</div></div>
     <button class="btn block" data-act="saveSettings">저장</button>
   </div>
+
+  ${acctNames().length? `<div class="card">
+    <h2>계좌 <span class="sub">${acctNames().length}곳</span></h2>
+    ${acctNames().map(a=>{
+      const n = (state.holdings||[]).filter(h=>h.acct===a).length;
+      const v = (state.holdings||[]).filter(h=>h.acct===a).reduce((s,h)=>s+calc(h).value,0);
+      return `<div style="padding:9px 0;border-bottom:1px solid var(--line)">
+        <div class="between">
+          <div style="font-size:13px;font-weight:800">${esc(a)}
+            <span class="muted tiny" style="font-weight:600">${n}종목</span></div>
+          <div class="num" style="font-size:13px;font-weight:800">${shortWon(v)}원</div>
+        </div>
+        <div class="chips" style="margin-top:6px">${ACCT_TYPES.map(x=>
+          `<button class="chip ${acctTypeOfName(a)===x.k?'on':'line'}"
+            data-act="setAcctType" data-a="${esc(a)}" data-t="${x.k}">${x.emo} ${x.label}</button>`).join('')}</div>
+      </div>`;
+    }).join('')}
+    <div class="tiny muted mt">종류를 정해 두면 <b>📈 내 종목 → 계좌별</b> 에서 ISA·연금·IRP를 따로 볼 수 있고,
+      가계부 자산 칸에도 <b>연금펀드/ISA</b> 항목으로 들어갑니다.</div>
+  </div>`:''}
 
   <div class="card">
     <h2>시세 상태</h2>
@@ -1997,7 +2266,7 @@ async function fsPut(path, json, rev){
   if(!r.ok) throw new Error(await fsErr(r));
 }
 /* 가계부 앱이 이 목록을 읽어 갑니다 — 이름을 바꾸지 마세요 */
-const CORE_KEYS = ['settings','holdings','memo','led'];
+const CORE_KEYS = ['settings','holdings','accts','diary','memo','led'];
 function corePayload(){
   const o = {}; CORE_KEYS.forEach(k=>o[k]=state[k]);
   return JSON.stringify(o);
@@ -2080,10 +2349,11 @@ function render(){
   renderTabs();
   const v = ui.tab==='home' ? viewHome()
           : ui.tab==='list' ? viewList()
+          : ui.tab==='note' ? viewNote()
           : ui.tab==='add'  ? viewAdd()
           : viewSet();
   $('#view').innerHTML = v;
-  $('#fab').classList.toggle('hidden', ui.tab==='add' || ui.tab==='set');
+  $('#fab').classList.toggle('hidden', ui.tab==='add' || ui.tab==='set' || ui.tab==='note');
   renderHeadMeta();
   const q = $('#q');
   if(q){ q.oninput = e => { ui.q = e.target.value; clearTimeout(doSearch._t);
@@ -2115,6 +2385,8 @@ document.addEventListener('click', async ev=>{
     window.scrollTo(0,0);
     break;
   case 'owner': ui.owner = b.dataset.o; render(); break;
+  case 'slice': ui.slice = b.dataset.v; render(); break;
+  case 'group': ui.group = b.dataset.v; render(); break;
   case 'qcat':
     ui.qcat = b.dataset.c; ui.q=''; ui.res=[]; render();
     if(ui.qcat==='coin' || ui.qcat==='gold') doSearch();
@@ -2135,6 +2407,12 @@ document.addEventListener('click', async ev=>{
   case 'segOwner':
     [...b.parentElement.children].forEach(x=>x.classList.remove('on'));
     b.classList.add('on'); break;
+  /* 칩으로 고른 값을 숨은 칸에 적어 둡니다 */
+  case 'segChip': {
+    [...b.parentElement.children].forEach(x=>{ x.classList.remove('on'); x.classList.add('line'); });
+    b.classList.add('on'); b.classList.remove('line');
+    const box = $('#'+b.dataset.g); if(box) box.textContent = b.dataset.v;
+    break; }
   case 'fillName': { const el=$('#mName'); if(el){ el.value = b.dataset.v; el.focus(); } break; }
 
   case 'savePick': {
@@ -2145,6 +2423,7 @@ document.addEventListener('click', async ev=>{
     const avgFx = parseQty($('#pAvgFx')?.value);
     const acct = ($('#pAcct')?.value||'').trim();
     lastAcct = acct;
+    if(acct) setAcctType(acct, $('#pAT')?.textContent.trim() || '일반');
     addHolding({ cat:p.cat, code:p.code, sym:p.sym, name:p.name || p.code, acct,
                  owner: segPick('pOwner', ownerList()[0]),
                  qty, avg: isFinite(avg)? avg : 0,
@@ -2180,6 +2459,7 @@ document.addEventListener('click', async ev=>{
     lastPasteOwner = owner;
     lastPasteAcct = ($('#pasteAcct')?.value||'').trim();
     lastAcct = lastPasteAcct;
+    if(lastPasteAcct) setAcctType(lastPasteAcct, $('#pasteAT')?.textContent.trim() || '일반');
     try{ await loadCoinList(); }catch(e){ /* 내장 목록으로도 충분합니다 */ }
     const out = parsePaste(txt);
     pasteRows = out.rows; pasteUnknown = out.unknown;
@@ -2274,9 +2554,22 @@ document.addEventListener('click', async ev=>{
       else { const v = parseQty(raw); if(isFinite(v)){ h.mp = v; h.mpAt = Date.now(); } }
     }
     h.owner = segPick('hOwner', h.owner||'공동');
-    if($('#hAcct')) h.acct = ($('#hAcct').value||'').trim();
+    if($('#hAcct')){
+      h.acct = ($('#hAcct').value||'').trim();
+      if(h.acct) setAcctType(h.acct, $('#hAT')?.textContent.trim() || '일반');
+    }
+    if($('#hKind')) h.kind = $('#hKind').textContent.trim() || undefined;
     h.memo = ($('#hMemo')?.value||'').trim();
-    save(); closeModal(); render(); toast('저장했어요');
+    const tv = parseQty($('#hTarget')?.value); h.target = isFinite(tv)? tv : 0;
+    const sv = parseQty($('#hStop')?.value);   h.stop   = isFinite(sv)? sv : 0;
+    h.why = ($('#hWhy')?.value||'').trim();
+    const note = ($('#hNote')?.value||'').trim();
+    if(note){
+      h.notes = h.notes || [];
+      h.notes.push({ date: iso(new Date()), text: note });
+      addDiary(note, h.id);
+    }
+    save(); closeModal(); render(); toast(note? '저장하고 기록에 남겼어요' : '저장했어요');
     break; }
   case 'delHold': {
     const h = state.holdings.find(x=>x.id===id); if(!h) break;
@@ -2306,10 +2599,25 @@ document.addEventListener('click', async ev=>{
     const u = chartUrl(h); if(u) window.open(u, '_blank', 'noopener');
     break; }
 
+  /* ---------- 📝 기록 ---------- */
+  case 'dAdd': {
+    const t = ($('#dText')?.value||'').trim();
+    if(!t){ toast('적을 내용을 써 주세요'); break; }
+    addDiary(t); save(); render(); toast('기록에 남겼어요');
+    break; }
+  case 'dDel': {
+    if(!confirm('이 기록을 지울까요?')) break;
+    state.diary = (state.diary||[]).filter(d=>d.id!==id);
+    save(); render(); toast('지웠어요');
+    break; }
+
   /* ---------- 시세 ---------- */
   case 'refresh': refreshPrices(true); break;
 
   /* ---------- 설정 ---------- */
+  case 'setAcctType':
+    setAcctType(b.dataset.a, b.dataset.t); save(); render();
+    toast(`${b.dataset.a} → ${b.dataset.t}`); break;
   case 'saveSettings': {
     const list = ($('#sOwners')?.value||'').split(/[,·\s]+/).filter(Boolean).slice(0,2);
     if(list.length===2){
@@ -2422,6 +2730,8 @@ state.px = state.px || {};
 state.fx = state.fx || { v:0, at:0, src:'' };
 state.snap = state.snap || {};
 state.coins = state.coins || { list:[], at:0 };
+state.accts = state.accts || {};
+state.diary = state.diary || [];
 state.sync = state.sync || { enabled:false };
 buildLedger();
 writeLocal();
