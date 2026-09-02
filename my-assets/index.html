@@ -436,7 +436,7 @@ function blankState(){
     fx: { v:0, at:0, src:'' },    /* 원/달러 */
     snap: {},                     /* 'YYYY-MM-DD' -> {tot,net} 하루 한 번 기록 */
     coins: { list:[], at:0 },     /* 업비트 코인 목록 캐시 */
-    pxV: 2,                       /* 시세 저장 방식 판 번호 */
+    pxV: 3,                       /* 시세 저장 방식 판 번호 */
     accts: {},                    /* 계좌 등록부  '미래에셋 ISA' -> {type:'ISA'} */
     diary: [],                    /* 투자 일기 */
     relay: 0,                     /* 마지막에 성공한 우회 경로 */
@@ -470,36 +470,127 @@ const ownerList = () => [...owners(), '공동'];
       종목을 눌러 '시세 직접 입력'으로 고칠 수 있게 합니다.
    ============================================================ */
 const RELAYS = [
-  { n:'직접',       f:u=>u },
-  { n:'allorigins', f:u=>'https://api.allorigins.win/raw?url='+encodeURIComponent(u) },
-  { n:'corsproxy',  f:u=>'https://corsproxy.io/?url='+encodeURIComponent(u) },
-  { n:'codetabs',   f:u=>'https://api.codetabs.com/v1/proxy?quote='+encodeURIComponent(u) },
-  { n:'isomorphic', f:u=>'https://cors.isomorphic-git.org/'+u }
+  { n:'직접',        f:u=>u },
+  { n:'allorigins',  f:u=>'https://api.allorigins.win/raw?url='+encodeURIComponent(u) },
+  { n:'codetabs',    f:u=>'https://api.codetabs.com/v1/proxy?quote='+encodeURIComponent(u) },
+  { n:'corsproxy',   f:u=>'https://corsproxy.io/?url='+encodeURIComponent(u) },
+  { n:'allorigins2', f:u=>'https://api.allorigins.win/get?url='+encodeURIComponent(u), wrap:'contents' },
+  { n:'whateverorigin', f:u=>'https://whateverorigin.org/get?url='+encodeURIComponent(u), wrap:'contents' },
+  { n:'thingproxy',  f:u=>'https://thingproxy.freeboard.io/fetch/'+u }
 ];
-async function getJSON(url, ms=9000){
+/* 이번 새로고침에서 막힌 경로 — 종목마다 다시 헤매지 않도록 기억합니다 */
+let relayBad = new Set(), relayDead = false;
+function resetRelays(){ relayBad = new Set(); relayDead = false; }
+
+/* 실패를 두 가지로 나눕니다
+   · net  — 중계 서버 자체에 못 닿음 (그 경로를 접습니다)
+   · http — 중계는 살아 있는데 그쪽 주소가 없거나 오류 (다른 주소로 이어서 시도) */
+async function getText(url, ms=6000){
   const ac = new AbortController();
   const t = setTimeout(()=>ac.abort(), ms);
-  try{
-    const r = await fetch(url, { signal:ac.signal, cache:'no-store' });
-    if(!r.ok) throw new Error('HTTP '+r.status);
-    const txt = await r.text();
-    return JSON.parse(txt);
-  } finally { clearTimeout(t); }
+  let r;
+  try{ r = await fetch(url, { signal:ac.signal, cache:'no-store' }); }
+  catch(e){ const err = new Error('연결 실패'); err.net = true; throw err; }
+  finally{ clearTimeout(t); }
+  if(!r.ok){ const err = new Error('HTTP '+r.status); err.http = r.status; throw err; }
+  return await r.text();
 }
-/* 중계 서버를 돌려가며 시도. 성공한 경로를 기억해 다음엔 그것부터 씁니다. */
+async function getJSON(url, ms=6000){ return JSON.parse(await getText(url, ms)); }
+
+/* 중계 서버를 돌려가며 시도합니다.
+   · 성공한 경로를 기억해 다음엔 그것부터
+   · 이번 새로고침에서 죽은 경로는 건너뛰고, 전부 죽었으면 곧바로 포기
+     (예전에는 종목마다 5곳 × 9초씩 기다려서 2분 넘게 멈춘 것처럼 보였습니다) */
 async function relayJSON(url){
-  const order = [state.relay|0, ...RELAYS.map((_,i)=>i).filter(i=>i!==(state.relay|0))];
-  let last;
+  if(relayDead) throw new Error('시세 서버에 닿지 못했어요');
+  const first = state.relay|0;
+  const order = [first, ...RELAYS.map((_,i)=>i).filter(i=>i!==first)].filter(i=>!relayBad.has(i));
+  if(!order.length){ relayDead = true; throw new Error('시세 서버에 닿지 못했어요'); }
+  let netFail = 0, lastErr = null;
   for(const i of order){
     try{
-      const j = await getJSON(RELAYS[i].f(url));
+      const txt = await getText(RELAYS[i].f(url));
+      let j = JSON.parse(txt);
+      if(RELAYS[i].wrap) j = JSON.parse(j[RELAYS[i].wrap]);   /* 껍데기에 담아 주는 곳 */
       if(state.relay !== i){ state.relay = i; writeLocal(); }
       return j;
-    }catch(e){ last = e; }
+    }catch(e){
+      lastErr = e;
+      if(e && e.net){ relayBad.add(i); netFail++; }           /* 이 경로만 접습니다 */
+    }
   }
-  throw new Error('시세 서버에 닿지 못했어요');
+  /* 모든 경로가 '연결 실패'였을 때만 정말 막힌 것으로 봅니다 */
+  if(netFail === order.length) relayDead = true;
+  throw lastErr || new Error('시세 서버에 닿지 못했어요');
 }
-/* 야후 시세 한 종목 */
+
+/* ---------- 네이버 금융 (국내주식 기본 출처) ---------- */
+const numFrom = v => {
+  if(typeof v === 'number') return v;
+  const n = parseFloat(String(v??'').replace(/,/g,'').replace(/[^0-9.\-]/g,''));
+  return isFinite(n) ? n : NaN;
+};
+/* 어제 종가 되짚기 — 등락률이 있으면 그걸로, 없으면 전일대비로 */
+function naverPrev(p, j){
+  const down = String(j?.compareToPreviousPrice?.code||'') === '5';   /* 5 = 하락 */
+  /* 전일대비 금액이 정확합니다 (등락률은 소수점에서 반올림돼 있어요) */
+  let d = numFrom(j?.compareToPreviousClosePrice);
+  if(isFinite(d)){
+    if(d > 0 && down) d = -d;
+    if(p - d > 0) return p - d;
+  }
+  let ratio = numFrom(j?.fluctuationsRatio);
+  if(isFinite(ratio) && ratio > -100){
+    if(ratio > 0 && down) ratio = -ratio;
+    const prev = p / (1 + ratio/100);
+    if(prev > 0) return prev;
+  }
+  return p;
+}
+/* 국내주식·ETF — 증권사 앱과 같은 값이 나옵니다 */
+async function naverKr(code){
+  const tries = [
+    `https://m.stock.naver.com/api/stock/${encodeURIComponent(code)}/basic`,
+    `https://polling.finance.naver.com/api/realtime/domestic/stock/${encodeURIComponent(code)}`
+  ];
+  let last;
+  for(const u of tries){
+    try{
+      const raw = await relayJSON(u);
+      const j = raw?.datas?.[0] || raw;                 /* polling 쪽은 datas 배열에 담겨 옵니다 */
+      const p = numFrom(j?.closePrice);
+      if(!(p > 0)) throw new Error('시세 없음');
+      return { p, prev: naverPrev(p, j), ccy:'KRW',
+               name: j?.stockName || j?.itemName || '', src:'네이버' };
+    }catch(e){ last = e; if(relayDead) break; }
+  }
+  throw last || new Error('네이버에서 시세를 못 찾았어요');
+}
+/* 미국주식 — 네이버는 티커에 거래소 꼬리표가 붙습니다 (.O 나스닥 / .K 뉴욕) */
+async function naverUs(h){
+  const cands = h.nsym ? [h.nsym] : [h.code+'.O', h.code+'.K'];
+  let last;
+  for(const sym of cands){
+    try{
+      const j = await relayJSON(`https://api.stock.naver.com/stock/${encodeURIComponent(sym)}/basic`);
+      const p = numFrom(j?.closePrice);
+      if(!(p > 0)) throw new Error('시세 없음');
+      h.nsym = sym;
+      return { p, prev: naverPrev(p, j), ccy: j?.currencyType?.code || 'USD',
+               name: j?.stockName || '', src:'네이버' };
+    }catch(e){ last = e; if(relayDead) break; }
+  }
+  throw last || new Error('네이버에서 시세를 못 찾았어요');
+}
+/* 네이버 환율·금 */
+async function naverIndex(code){
+  const j = await relayJSON(`https://m.stock.naver.com/api/marketindex/${code}`);
+  const p = numFrom(j?.closePrice ?? j?.now ?? j?.basePrice);
+  if(!(p > 0)) throw new Error('시세 없음');
+  return { p, prev: naverPrev(p, j) };
+}
+
+/* ---------- 야후 (미국주식 기본 · 국내는 예비) ---------- */
 async function yahoo(sym){
   const u = 'https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(sym)
           + '?range=5d&interval=1d';
@@ -509,16 +600,15 @@ async function yahoo(sym){
   if(!m || !isFinite(p) || p<=0) throw new Error('시세를 못 찾았어요');
   const prev = +(m.chartPreviousClose ?? m.previousClose ?? p);
   return { p, prev: isFinite(prev)&&prev>0 ? prev : p, ccy: m.currency || 'KRW',
-           name: m.longName || m.shortName || '', ex: m.exchangeName || '' };
+           name: m.longName || m.shortName || '', ex: m.exchangeName || '', src:'야후' };
 }
-/* 야후 종목 검색 */
 async function yahooSearch(q){
   const u = 'https://query1.finance.yahoo.com/v1/finance/search?q='+encodeURIComponent(q)
           + '&quotesCount=12&newsCount=0&listsCount=0';
   const j = await relayJSON(u);
   return (j?.quotes||[]).filter(x=>x.symbol);
 }
-/* 원/달러 환율 */
+/* 원/달러 환율 — 브라우저가 바로 부를 수 있는 곳부터 */
 async function fetchFx(){
   try{
     const j = await getJSON('https://quotation-api-cdn.dunamu.com/v1/forex/recent?codes=FRX.KRWUSD');
@@ -529,6 +619,7 @@ async function fetchFx(){
     const j = await getJSON('https://open.er-api.com/v6/latest/USD');
     const v = +j?.rates?.KRW; if(v>0) return { v, src:'er-api' };
   }catch(e){}
+  try{ const n = await naverIndex('exchange/FX_USDKRW'); if(n.p>0) return { v:n.p, src:'네이버' }; }catch(e){}
   const y = await yahoo('KRW=X');
   return { v:y.p, src:'야후' };
 }
@@ -560,9 +651,14 @@ async function loadCoinList(){
 }
 /* 금 — 국제 시세(달러/트로이온스)를 원/g 으로 */
 async function fetchGold(fxv){
-  const y = await yahoo('GC=F');
   const per = x => x * (fxv||0) / OZ_G;
-  return { p: per(y.p), prev: per(y.prev), ccy:'KRW', src:'국제금시세' };
+  try{
+    const y = await yahoo('GC=F');
+    return { p: per(y.p), prev: per(y.prev), ccy:'KRW', src:'국제금시세' };
+  }catch(e){
+    const n = await naverIndex('metals/CMDT_GC');
+    return { p: per(n.p), prev: per(n.prev), ccy:'KRW', src:'네이버 금' };
+  }
 }
 
 /* 시세는 '종목' 기준으로 담습니다.
@@ -733,7 +829,9 @@ const acctLabel = h => h.acct || '';
 async function refreshPrices(manual){
   if(refreshing) return;
   const list = activeHoldings().filter(h=>CAT(h.cat).auto && !(h.mp!==undefined && h.mp!==null && h.mp!==''));
-  refreshing = true; renderHeadMeta();
+  refreshing = true; resetRelays(); renderHeadMeta();
+  const startedAt = Date.now();
+  const outOfTime = () => Date.now() - startedAt > 45000;   /* 너무 오래 붙들지 않습니다 */
   let ok=0, fail=0;
   try{
     /* ① 환율 — 미국주식·달러·금 계산에 먼저 필요합니다 */
@@ -762,12 +860,13 @@ async function refreshPrices(manual){
     /* ④ 주식 — 야후에서 3개씩 나눠서 */
     const stocks = list.filter(h=>h.cat==='kr'||h.cat==='us');
     for(let i=0;i<stocks.length;i+=3){
+      if(relayDead || outOfTime()){ fail += stocks.length - i; break; }
       const part = stocks.slice(i,i+3);
       await Promise.all(part.map(async h=>{
         try{
           const q = await quoteStock(h);
           state.px[pxKey(h)] = { p:q.p, prev:q.prev, ccy:q.ccy, name:q.name||h.name,
-                                 at:Date.now(), src:'야후' };
+                                 at:Date.now(), src:q.src || '야후' };
           if(q.name && !h.official){ h.official = q.name; }
           ok++;
         }catch(e){ fail++; state.px[pxKey(h)] = { ...(state.px[pxKey(h)]||{}), err:e.message }; }
@@ -795,20 +894,30 @@ async function refreshPrices(manual){
   } finally {
     refreshing = false;
     render();
-    if(manual) toast(fail ? `${ok}건 갱신 · ${fail}건 실패 — 종목을 눌러 직접 넣을 수 있어요`
-                          : (ok? '시세를 새로 가져왔어요' : '가져올 시세가 없어요'));
+    if(manual) toast(
+      relayDead ? '시세 서버에 닿지 못했어요 — 인터넷을 확인하거나 종목을 눌러 직접 넣어 주세요'
+      : fail ? `${ok}건 갱신 · ${fail}건 실패 — 종목을 눌러 직접 넣을 수 있어요`
+      : (ok ? '시세를 새로 가져왔어요' : '가져올 시세가 없어요'));
   }
 }
-/* 국내 주식은 코스피(.KS) → 코스닥(.KQ) 순서로 붙여 보고, 되는 쪽을 기억합니다 */
+/* 종목 하나의 시세
+   · 국내는 네이버 금융을 먼저 봅니다 (증권사 앱과 같은 값)
+   · 안 되면 야후로, 코스피(.KS) → 코스닥(.KQ) 순서로 붙여 보고 되는 쪽을 기억합니다
+   · 미국은 야후를 먼저, 안 되면 네이버 해외주식 */
 async function quoteStock(h){
-  const cands = h.cat==='kr'
-    ? [...new Set([h.sym || (h.code+'.KS'), h.code+'.KS', h.code+'.KQ'])]
-    : [h.sym || h.code];
   let last;
-  for(const s of cands){
-    try{ const q = await yahoo(s); h.sym = s; return q; }
-    catch(e){ last = e; }
+  if(h.cat==='kr'){
+    try{ return await naverKr(h.code); }catch(e){ last = e; }
+    if(!relayDead){
+      for(const sym of [...new Set([h.sym || (h.code+'.KS'), h.code+'.KS', h.code+'.KQ'])]){
+        try{ const q = await yahoo(sym); h.sym = sym; return q; }
+        catch(e){ last = e; if(relayDead) break; }
+      }
+    }
+    throw last || new Error('시세를 못 찾았어요');
   }
+  try{ return await yahoo(h.sym || h.code); }catch(e){ last = e; }
+  if(!relayDead){ try{ return await naverUs(h); }catch(e){ last = e; } }
   throw last || new Error('시세를 못 찾았어요');
 }
 const symOf = h => h.sym || (h.cat==='kr' ? h.code+'.KS' : h.code);
@@ -829,15 +938,15 @@ function buildLedger(){
 }
 /* 예전 버전에서 계좌마다 따로 저장돼 어긋난 시세를 한 번 정리합니다 */
 function healPrices(){
-  if(state.pxV === 2) return;
-  state.px = {};                                   /* 종목 기준으로 다시 받습니다 */
+  if(state.pxV === 3) return;
+  state.px = {};                                   /* 종목 기준으로, 새 출처(네이버)에서 다시 받습니다 */
   groupOf(state.holdings||[]).forEach(g=>{
     if(g.length < 2) return;
     const has = h => h.mp!==undefined && h.mp!==null && h.mp!=='';
     const one = g.find(has);                       /* 한쪽에만 적어 둔 시세가 있으면 */
     if(one) g.forEach(h=>{ h.mp = one.mp; h.mpAt = one.mpAt; });   /* 나머지도 맞춥니다 */
   });
-  state.pxV = 2;
+  state.pxV = 3;
 }
 /* 하루 한 번 총자산을 적어 둡니다 (추이 그래프용) */
 function takeSnapshot(){
@@ -1822,6 +1931,7 @@ function resultsHTML(){
 let searchSeq = 0;
 async function doSearch(){
   const q = ui.q.trim(), cat = ui.qcat, seq = ++searchSeq;
+  resetRelays();                    /* 시세가 막혔더라도 검색은 다시 시도해 봅니다 */
   if(cat==='gold'){ ui.res=[]; return paintRes(); }
   if(cat==='coin'){
     ui.searching = true; paintRes();
@@ -2236,7 +2346,9 @@ function viewSet(){
     </tbody></table>
     <button class="btn ghost block mt" data-act="refresh">🔄 지금 새로고침</button>
     <div class="note mt">
-      주식 시세는 브라우저가 증권사 서버를 바로 부르지 못해서 <b>공개 중계 서버</b>를 거칩니다.
+      <b>국내주식은 네이버 금융</b>에서 가져옵니다 — 증권사 앱과 같은 값입니다.
+      미국주식은 야후, 안 되면 네이버 해외주식으로 이어서 봅니다.<br>
+      브라우저가 이 서버들을 바로 부르지 못해서 <b>공개 중계 서버</b>를 거칩니다.
       가끔 막히면 마지막으로 받아 둔 값을 그대로 보여주고, 종목을 눌러
       <b>시세 직접 입력</b>으로 언제든 고칠 수 있습니다.
       코인(업비트)과 환율은 중계 없이 바로 가져옵니다.
@@ -2656,6 +2768,7 @@ document.addEventListener('click', async ev=>{
   case 'oneRefresh': {
     const h = state.holdings.find(x=>x.id===id); if(!h) break;
     b.innerHTML = '<span class="spin">↻</span> 가져오는 중';
+    resetRelays();
     try{
       if(!state.fx?.v && (h.cat==='us'||h.cat==='gold'||h.cat==='fx')){
         const f = await fetchFx(); state.fx = { v:f.v, at:Date.now(), src:f.src };
@@ -2664,7 +2777,7 @@ document.addEventListener('click', async ev=>{
       if(h.cat==='coin')      q = (await fetchCoins([h.code]))[h.code];
       else if(h.cat==='gold') q = await fetchGold(state.fx.v);
       else if(h.cat==='fx')   q = { p:state.fx.v, prev:state.fx.v, ccy:'KRW', src:state.fx.src };
-      else { const y = await quoteStock(h); q = { p:y.p, prev:y.prev, ccy:y.ccy, src:'야후' }; h.official = y.name||h.official; }
+      else { const y = await quoteStock(h); q = { p:y.p, prev:y.prev, ccy:y.ccy, src:y.src||'야후' }; h.official = y.name||h.official; }
       if(!q) throw new Error('시세를 못 찾았어요');
       state.px[pxKey(h)] = { ...q, name:h.name, at:Date.now() };
       save(); openHold(id); toast('시세를 가져왔어요');
