@@ -661,6 +661,101 @@ async function fetchGold(fxv){
   }
 }
 
+/* ============================================================
+   2-9. 🩺 시세 점검 — 어디서 막히는지 하나씩 짚어 봅니다
+   ------------------------------------------------------------
+   ① 중계 경로마다 잘 닿는지 (업비트로 가볍게 확인)
+   ② 살아 있는 경로로 시세 출처들을 하나씩 불러 봅니다
+   ============================================================ */
+const DIAG_PROBE = 'https://api.upbit.com/v1/ticker?markets=KRW-BTC';
+const DIAG_TARGETS = [
+  { n:'네이버 국내주식 (삼성전자)', u:'https://m.stock.naver.com/api/stock/005930/basic',
+    pick:j=>numFrom(j?.closePrice) },
+  { n:'네이버 폴링 (삼성전자)', u:'https://polling.finance.naver.com/api/realtime/domestic/stock/005930',
+    pick:j=>numFrom(j?.datas?.[0]?.closePrice) },
+  { n:'야후 (AAPL)', u:'https://query1.finance.yahoo.com/v8/finance/chart/AAPL?range=5d&interval=1d',
+    pick:j=>+j?.chart?.result?.[0]?.meta?.regularMarketPrice },
+  { n:'업비트 (비트코인)', u:DIAG_PROBE, direct:true,
+    pick:j=>+(Array.isArray(j)? j[0]?.trade_price : 0) },
+  { n:'두나무 (원/달러)', u:'https://quotation-api-cdn.dunamu.com/v1/forex/recent?codes=FRX.KRWUSD',
+    direct:true, pick:j=>+(Array.isArray(j)? j[0]?.basePrice : j?.basePrice) }
+];
+let diag = { running:false, relays:[], sources:[], good:-1, at:0 };
+const errWord = e => e?.net ? '연결 안 됨' : (e?.http ? 'HTTP '+e.http : (e?.message || '오류'));
+
+async function tryVia(i, url, ms){
+  const txt = await getText(RELAYS[i].f(url), ms);
+  let j = JSON.parse(txt);
+  if(RELAYS[i].wrap) j = JSON.parse(j[RELAYS[i].wrap]);
+  return j;
+}
+async function runDiag(){
+  if(diag.running) return;
+  diag = { running:true, at:Date.now(), good:-1,
+           relays:RELAYS.map(r=>({ n:r.n, s:'기다리는 중' })),
+           sources:DIAG_TARGETS.map(t=>({ n:t.n, s:'기다리는 중' })) };
+  openDiag();
+  /* ① 중계 경로 점검 */
+  for(let i=0;i<RELAYS.length;i++){
+    try{
+      const j = await tryVia(i, DIAG_PROBE, 5000);
+      const p = +(Array.isArray(j)? j[0]?.trade_price : 0);
+      diag.relays[i].s = p>0 ? '✅ 됨' : '⚠️ 이상한 응답';
+      if(p>0 && diag.good<0) diag.good = i;
+    }catch(e){ diag.relays[i].s = '❌ '+errWord(e); }
+    openDiag();
+  }
+  /* ② 시세 출처 점검 */
+  for(let i=0;i<DIAG_TARGETS.length;i++){
+    const t = DIAG_TARGETS[i];
+    try{
+      let j = null;
+      if(t.direct){ try{ j = await getJSON(t.u, 5000); }catch(e){} }
+      if(j === null){
+        if(diag.good < 0) throw new Error('쓸 수 있는 중계 경로가 없음');
+        j = await tryVia(diag.good, t.u, 6000);
+      }
+      const v = t.pick(j);
+      diag.sources[i].s = (isFinite(v) && v>0) ? '✅ '+num(v) : '⚠️ 값을 못 읽음';
+    }catch(e){ diag.sources[i].s = '❌ '+errWord(e); }
+    openDiag();
+  }
+  diag.running = false;
+  openDiag();
+}
+function diagText(){
+  return ['[시세 점검] '+new Date(diag.at).toLocaleString('ko-KR'),
+    '중계 경로', ...diag.relays.map(r=>`  ${r.n}: ${r.s}`),
+    '시세 출처', ...diag.sources.map(r=>`  ${r.n}: ${r.s}`),
+    `쓰는 경로: ${diag.good>=0 ? RELAYS[diag.good].n : '없음'}`,
+    `담은 자산: ${(state.holdings||[]).length}개 · 마지막 갱신 ${timeAgo(state.lastRefresh)} · 실패 ${state.lastFail||0}건`
+  ].join('\n');
+}
+function openDiag(){
+  const row = (r) => `<tr><td>${esc(r.n)}</td><td style="text-align:right">${esc(r.s)}</td></tr>`;
+  openModal(`
+    <div class="mhead"><h3>🩺 시세 점검</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted" style="margin:-6px 0 10px">
+      ${diag.running ? '<span class="spin">↻</span> 확인하는 중… (30초쯤 걸려요)'
+                     : (diag.good>=0 ? `<b>${esc(RELAYS[diag.good].n)}</b> 경로로 닿습니다`
+                                     : '어느 경로로도 닿지 못했어요')}
+    </div>
+    <div class="card tight" style="margin-bottom:10px">
+      <div style="font-size:12px;font-weight:900;margin-bottom:4px">중계 경로</div>
+      <table class="tbl"><tbody>${diag.relays.map(row).join('')}</tbody></table>
+    </div>
+    <div class="card tight" style="margin-bottom:10px">
+      <div style="font-size:12px;font-weight:900;margin-bottom:4px">시세 출처</div>
+      <table class="tbl"><tbody>${diag.sources.map(row).join('')}</tbody></table>
+    </div>
+    ${!diag.running && diag.good<0 ? `<div class="note">
+      브라우저가 바깥 서버에 전혀 닿지 못하고 있어요.
+      와이파이/데이터를 확인하시고, 그래도 안 되면 종목마다
+      <b>🔧 시세 고치기</b>로 값을 적어 두고 쓰셔도 됩니다.</div>` : ''}
+    <button class="btn ghost block mt" data-act="diagCopy">📋 결과 복사하기</button>
+    <div class="tiny muted mt">복사해서 보내 주시면 어디가 막혔는지 바로 알 수 있어요.</div>`);
+}
+
 /* 시세는 '종목' 기준으로 담습니다.
    예전에는 sym(000660.KS 같은 거래소 붙은 이름)으로 담아서,
    같은 종목이라도 계좌마다 다른 칸에 저장돼 시세가 어긋날 수 있었습니다. */
@@ -728,6 +823,13 @@ function totals(list){
    · cat  어디에 담았나 (국내주식 · 코인 · 부동산 …)
    · kind 무엇에 투자했나 (주식 · 채권 · 금 · 달러 …)
    · acct 어느 계좌인가 (미래에셋 · ISA · IRP …) */
+/* 시세를 얼마나 자주 다시 가져올지 */
+const EVERY = [
+  { v:0,  l:'열 때만' }, { v:2, l:'2분' }, { v:10, l:'10분' },
+  { v:30, l:'30분' },    { v:60, l:'1시간' }
+];
+const everyMin = () => { const v = +state.settings?.every; return isFinite(v) ? v : 10; };
+
 const AXES = [
   { k:'cat',  label:'종류별' },
   { k:'kind', label:'성격별' },
@@ -1535,6 +1637,8 @@ function renderTabs(){
 function renderHeadMeta(){
   const t = totals(activeHoldings());
   const c = state.sync?.enabled ? (state.sync.error ? '⚠️' : '🔗') : '';
+  $('#headMeta').dataset.act = 'diag';
+  $('#headMeta').style.cursor = 'pointer';
   $('#headMeta').innerHTML =
     `<b>${bigWon(t.net)}</b>원<br>` +
     `${refreshing ? '<span class="spin">↻</span> 불러오는 중'
@@ -2344,7 +2448,16 @@ function viewSet(){
       <tr><td>연결 경로</td><td>${esc(RELAYS[state.relay|0]?.n || '직접')}</td></tr>
       <tr><td>담은 자산</td><td>${t.n}개</td></tr>
     </tbody></table>
-    <button class="btn ghost block mt" data-act="refresh">🔄 지금 새로고침</button>
+    <div class="f mt"><label>얼마나 자주 새로 가져올까요</label>
+      <div class="chips">${EVERY.map(e=>
+        `<button class="chip ${everyMin()===e.v?'on':'line'}" data-act="setEvery" data-v="${e.v}">${e.l}</button>`
+      ).join('')}</div>
+      <div class="hint">앱을 <b>보고 있는 동안</b>만 돕니다. 국내장은 평일 9시~15시 30분에만 값이 바뀌어요.
+        <b>열 때만</b>으로 두면 🔄 를 누를 때와 앱을 열 때만 가져옵니다.</div></div>
+    <div class="row" style="gap:6px">
+      <button class="btn ghost sm" style="flex:1" data-act="refresh">🔄 지금 새로고침</button>
+      <button class="btn ghost sm" style="flex:1" data-act="diag">🩺 시세 점검</button>
+    </div>
     <div class="note mt">
       <b>국내주식은 네이버 금융</b>에서 가져옵니다 — 증권사 앱과 같은 값입니다.
       미국주식은 야후, 안 되면 네이버 해외주식으로 이어서 봅니다.<br>
@@ -2807,6 +2920,16 @@ document.addEventListener('click', async ev=>{
   case 'setAcctType':
     setAcctType(b.dataset.a, b.dataset.t); save(); render();
     toast(`${b.dataset.a} → ${b.dataset.t}`); break;
+  case 'setEvery':
+    state.settings.every = +b.dataset.v; save(); startPriceTimer(); render();
+    toast(everyMin()? `${EVERY.find(e=>e.v===everyMin())?.l}마다 가져옵니다` : '열 때만 가져옵니다');
+    break;
+  case 'diag': runDiag(); break;
+  case 'diagCopy': {
+    const t = diagText();
+    try{ await navigator.clipboard.writeText(t); toast('점검 결과를 복사했어요'); }
+    catch(e){ prompt('이 내용을 붙여넣어 주세요', t); }
+    break; }
   case 'saveSettings': {
     const list = ($('#sOwners')?.value||'').split(/[,·\s]+/).filter(Boolean).slice(0,2);
     if(list.length===2){
@@ -2928,13 +3051,22 @@ writeLocal();
 render();
 syncStart();
 if(pendingInvite) openJoinPrompt();
-/* 열 때마다 한 번, 그리고 보고 있는 동안 2분마다 시세를 새로 가져옵니다 */
+/* 열 때 한 번, 그리고 정해 둔 주기마다 (⚙️에서 바꿀 수 있습니다) */
+function startPriceTimer(){
+  clearInterval(priceTimer); priceTimer = null;
+  const m = everyMin();
+  if(!(m > 0)) return;
+  priceTimer = setInterval(()=>{
+    if(!document.hidden && state.holdings.length) refreshPrices();
+  }, m*60000);
+}
 if(state.holdings.length) refreshPrices();
-priceTimer = setInterval(()=>{ if(!document.hidden && state.holdings.length) refreshPrices(); }, 120000);
+startPriceTimer();
 document.addEventListener('visibilitychange', ()=>{
   if(document.hidden) return;
   syncPull();
-  if(Date.now() - (state.lastRefresh||0) > 60000 && state.holdings.length) refreshPrices();
+  const gap = (everyMin() || 10) * 60000;
+  if(Date.now() - (state.lastRefresh||0) > gap && state.holdings.length) refreshPrices();
 });
 </script>
 </body>
