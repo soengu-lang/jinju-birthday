@@ -438,6 +438,8 @@ function blankState(){
     coins: { list:[], at:0 },     /* 업비트 코인 목록 캐시 */
     pxV: 3,                       /* 시세 저장 방식 판 번호 */
     accts: {},                    /* 계좌 등록부  '미래에셋 ISA' -> {type:'ISA'} */
+    sheet: { url:'', at:0, error:'' },   /* 📗 구글시트 시세 */
+    relayUrl: '',                 /* 직접 만든 중계 주소 */
     diary: [],                    /* 투자 일기 */
     relay: 0,                     /* 마지막에 성공한 우회 경로 */
     memo: '',
@@ -478,6 +480,15 @@ const RELAYS = [
   { n:'whateverorigin', f:u=>'https://whateverorigin.org/get?url='+encodeURIComponent(u), wrap:'contents' },
   { n:'thingproxy',  f:u=>'https://thingproxy.freeboard.io/fetch/'+u }
 ];
+/* ⚙️에서 직접 넣은 중계 주소가 있으면 그걸 맨 앞에 씁니다 ({url} 자리에 주소가 들어갑니다) */
+function relayList(){
+  const mine = String(state.relayUrl||'').trim();
+  if(!mine) return RELAYS;
+  const f = mine.includes('{url}')
+    ? u => mine.replace('{url}', encodeURIComponent(u))
+    : u => mine.replace(/\/+$/,'') + '/' + u;
+  return [{ n:'내 중계', f }, ...RELAYS];
+}
 /* 이번 새로고침에서 막힌 경로 — 종목마다 다시 헤매지 않도록 기억합니다 */
 let relayBad = new Set(), relayDead = false;
 function resetRelays(){ relayBad = new Set(); relayDead = false; }
@@ -503,15 +514,16 @@ async function getJSON(url, ms=6000){ return JSON.parse(await getText(url, ms));
      (예전에는 종목마다 5곳 × 9초씩 기다려서 2분 넘게 멈춘 것처럼 보였습니다) */
 async function relayJSON(url){
   if(relayDead) throw new Error('시세 서버에 닿지 못했어요');
-  const first = state.relay|0;
-  const order = [first, ...RELAYS.map((_,i)=>i).filter(i=>i!==first)].filter(i=>!relayBad.has(i));
+  const L = relayList();
+  const first = Math.min(state.relay|0, L.length-1);
+  const order = [first, ...L.map((_,i)=>i).filter(i=>i!==first)].filter(i=>!relayBad.has(i));
   if(!order.length){ relayDead = true; throw new Error('시세 서버에 닿지 못했어요'); }
   let netFail = 0, lastErr = null;
   for(const i of order){
     try{
-      const txt = await getText(RELAYS[i].f(url));
+      const txt = await getText(L[i].f(url));
       let j = JSON.parse(txt);
-      if(RELAYS[i].wrap) j = JSON.parse(j[RELAYS[i].wrap]);   /* 껍데기에 담아 주는 곳 */
+      if(L[i].wrap) j = JSON.parse(j[L[i].wrap]);             /* 껍데기에 담아 주는 곳 */
       if(state.relay !== i){ state.relay = i; writeLocal(); }
       return j;
     }catch(e){
@@ -610,19 +622,96 @@ async function yahooSearch(q){
 }
 /* 원/달러 환율 — 브라우저가 바로 부를 수 있는 곳부터 */
 async function fetchFx(){
+  /* 브라우저가 바로 부를 수 있는 곳(중계 필요 없음)부터 */
+  try{
+    const j = await getJSON('https://open.er-api.com/v6/latest/USD');
+    const v = +j?.rates?.KRW; if(v>0) return { v, src:'er-api' };
+  }catch(e){}
+  try{
+    const j = await getJSON('https://api.frankfurter.app/latest?from=USD&to=KRW');
+    const v = +j?.rates?.KRW; if(v>0) return { v, src:'frankfurter' };
+  }catch(e){}
   try{
     const j = await getJSON('https://quotation-api-cdn.dunamu.com/v1/forex/recent?codes=FRX.KRWUSD');
     const v = +(Array.isArray(j)? j[0]?.basePrice : j?.basePrice);
     if(v>0) return { v, src:'두나무' };
   }catch(e){}
-  try{
-    const j = await getJSON('https://open.er-api.com/v6/latest/USD');
-    const v = +j?.rates?.KRW; if(v>0) return { v, src:'er-api' };
-  }catch(e){}
   try{ const n = await naverIndex('exchange/FX_USDKRW'); if(n.p>0) return { v:n.p, src:'네이버' }; }catch(e){}
   const y = await yahoo('KRW=X');
   return { v:y.p, src:'야후' };
 }
+/* ============================================================
+   📗 구글시트로 시세 받기
+   ------------------------------------------------------------
+   공개 중계 서버들이 다 막혀서 네이버·야후에 못 닿을 때를 위한 길입니다.
+   구글은 브라우저가 바로 부를 수 있고(CORS 열림), GOOGLEFINANCE 는
+   KRX 시세를 정확히 줍니다. 시트 한 번만 만들면 그 뒤론 자동입니다.
+   ============================================================ */
+/* GOOGLEFINANCE 가 알아듣는 이름으로 */
+function gfSymbol(h){
+  if(h.cat==='kr') return 'KRX:'+h.code;
+  if(h.cat==='us') return h.code.replace('-','.');     /* BRK-B → BRK.B */
+  return '';
+}
+/* 담은 종목으로 시트에 붙여넣을 수식을 만들어 줍니다 */
+function sheetFormula(){
+  const seen = new Set(), rows = [];
+  (state.holdings||[]).forEach(h=>{
+    if(h.cat!=='kr' && h.cat!=='us') return;
+    const key = h.cat+':'+h.code;
+    if(seen.has(key)) return; seen.add(key);
+    const g = gfSymbol(h); if(!g) return;
+    rows.push(`"${key}",IFERROR(GOOGLEFINANCE("${g}","price"),""),IFERROR(GOOGLEFINANCE("${g}","closeyest"),"")`);
+  });
+  rows.push('"fx:USD",IFERROR(GOOGLEFINANCE("CURRENCY:USDKRW"),""),""');
+  return '={"code","price","prev";\n' + rows.join(';\n') + '}';
+}
+/* 어떤 형태로 주소를 넣어도 CSV 주소로 바꿔 줍니다 */
+function sheetCsvUrl(u){
+  u = String(u||'').trim();
+  if(!u) return '';
+  if(/output=csv/.test(u)) return u;
+  if(/\/spreadsheets\/d\/e\//.test(u)) return u.replace(/\/pub(html)?.*$/, '/pub?output=csv');
+  const m = u.match(/\/spreadsheets\/d\/([a-zA-Z0-9\-_]+)/);
+  if(m){
+    const gid = (u.match(/[#&?]gid=(\d+)/)||[])[1] || '0';
+    return `https://docs.google.com/spreadsheets/d/${m[1]}/gviz/tq?tqx=out:csv&gid=${gid}`;
+  }
+  return u;
+}
+function parseCsv(txt){
+  return String(txt||'').split(/\r?\n/).filter(Boolean).map(line=>{
+    const out = []; let cur = '', q = false;
+    for(let i=0;i<line.length;i++){
+      const ch = line[i];
+      if(q){ if(ch === '"'){ if(line[i+1]==='"'){ cur+='"'; i++; } else q=false; } else cur+=ch; }
+      else if(ch === '"') q = true;
+      else if(ch === ',') { out.push(cur); cur=''; }
+      else cur += ch;
+    }
+    out.push(cur);
+    return out.map(x=>x.trim());
+  });
+}
+/* 시트에서 { 'kr:000660': {p, prev} } 를 만들어 옵니다 */
+async function fetchSheet(){
+  const url = sheetCsvUrl(state.sheet?.url);
+  if(!url) return null;
+  const txt = await getText(url, 8000);
+  const rows = parseCsv(txt);
+  const out = {};
+  rows.forEach(r=>{
+    const key = String(r[0]||'').trim();
+    if(!/^(kr|us|fx):/.test(key)) return;
+    const p = numFrom(r[1]);
+    if(!(p>0)) return;
+    const prev = numFrom(r[2]);
+    out[key] = { p, prev: (isFinite(prev) && prev>0) ? prev : p };
+  });
+  if(!Object.keys(out).length) throw new Error('시트에서 시세를 못 읽었어요 — 수식과 게시 설정을 확인해 주세요');
+  return out;
+}
+
 /* 업비트 코인 시세 — 여러 개를 한 번에 */
 async function fetchCoins(codes){
   if(!codes.length) return {};
@@ -684,19 +773,21 @@ let diag = { running:false, relays:[], sources:[], good:-1, at:0 };
 const errWord = e => e?.net ? '연결 안 됨' : (e?.http ? 'HTTP '+e.http : (e?.message || '오류'));
 
 async function tryVia(i, url, ms){
-  const txt = await getText(RELAYS[i].f(url), ms);
+  const L = relayList();
+  const txt = await getText(L[i].f(url), ms);
   let j = JSON.parse(txt);
-  if(RELAYS[i].wrap) j = JSON.parse(j[RELAYS[i].wrap]);
+  if(L[i].wrap) j = JSON.parse(j[L[i].wrap]);
   return j;
 }
 async function runDiag(){
   if(diag.running) return;
+  const L = relayList();
   diag = { running:true, at:Date.now(), good:-1,
-           relays:RELAYS.map(r=>({ n:r.n, s:'기다리는 중' })),
+           relays:L.map(r=>({ n:r.n, s:'기다리는 중' })),
            sources:DIAG_TARGETS.map(t=>({ n:t.n, s:'기다리는 중' })) };
   openDiag();
   /* ① 중계 경로 점검 */
-  for(let i=0;i<RELAYS.length;i++){
+  for(let i=0;i<L.length;i++){
     try{
       const j = await tryVia(i, DIAG_PROBE, 5000);
       const p = +(Array.isArray(j)? j[0]?.trade_price : 0);
@@ -720,6 +811,16 @@ async function runDiag(){
     }catch(e){ diag.sources[i].s = '❌ '+errWord(e); }
     openDiag();
   }
+  /* ③ 구글시트를 연결해 뒀다면 그것도 */
+  if(state.sheet?.url){
+    diag.sources.push({ n:'📗 구글시트', s:'기다리는 중' });
+    openDiag();
+    try{
+      const m = await fetchSheet();
+      const n = Object.keys(m).length;
+      diag.sources[diag.sources.length-1].s = n ? `✅ ${n}줄 읽음` : '⚠️ 비어 있음';
+    }catch(e){ diag.sources[diag.sources.length-1].s = '❌ '+errWord(e); }
+  }
   diag.running = false;
   openDiag();
 }
@@ -727,7 +828,7 @@ function diagText(){
   return ['[시세 점검] '+new Date(diag.at).toLocaleString('ko-KR'),
     '중계 경로', ...diag.relays.map(r=>`  ${r.n}: ${r.s}`),
     '시세 출처', ...diag.sources.map(r=>`  ${r.n}: ${r.s}`),
-    `쓰는 경로: ${diag.good>=0 ? RELAYS[diag.good].n : '없음'}`,
+    `쓰는 경로: ${diag.good>=0 ? relayList()[diag.good]?.n : '없음'}`,`구글시트: ${state.sheet?.url? '연결됨':'안 씀'}`,
     `담은 자산: ${(state.holdings||[]).length}개 · 마지막 갱신 ${timeAgo(state.lastRefresh)} · 실패 ${state.lastFail||0}건`
   ].join('\n');
 }
@@ -737,7 +838,7 @@ function openDiag(){
     <div class="mhead"><h3>🩺 시세 점검</h3><button class="x" data-act="close">✕</button></div>
     <div class="tiny muted" style="margin:-6px 0 10px">
       ${diag.running ? '<span class="spin">↻</span> 확인하는 중… (30초쯤 걸려요)'
-                     : (diag.good>=0 ? `<b>${esc(RELAYS[diag.good].n)}</b> 경로로 닿습니다`
+                     : (diag.good>=0 ? `<b>${esc(relayList()[diag.good]?.n||'')}</b> 경로로 닿습니다`
                                      : '어느 경로로도 닿지 못했어요')}
     </div>
     <div class="card tight" style="margin-bottom:10px">
@@ -748,10 +849,9 @@ function openDiag(){
       <div style="font-size:12px;font-weight:900;margin-bottom:4px">시세 출처</div>
       <table class="tbl"><tbody>${diag.sources.map(row).join('')}</tbody></table>
     </div>
-    ${!diag.running && diag.good<0 ? `<div class="note">
-      브라우저가 바깥 서버에 전혀 닿지 못하고 있어요.
-      와이파이/데이터를 확인하시고, 그래도 안 되면 종목마다
-      <b>🔧 시세 고치기</b>로 값을 적어 두고 쓰셔도 됩니다.</div>` : ''}
+    ${!diag.running && !state.sheet?.url && diag.sources.some(x=>/❌/.test(x.s)) ? `<div class="note">
+      공개 중계 서버가 막혀서 네이버·야후 시세를 못 가져오고 있어요.
+      ⚙️ 의 <b>📗 구글시트로 시세 받기</b> 를 쓰면 중계 없이 바로 받아옵니다 — 가장 확실합니다.</div>` : ''}
     <button class="btn ghost block mt" data-act="diagCopy">📋 결과 복사하기</button>
     <div class="tiny muted mt">복사해서 보내 주시면 어디가 막혔는지 바로 알 수 있어요.</div>`);
 }
@@ -935,9 +1035,26 @@ async function refreshPrices(manual){
   const startedAt = Date.now();
   const outOfTime = () => Date.now() - startedAt > 45000;   /* 너무 오래 붙들지 않습니다 */
   let ok=0, fail=0;
+  const done = new Set();                                   /* 시트에서 이미 받은 것 */
   try{
+    /* ⓪ 구글시트가 연결돼 있으면 여기서 주식·환율을 한 번에 받습니다 */
+    if(state.sheet?.url){
+      try{
+        const m = await fetchSheet();
+        if(m['fx:USD']?.p > 0){ state.fx = { v:m['fx:USD'].p, at:Date.now(), src:'구글시트' }; ok++; }
+        list.forEach(h=>{
+          if(h.cat!=='kr' && h.cat!=='us') return;
+          const q = m[h.cat+':'+h.code]; if(!q) return;
+          state.px[pxKey(h)] = { p:q.p, prev:q.prev, ccy: h.cat==='us' ? 'USD' : 'KRW',
+                                 name:h.name, at:Date.now(), src:'구글시트' };
+          done.add(h.id); ok++;
+        });
+        state.sheet.at = Date.now(); state.sheet.error = '';
+      }catch(e){ state.sheet.error = e.message; }
+    }
     /* ① 환율 — 미국주식·달러·금 계산에 먼저 필요합니다 */
-    const needFx = list.some(h=>h.cat==='us'||h.cat==='fx'||h.cat==='gold') || !state.fx?.v;
+    const needFx = (list.some(h=>h.cat==='us'||h.cat==='fx'||h.cat==='gold') || !state.fx?.v)
+                 && state.fx?.src !== '구글시트';
     if(needFx){
       try{ const f = await fetchFx(); state.fx = { v:f.v, at:Date.now(), src:f.src }; ok++; }
       catch(e){ fail++; }
@@ -960,7 +1077,7 @@ async function refreshPrices(manual){
       }catch(e){ fail += coins.length; }
     }
     /* ④ 주식 — 야후에서 3개씩 나눠서 */
-    const stocks = list.filter(h=>h.cat==='kr'||h.cat==='us');
+    const stocks = list.filter(h=>(h.cat==='kr'||h.cat==='us') && !done.has(h.id));
     for(let i=0;i<stocks.length;i+=3){
       if(relayDead || outOfTime()){ fail += stocks.length - i; break; }
       const part = stocks.slice(i,i+3);
@@ -2469,6 +2586,45 @@ function viewSet(){
   </div>
 
   <div class="card">
+    <h2>📗 구글시트로 시세 받기 <span class="sub">${state.sheet?.url? '연결됨' : '가장 확실한 방법'}</span></h2>
+    ${state.sheet?.url ? `
+      <div class="note info">연결됨 · 마지막으로 읽은 때 ${timeAgo(state.sheet.at)}
+        ${state.sheet.error? `<br><span class="up">⚠️ ${esc(state.sheet.error)}</span>` : ''}</div>
+      <div class="row mt" style="gap:6px">
+        <button class="btn ghost sm" style="flex:1" data-act="copyFormula">📋 수식 다시 복사</button>
+        <button class="btn ghost sm" style="flex:1" data-act="sheetOff">연결 끊기</button>
+      </div>
+      <div class="tiny muted mt">종목을 새로 담았으면 <b>수식을 다시 복사</b>해서 시트 A1에 붙여넣어 주세요.</div>
+    ` : `
+      <div class="tiny muted" style="line-height:1.8;margin-bottom:10px">
+        무료 공개 중계 서버들이 막히면 네이버·야후 시세를 못 가져옵니다.
+        <b>구글은 브라우저가 바로 부를 수 있어서</b> 이 방법이 가장 확실합니다.
+        시트 한 번만 만들면 그 뒤로는 자동이에요.
+      </div>
+      <div class="note" style="margin-bottom:10px;line-height:1.9">
+        <b>1</b> 아래 <b>수식 복사</b>를 누르세요<br>
+        <b>2</b> <a href="https://sheets.new" target="_blank" rel="noopener"><b>sheets.new</b></a> 로 새 시트를 만들고 <b>A1</b>에 붙여넣기<br>
+        <b>3</b> 파일 → 공유 → <b>웹에 게시</b> → 형식을 <b>쉼표로 구분된 값(.csv)</b> 으로 → 게시<br>
+        <b>4</b> 나온 주소를 아래에 붙여넣고 <b>연결하기</b>
+      </div>
+      <button class="btn ghost block" data-act="copyFormula">📋 1. 수식 복사</button>
+      <div class="f mt"><label>4. 게시된 주소 붙여넣기</label>
+        <input id="shUrl" placeholder="https://docs.google.com/spreadsheets/d/e/.../pub?output=csv"></div>
+      <button class="btn block" data-act="sheetSave">연결하기</button>
+    `}
+  </div>
+
+  <div class="card">
+    <h2>🛠 내 중계 서버 <span class="sub">아는 분만</span></h2>
+    <div class="f"><label>중계 주소 <span class="muted">비워 두면 안 씁니다</span></label>
+      <input id="myRelay" value="${esc(state.relayUrl||'')}"
+             placeholder="https://내워커.workers.dev/?url={url}"></div>
+    <button class="btn ghost block" data-act="relaySave">저장</button>
+    <div class="tiny muted mt">직접 만든 중계 서버(예: Cloudflare Worker)가 있으면 여기에 넣으세요.
+      <b>{url}</b> 자리에 실제 주소가 들어갑니다. 넣으면 이 경로를 가장 먼저 씁니다.</div>
+  </div>
+
+  <div class="card">
     <h2>💑 배우자와 함께 보기</h2>
     ${c.enabled ? `
       <div class="note info">연결됨 · 방 이름 <b>${esc(c.room||'')}</b><br>
@@ -2925,6 +3081,28 @@ document.addEventListener('click', async ev=>{
     toast(everyMin()? `${EVERY.find(e=>e.v===everyMin())?.l}마다 가져옵니다` : '열 때만 가져옵니다');
     break;
   case 'diag': runDiag(); break;
+  case 'copyFormula': {
+    const f = sheetFormula();
+    try{ await navigator.clipboard.writeText(f); toast('수식을 복사했어요 — 시트 A1에 붙여넣으세요'); }
+    catch(e){ prompt('이 수식을 시트 A1에 붙여넣으세요', f); }
+    break; }
+  case 'sheetSave': {
+    const u = ($('#shUrl')?.value||'').trim();
+    if(!u){ toast('게시된 주소를 붙여넣어 주세요'); break; }
+    state.sheet = { url:u, at:0, error:'' };
+    save(); render(); toast('연결했어요 — 시세를 가져와 볼게요');
+    refreshPrices(true);
+    break; }
+  case 'sheetOff':
+    if(!confirm('구글시트 연결을 끊을까요? 다시 네이버·야후에서 가져옵니다.')) break;
+    state.sheet = { url:'', at:0, error:'' }; save(); render();
+    break;
+  case 'relaySave': {
+    state.relayUrl = ($('#myRelay')?.value||'').trim();
+    save(); resetRelays(); state.relay = 0; render();
+    toast(state.relayUrl? '저장했어요 — 이 경로를 먼저 씁니다' : '내 중계 서버를 끕니다');
+    if(state.relayUrl) refreshPrices(true);
+    break; }
   case 'diagCopy': {
     const t = diagText();
     try{ await navigator.clipboard.writeText(t); toast('점검 결과를 복사했어요'); }
@@ -3043,6 +3221,7 @@ state.fx = state.fx || { v:0, at:0, src:'' };
 state.snap = state.snap || {};
 state.coins = state.coins || { list:[], at:0 };
 state.accts = state.accts || {};
+state.sheet = state.sheet || { url:'', at:0, error:'' };
 state.diary = state.diary || [];
 healPrices();
 state.sync = state.sync || { enabled:false };
