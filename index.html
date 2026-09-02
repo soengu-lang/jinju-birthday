@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#2b3a67">
+<title>우리집 앱</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏡</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f4f2ed; --card:#fffdf8; --ink:#1e2430; --muted:#6f7683;
+  --line:#e5e2d8; --gold:#c9862b;
+  --shadow:0 1px 2px rgba(30,36,48,.06), 0 8px 22px rgba(30,36,48,.07);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  font-family:'Noto Sans KR',-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;
+  background:var(--bg); color:var(--ink); line-height:1.5; -webkit-font-smoothing:antialiased;
+  padding:calc(28px + env(safe-area-inset-top)) 16px calc(32px + env(safe-area-inset-bottom));
+}
+.wrap{max-width:520px;margin:0 auto}
+.brand{font-size:12px;font-weight:700;color:var(--gold);letter-spacing:.04em}
+h1{font-size:clamp(24px,7vw,30px);font-weight:900;letter-spacing:-.04em;margin-top:3px}
+.lead{font-size:13px;color:var(--muted);margin-top:7px;line-height:1.7}
+
+.apps{margin-top:22px;display:flex;flex-direction:column;gap:11px}
+a.app{
+  display:flex;align-items:center;gap:13px;text-decoration:none;color:inherit;
+  background:var(--card);border:1px solid var(--line);border-radius:18px;
+  padding:15px 15px;box-shadow:var(--shadow);transition:.15s;
+}
+a.app:active{transform:scale(.985)}
+a.app .ic{
+  width:52px;height:52px;flex:none;border-radius:15px;display:grid;place-items:center;
+  font-size:25px;color:#fff;
+}
+a.app .tx{flex:1;min-width:0}
+a.app .nm{font-size:16px;font-weight:900;letter-spacing:-.03em}
+a.app .sb{font-size:12px;color:var(--muted);margin-top:3px;line-height:1.55}
+a.app .go{font-size:19px;color:var(--muted);flex:none;font-weight:300}
+.new{display:inline-block;font-size:10px;font-weight:800;color:#fff;background:#d1453b;
+  border-radius:5px;padding:1px 5px;margin-left:5px;vertical-align:2px;letter-spacing:.02em}
+
+.tip{
+  margin-top:22px;background:#fdf2e2;border:1px solid #f0dcbb;border-radius:16px;
+  padding:14px 15px;font-size:12.5px;line-height:1.8;color:#7a5518;
+}
+.tip b{font-weight:800}
+.tip ol{margin:7px 0 0 17px}
+.tip li{margin-bottom:3px}
+footer{margin-top:26px;text-align:center;font-size:11px;color:var(--muted);line-height:1.8}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">OUR HOME</div>
+  <h1>우리집 앱</h1>
+  <p class="lead">폰에서 쓰는 우리 두 사람 앱 모음입니다.<br>
+    서버도 회원가입도 없고, 기록은 폰 안에 있습니다.</p>
+
+  <div class="apps">
+    <a class="app" href="household-budget/">
+      <div class="ic" style="background:#2b3a67">💰</div>
+      <div class="tx">
+        <div class="nm">우리집 가계부</div>
+        <div class="sb">수입·고정비·저축·생활비와 자산·대출·목표</div>
+      </div>
+      <div class="go">›</div>
+    </a>
+
+    <a class="app" href="my-assets/">
+      <div class="ic" style="background:#1d4b46">📊</div>
+      <div class="tx">
+        <div class="nm">우리집 자산<span class="new">NEW</span></div>
+        <div class="sb">주식·코인·달러·금·부동산 시세를 한 화면에</div>
+      </div>
+      <div class="go">›</div>
+    </a>
+
+    <a class="app" href="fridge-meal-planner/">
+      <div class="ic" style="background:#5b7f52">🧊</div>
+      <div class="tx">
+        <div class="nm">냉장고 식단표</div>
+        <div class="sb">냉장고 재고로 짜는 주간 식단과 장보기</div>
+      </div>
+      <div class="go">›</div>
+    </a>
+  </div>
+
+  <div class="tip">
+    📱 <b>홈 화면에 추가해 두면</b> 주소를 칠 필요가 없어요.
+    <ol>
+      <li>쓰고 싶은 앱을 눌러서 엽니다</li>
+      <li>아이폰은 아래 <b>공유(⬆️)</b> → <b>홈 화면에 추가</b></li>
+      <li>안드로이드는 오른쪽 위 <b>⋮</b> → <b>홈 화면에 추가</b></li>
+    </ol>
+    앱마다 따로 추가하면 아이콘이 각각 생깁니다.
+  </div>
+
+  <footer>
+    이미 홈 화면에 추가해 둔 앱은 <b>그대로 쓰시면 됩니다</b>.<br>
+    주소가 같아서 열 때마다 최신 내용으로 열립니다.
+  </footer>
+</div>
+</body>
+</html>
