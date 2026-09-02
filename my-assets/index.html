@@ -436,6 +436,7 @@ function blankState(){
     fx: { v:0, at:0, src:'' },    /* 원/달러 */
     snap: {},                     /* 'YYYY-MM-DD' -> {tot,net} 하루 한 번 기록 */
     coins: { list:[], at:0 },     /* 업비트 코인 목록 캐시 */
+    pxV: 2,                       /* 시세 저장 방식 판 번호 */
     accts: {},                    /* 계좌 등록부  '미래에셋 ISA' -> {type:'ISA'} */
     diary: [],                    /* 투자 일기 */
     relay: 0,                     /* 마지막에 성공한 우회 경로 */
@@ -564,7 +565,15 @@ async function fetchGold(fxv){
   return { p: per(y.p), prev: per(y.prev), ccy:'KRW', src:'국제금시세' };
 }
 
-const pxKey = h => h.cat + ':' + (h.sym || h.code || h.id);
+/* 시세는 '종목' 기준으로 담습니다.
+   예전에는 sym(000660.KS 같은 거래소 붙은 이름)으로 담아서,
+   같은 종목이라도 계좌마다 다른 칸에 저장돼 시세가 어긋날 수 있었습니다. */
+const pxKey = h => h.cat + ':' + (h.code || h.sym || h.id);
+/* 같은 종목(같은 코드)인 자산들 — 계좌만 다른 것들 */
+function sameStock(h){
+  if(!h.code) return [h];
+  return (state.holdings||[]).filter(x=>x.cat===h.cat && x.code===h.code);
+}
 /* 이 종목의 현재 시세 (직접 입력한 값이 있으면 그게 우선) */
 function priceOf(h){
   const c = CAT(h.cat);
@@ -667,6 +676,17 @@ function hitOf(h){
   return '';
 }
 const alertList = () => activeHoldings().map(h=>({h, hit:hitOf(h)})).filter(x=>x.hit);
+
+/* 가져온 시세가 내 평단과 5배 넘게 차이 나면 잘못 붙었을 가능성이 큽니다.
+   (증권사와 시세 서버가 서로 다른 종목·다른 단위를 보고 있는 경우) */
+function priceOdd(h){
+  const avg = +h.avg || 0;
+  if(!avg) return false;
+  const r = calc(h);
+  if(!r.ready || r.px.manual) return false;
+  const k = r.px.p / avg;
+  return k > 5 || k < 0.2;
+}
 
 /* 투자 일기 — 적을 때 그 순간의 순자산도 같이 남겨 둡니다 */
 function addDiary(text, holdId){
@@ -806,6 +826,18 @@ function buildLedger(){
                value:Math.round(r.value), loan:Math.round(r.loan) };
     }).filter(r=>r.value>0 || r.loan>0)
   };
+}
+/* 예전 버전에서 계좌마다 따로 저장돼 어긋난 시세를 한 번 정리합니다 */
+function healPrices(){
+  if(state.pxV === 2) return;
+  state.px = {};                                   /* 종목 기준으로 다시 받습니다 */
+  groupOf(state.holdings||[]).forEach(g=>{
+    if(g.length < 2) return;
+    const has = h => h.mp!==undefined && h.mp!==null && h.mp!=='';
+    const one = g.find(has);                       /* 한쪽에만 적어 둔 시세가 있으면 */
+    if(one) g.forEach(h=>{ h.mp = one.mp; h.mpAt = one.mpAt; });   /* 나머지도 맞춥니다 */
+  });
+  state.pxV = 2;
 }
 /* 하루 한 번 총자산을 적어 둡니다 (추이 그래프용) */
 function takeSnapshot(){
@@ -1454,6 +1486,7 @@ function holdRow(h){
     <div class="ic" style="background:${c.color}1f;color:${c.color}">${c.emo}</div>
     <div class="mid">
       <div class="nm">${esc(h.name)}${px.manual?'<span class="badge man">직접</span>':''}${
+        priceOdd(h)? '<span class="badge err">⚠️ 시세 확인</span>' :
         hitOf(h)==='target'? '<span class="badge tgt">🎯 목표가</span>' :
         hitOf(h)==='stop'?   '<span class="badge err">🛑 손절가</span>' : ''}${
         h.owner && h.owner!=='공동' ? `<span class="badge">${esc(h.owner)}</span>`:''}</div>
@@ -1481,7 +1514,8 @@ function holdGroupRow(list){
   return `<div class="hold" data-act="openGroup" data-ids="${list.map(h=>h.id).join(',')}">
     <div class="ic" style="background:${c.color}1f;color:${c.color}">${c.emo}</div>
     <div class="mid">
-      <div class="nm">${esc(h0.name)}<span class="badge">계좌 ${list.length}곳</span></div>
+      <div class="nm">${esc(h0.name)}<span class="badge">계좌 ${list.length}곳</span>${
+        list.some(priceOdd)? '<span class="badge err">⚠️ 시세 확인</span>':''}</div>
       <div class="sb">${sub}</div>
       <div class="sb" style="color:var(--brand);font-weight:600">${esc(where)}</div>
     </div>
@@ -1968,6 +2002,10 @@ function openHold(id){
         ${r.dayRate? `<span class="num ${sgn(r.dayRate)}"> ${arrow(r.dayRate)}${pctS(Math.abs(r.dayRate))}</span>`:''}
         ${px.manual? '<span class="badge man">직접 입력</span>':''}</span></div>`:''}
       ${px.err? `<div class="tiny up mt">⚠️ ${esc(px.err)}</div>`:''}
+      ${priceOdd(h)? `<div class="note mt" style="margin-bottom:0">
+        ⚠️ 가져온 시세(${priceS(px.p, px.ccy)})가 평균 매수가(${priceS(h.avg, isUs?'USD':'KRW')})와
+        너무 차이 납니다. <b>잘못 붙었을 수 있어요.</b> 증권사 앱 값과 다르면 아래
+        <b>시세 직접 입력</b>에 적어 주세요.</div>`:''}
     </div>
 
     ${amt ? `
@@ -1991,7 +2029,8 @@ function openHold(id){
       <div class="f"><label>시세 직접 입력 ${isUs?'($)':'(원)'} <span class="muted">선택</span></label>
         <input id="hMp" inputmode="decimal" value="${h.mp!==undefined&&h.mp!==''?esc(h.mp):''}"
                placeholder="비워 두면 자동으로 가져옵니다">
-        <div class="hint">시세가 안 붙거나 값이 이상할 때만 적어 주세요. 적으면 자동 조회보다 <b>이 값이 우선</b>입니다.</div></div>
+        <div class="hint">시세가 안 붙거나 값이 이상할 때만 적어 주세요. 적으면 자동 조회보다 <b>이 값이 우선</b>입니다.
+          ${sameStock(h).length>1? `이 종목은 계좌 ${sameStock(h).length}곳에 있어서 <b>모두 같이</b> 바뀝니다.`:''}</div></div>
     `}
     ${!amt? `<div class="f"><label>어느 계좌 <span class="muted">선택</span></label>
       <input id="hAcct" list="acctList" value="${esc(h.acct||'')}" placeholder="예: 미래에셋, 키움, 업비트">
@@ -2103,20 +2142,37 @@ function openGroupModal(ids){
       </div>
     </div>
 
+    ${(()=>{
+      /* 같은 종목인데 계좌마다 시세가 다르면 뭔가 잘못된 겁니다 — 바로 보이게 */
+      const ps = [...new Set(list.map(h=>{ const r=calc(h);
+        return r.ready ? Math.round(r.px.p*10000) : null; }).filter(v=>v!=null))];
+      if(ps.length > 1) return `<div class="note" style="margin-bottom:10px">
+        ⚠️ 계좌마다 <b>현재가가 다르게</b> 잡혀 있어요 (${ps.map(v=>priceS(v/10000, g.px.ccy)).join(' · ')}).
+        아래 <b>🔧 시세 고치기</b>로 맞는 값을 한 번 넣으면 모든 계좌에 같이 적용됩니다.</div>`;
+      if(list.some(priceOdd)) return `<div class="note" style="margin-bottom:10px">
+        ⚠️ 가져온 시세(${priceS(g.px.p, g.px.ccy)})가 평균 매수가(${priceS(g.avg, isUs?'USD':'KRW')})와
+        너무 차이 납니다. 증권사 앱 값과 다르면 아래 <b>🔧 시세 고치기</b>에 적어 주세요.</div>`;
+      return '';
+    })()}
+
     <div class="tiny muted" style="margin-bottom:2px">계좌별로 보기 — 누르면 고칠 수 있어요</div>
     ${list.map(h=>{
       const r = calc(h);
       return `<div class="hold" data-act="open" data-id="${h.id}">
         <div class="ic" style="background:${c.color}1f;color:${c.color}">${esc((h.acct||h.owner||'?').slice(0,2))}</div>
         <div class="mid">
-          <div class="nm">${esc(h.acct || '계좌 이름 없음')}<span class="badge">${esc(h.owner||'공동')}</span></div>
+          <div class="nm">${esc(h.acct || '계좌 이름 없음')}<span class="badge">${esc(h.owner||'공동')}</span>${
+            r.px.manual? '<span class="badge man">직접</span>':''}</div>
           <div class="sb">${qtyS(h.qty,h.cat)}${c.unit} · 평단 ${h.avg? priceS(h.avg, isUs?'USD':'KRW') : '—'}</div>
+          <div class="sb">지금 ${r.ready? priceS(r.px.p, r.px.ccy) : '—'}</div>
         </div>
         <div class="rt"><div class="amt num">${num(r.value)}원</div>
           ${r.ready && r.cost>0? `<div class="pl num ${sgn(r.pl)}">${arrow(r.pl)} ${shortWon(Math.abs(r.pl))} (${pctS(r.plRate,1)})</div>`:''}
         </div></div>`;
     }).join('')}
 
+    <button class="btn ghost block mt" data-act="fixPrice" data-id="${h0.id}">
+      🔧 시세 고치기 (계좌 ${list.length}곳 모두)</button>
     <button class="btn ghost block mt" data-act="mergeGroup" data-ids="${esc(ids)}">
       🔗 한 줄로 합치기 (수량 더하고 평단 다시 계산)</button>
     <div class="tiny muted mt">합치면 계좌 구분은 사라지고 하나로 남습니다.</div>`);
@@ -2515,6 +2571,24 @@ document.addEventListener('click', async ev=>{
   /* ---------- 종목 상세 ---------- */
   case 'open': openHold(id); break;
   case 'openGroup': openGroupModal(b.dataset.ids); break;
+  case 'fixPrice': {
+    const h = state.holdings.find(x=>x.id===id); if(!h) break;
+    const r = calc(h), isUs = h.cat==='us';
+    const cur = r.ready ? r.px.p : '';
+    const box = sameStock(h);
+    const v = prompt(
+      `${h.name} 의 지금 시세를 적어 주세요${isUs?' (달러)':' (원)'}\n`
+      + `계좌 ${box.length}곳에 모두 적용됩니다.\n`
+      + `비우고 확인을 누르면 다시 자동으로 가져옵니다.`, cur);
+    if(v === null) break;
+    const t = String(v).trim();
+    if(t === ''){ box.forEach(x=>{ x.mp = ''; }); save(); closeModal(); render(); refreshPrices(true); break; }
+    const n = parseQty(t);
+    if(!isFinite(n) || n<=0){ toast('숫자로 적어 주세요'); break; }
+    box.forEach(x=>{ x.mp = n; x.mpAt = Date.now(); });
+    save(); closeModal(); render();
+    toast(`${h.name} 시세를 ${priceS(n, isUs?'USD':'KRW')}로 맞췄어요`);
+    break; }
   case 'mergeGroup': {
     const list = String(b.dataset.ids||'').split(',')
       .map(x=>state.holdings.find(h=>h.id===x)).filter(Boolean);
@@ -2559,6 +2633,8 @@ document.addEventListener('click', async ev=>{
       if(h.acct) setAcctType(h.acct, $('#hAT')?.textContent.trim() || '일반');
     }
     if($('#hKind')) h.kind = $('#hKind').textContent.trim() || undefined;
+    /* 시세는 종목 하나에 하나뿐이라, 직접 적은 값은 같은 종목 모든 계좌에 함께 적용합니다 */
+    if(!amt) sameStock(h).forEach(x=>{ x.mp = h.mp; x.mpAt = h.mpAt; });
     h.memo = ($('#hMemo')?.value||'').trim();
     const tv = parseQty($('#hTarget')?.value); h.target = isFinite(tv)? tv : 0;
     const sv = parseQty($('#hStop')?.value);   h.stop   = isFinite(sv)? sv : 0;
@@ -2732,6 +2808,7 @@ state.snap = state.snap || {};
 state.coins = state.coins || { list:[], at:0 };
 state.accts = state.accts || {};
 state.diary = state.diary || [];
+healPrices();
 state.sync = state.sync || { enabled:false };
 buildLedger();
 writeLocal();
