@@ -202,7 +202,11 @@ nav.tabs{position:sticky;top:0;z-index:30;background:var(--bg);padding:10px 0 8p
 .prow .p2 label{flex:1;font-size:10px;color:var(--muted);font-weight:700}
 .prow .p2 input{font-size:12.5px;padding:6px 8px;margin-top:2px}
 .prow .warn{font-size:10.5px;color:var(--up);padding-left:24px;margin-top:3px;font-weight:700}
-.prow .dup{font-size:10.5px;color:var(--gold);padding-left:24px;margin-top:3px;font-weight:700}
+.prow .dup{font-size:10.5px;color:var(--gold);padding-left:24px;margin-top:4px;font-weight:700;
+  display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.prow .dup .chip{padding:3px 9px;font-size:10px}
+.acct{display:inline-block;font-size:9.5px;font-weight:700;padding:1px 5px;border-radius:5px;
+  background:var(--soft);color:var(--brand);margin-right:4px}
 .praw{font-size:10.5px;color:var(--muted);white-space:pre-wrap;word-break:break-all;
   background:#faf8f2;border:1px solid var(--line);border-radius:10px;padding:8px 10px;max-height:120px;overflow-y:auto}
 .note{background:var(--gold-s);border:1px solid #f0dcbb;border-radius:12px;padding:10px 12px;font-size:11.5px;
@@ -559,6 +563,36 @@ function byCat(list){
     m[h.cat].day += r.day; m[h.cat].n++; m[h.cat].items.push(h); });
   return m;
 }
+
+/* ------------------------------------------------------------
+   같은 종목을 증권사 계좌마다 따로 담아 두면(수량·평단이 다르니까)
+   화면에서는 하나로 묶어 보여줍니다.
+   ------------------------------------------------------------ */
+function groupOf(items){
+  const m = new Map();
+  (items||[]).forEach(h=>{
+    const k = h.code ? h.cat+':'+h.code : 'id:'+h.id;   /* 코드가 없는 건 묶지 않습니다 */
+    if(!m.has(k)) m.set(k, []);
+    m.get(k).push(h);
+  });
+  return [...m.values()];
+}
+/* 묶인 종목의 합계 — 평단은 수량으로 가중평균 */
+function calcGroup(list){
+  let qty=0, value=0, cost=0, loan=0, day=0, wSum=0, wQty=0, ready=false, px=null;
+  list.forEach(h=>{
+    const r = calc(h);
+    qty += +h.qty||0; value += r.value; loan += r.loan; day += r.day;
+    if(r.ready){ cost += r.cost; ready = true; }
+    if((+h.avg||0) > 0){ wSum += (+h.qty||0)*(+h.avg); wQty += (+h.qty||0); }
+    if(!px || px.none) px = r.px;
+  });
+  const prevValue = value - day;
+  return { qty, avg: wQty>0 ? wSum/wQty : 0, value, cost, loan, net:value-loan,
+           pl: cost>0? value-cost : 0, plRate: cost>0? (value-cost)/cost : 0,
+           day, dayRate: prevValue>0 ? day/prevValue : 0, px: px||{}, ready };
+}
+const acctLabel = h => h.acct || '';
 
 /* ---------- 시세 새로고침 ---------- */
 async function refreshPrices(manual){
@@ -1223,7 +1257,10 @@ async function resolvePasteRows(rows){
     }catch(e){ /* 인터넷이 막히면 직접 적게 둡니다 */ }
   }
 }
-const dupOf = r => (state.holdings||[]).find(h=>h.cat===r.cat && h.code && h.code===r.code);
+/* 같은 종목이라도 명의·계좌가 다르면 다른 줄로 봅니다 (증권사 두 곳에 같은 종목) */
+const dupOf = (r, owner, acct) => (state.holdings||[]).find(h=>
+  h.cat===r.cat && h.code && h.code===r.code &&
+  (h.owner||'공동')===(owner||'') && (h.acct||'')===(acct||''));
 
 /* ============================================================
    4. 공통 그리기 조각
@@ -1292,7 +1329,8 @@ function holdRow(h){
   } else if(isAmountCat(h.cat)){
     sub = (h.loan>0 ? `대출 ${shortWon(h.loan)}원 · ` : '') + (h.memo ? esc(h.memo) : (h.owner||'공동'));
   } else {
-    sub = `${qtyS(h.qty,h.cat)}${c.unit} · ${priceS(px.p, px.ccy)}` +
+    sub = (h.acct? `<b>${esc(h.acct)}</b> · ` : '') +
+          `${qtyS(h.qty,h.cat)}${c.unit} · ${priceS(px.p, px.ccy)}` +
           (r.dayRate ? ` <span class="${cls}">${arrow(r.dayRate)}${pctS(Math.abs(r.dayRate))}</span>` : '');
   }
   const plCls = sgn(r.pl);
@@ -1309,6 +1347,31 @@ function holdRow(h){
         ? `<div class="pl num ${plCls}">${arrow(r.pl)} ${shortWon(Math.abs(r.pl))} (${pctS(r.plRate,1)})</div>`
         : `<div class="pl muted">${!r.ready ? '시세 기다리는 중'
              : (h.loan>0 ? '순 '+shortWon(r.net)+'원' : '')}</div>`}
+    </div>
+  </div>`;
+}
+/* 계좌가 여러 곳이면 합친 줄 하나로 보여주고, 누르면 계좌별로 펼칩니다 */
+function holdGroupRow(list){
+  if(list.length === 1) return holdRow(list[0]);
+  const h0 = list[0], c = CAT(h0.cat), g = calcGroup(list);
+  const cls = sgn(g.dayRate), plCls = sgn(g.pl);
+  const where = list.map(h=>h.acct || h.owner || '계좌').join(' · ');
+  const sub = g.ready
+    ? `${qtyS(g.qty,h0.cat)}${c.unit} · ${priceS(g.px.p, g.px.ccy)}` +
+      (g.dayRate ? ` <span class="${cls}">${arrow(g.dayRate)}${pctS(Math.abs(g.dayRate))}</span>` : '')
+    : '시세 기다리는 중…';
+  return `<div class="hold" data-act="openGroup" data-ids="${list.map(h=>h.id).join(',')}">
+    <div class="ic" style="background:${c.color}1f;color:${c.color}">${c.emo}</div>
+    <div class="mid">
+      <div class="nm">${esc(h0.name)}<span class="badge">계좌 ${list.length}곳</span></div>
+      <div class="sb">${sub}</div>
+      <div class="sb" style="color:var(--brand);font-weight:600">${esc(where)}</div>
+    </div>
+    <div class="rt">
+      <div class="amt num">${num(g.value)}원</div>
+      ${g.ready && g.cost>0
+        ? `<div class="pl num ${plCls}">${arrow(g.pl)} ${shortWon(Math.abs(g.pl))} (${pctS(g.plRate,1)})</div>`
+        : '<div class="pl muted"></div>'}
     </div>
   </div>`;
 }
@@ -1395,16 +1458,20 @@ function viewHome(){
   <div class="card">
     <h2>오늘 많이 움직인 종목</h2>
     ${(()=>{
-      const mv = list.map(h=>({h, r:calc(h)})).filter(x=>x.r.ready && x.r.day)
+      const mv = groupOf(list).map(gl=>({gl, r:calcGroup(gl)})).filter(x=>x.r.ready && x.r.day)
                      .sort((a,b)=>Math.abs(b.r.day)-Math.abs(a.r.day)).slice(0,5);
       if(!mv.length) return '<div class="empty">아직 오늘 움직임이 없어요</div>';
-      return mv.map(x=>`<div class="hold" data-act="open" data-id="${x.h.id}">
-        <div class="ic" style="background:${CAT(x.h.cat).color}1f;color:${CAT(x.h.cat).color}">${CAT(x.h.cat).emo}</div>
-        <div class="mid"><div class="nm">${esc(x.h.name)}</div>
-          <div class="sb">${priceS(x.r.px.p, x.r.px.ccy)}</div></div>
-        <div class="rt"><div class="amt num ${sgn(x.r.day)}">${arrow(x.r.day)} ${shortWon(Math.abs(x.r.day))}원</div>
-          <div class="pl num ${sgn(x.r.dayRate)}">${pctS(x.r.dayRate)}</div></div>
-      </div>`).join('');
+      return mv.map(x=>{
+        const h = x.gl[0], c = CAT(h.cat), many = x.gl.length>1;
+        return `<div class="hold" data-act="${many?'openGroup':'open'}"
+             data-${many?'ids':'id'}="${many? x.gl.map(y=>y.id).join(',') : h.id}">
+          <div class="ic" style="background:${c.color}1f;color:${c.color}">${c.emo}</div>
+          <div class="mid"><div class="nm">${esc(h.name)}${many?`<span class="badge">계좌 ${x.gl.length}곳</span>`:''}</div>
+            <div class="sb">${priceS(x.r.px.p, x.r.px.ccy)}</div></div>
+          <div class="rt"><div class="amt num ${sgn(x.r.day)}">${arrow(x.r.day)} ${shortWon(Math.abs(x.r.day))}원</div>
+            <div class="pl num ${sgn(x.r.dayRate)}">${pctS(x.r.dayRate)}</div></div>
+        </div>`;
+      }).join('');
     })()}
   </div>
 
@@ -1455,7 +1522,7 @@ function viewList(){
   </div>
   ${cats.map(c=>{
     const g = m[c.k];
-    const items = g.items.slice().sort((a,b)=>calc(b).value-calc(a).value);
+    const groups = groupOf(g.items).sort((a,b)=>calcGroup(b).value-calcGroup(a).value);
     const pct = t.value>0 ? (g.value/t.value*100) : 0;
     return `<div class="card">
       <div class="ghead">
@@ -1464,7 +1531,7 @@ function viewList(){
         <div class="gr num">${won(g.value)} <span class="muted" style="font-weight:600">${pct.toFixed(0)}%</span></div>
       </div>
       <div class="bar" style="margin-bottom:6px"><i style="width:${pct.toFixed(1)}%;background:${c.color}"></i></div>
-      ${items.map(holdRow).join('')}
+      ${groups.map(holdGroupRow).join('')}
     </div>`;
   }).join('')}
   ${!cats.length? '<div class="empty">이 이름으로 담아 둔 자산이 없어요</div>':''}`;
@@ -1599,6 +1666,11 @@ function openPickForm(pick){
     ${isUs? `<div class="f"><label>살 때 환율 <span class="muted">선택</span></label>
       <input id="pAvgFx" inputmode="decimal" placeholder="비우면 달러 기준 수익률로 봅니다">
       <div class="hint">적어 두면 <b>원화 기준</b> 수익률로 계산합니다.</div></div>`:''}
+    <div class="f"><label>어느 계좌 <span class="muted">선택</span></label>
+      <input id="pAcct" list="acctList" value="${esc(lastAcct)}" placeholder="예: 미래에셋, 키움, 업비트" autocomplete="off">
+      ${acctDatalist()}
+      <div class="hint">계좌를 적어 두면 <b>같은 종목을 증권사마다 따로</b> 담을 수 있고,
+        화면에서는 하나로 합쳐 보여줍니다.</div></div>
     <div class="f"><label>누구 명의</label>
       <div class="seg" id="pOwner">${ownerList().map((o,i)=>
         `<button class="${i===0?'on':''}" data-act="segOwner" data-v="${esc(o)}">${esc(o)}</button>`).join('')}</div></div>
@@ -1606,7 +1678,7 @@ function openPickForm(pick){
 }
 
 /* 📋 붙여넣기 — ① 붙여넣는 창 */
-let pasteRows = [], pasteUnknown = [], lastPasteOwner = '';
+let pasteRows = [], pasteUnknown = [], lastPasteOwner = '', lastPasteAcct = '';
 function openPasteForm(){
   openModal(`
     <div class="mhead"><h3>📋 잔고 붙여넣기</h3><button class="x" data-act="close">✕</button></div>
@@ -1617,10 +1689,14 @@ function openPasteForm(){
     </div>
     <div class="f"><textarea id="pasteBox" style="min-height:150px"
       placeholder="예)&#10;삼성전자  30주  평균 70,000원&#10;에코프로비엠 247540 12 185,000&#10;비트코인 BTC&#10;보유수량 0.05  매수평균가 90,000,000&#10;AAPL 10 180"></textarea></div>
+    <div class="f"><label>어느 계좌인가요 <span class="muted">선택</span></label>
+      <input id="pasteAcct" list="acctList" value="${esc(lastAcct)}" placeholder="예: 미래에셋, 키움, 업비트" autocomplete="off">
+      ${acctDatalist()}
+      <div class="hint">증권사가 여러 곳이면 <b>계좌마다 따로 붙여넣고 이름을 적어</b> 주세요.
+        같은 종목이 두 계좌에 있어도 각각 담기고, 화면에서는 <b>합쳐서</b> 보여줍니다.</div></div>
     <div class="f"><label>누구 명의로 담을까요</label>
       <div class="seg" id="pasteOwner">${ownerList().map((o,i)=>
-        `<button class="${i===0?'on':''}" data-act="segOwner" data-v="${esc(o)}">${esc(o)}</button>`).join('')}</div>
-      <div class="hint">한 계좌를 통째로 붙여넣는 거라 명의는 하나로 정합니다. 나중에 종목별로 바꿀 수 있어요.</div></div>
+        `<button class="${i===0?'on':''}" data-act="segOwner" data-v="${esc(o)}">${esc(o)}</button>`).join('')}</div></div>
     <button class="btn block" data-act="pasteParse">읽어 보기</button>`);
   setTimeout(()=>$('#pasteBox')?.focus(), 60);
 }
@@ -1631,12 +1707,12 @@ function openPastePreview(owner, working){
   openModal(`
     <div class="mhead"><h3>이렇게 담을까요?</h3><button class="x" data-act="close">✕</button></div>
     <div class="tiny muted" style="margin:-6px 0 10px">
-      ${esc(owner)} 명의 · ${pasteRows.length}개를 찾았어요.
+      ${esc(owner)} 명의${lastPasteAcct? ' · <b>'+esc(lastPasteAcct)+'</b> 계좌':''} · ${pasteRows.length}개를 찾았어요.
       ${working? '<span class="spin">↻</span> 모르는 종목을 찾아보는 중…' : '틀린 곳은 바로 고쳐 주세요.'}
     </div>
     ${pasteRows.length ? `<div style="max-height:46vh;overflow-y:auto;margin-bottom:10px">
       ${pasteRows.map((r,i)=>{
-        const dup = dupOf(r);
+        const dup = dupOf(r, lastPasteOwner, lastPasteAcct);
         const needCode = (r.cat==='kr'||r.cat==='us'||r.cat==='coin') && !r.code;
         return `<div class="prow ${r.use?'':'off'}">
           <div class="p1">
@@ -1650,7 +1726,11 @@ function openPastePreview(owner, working){
             <label>코드·티커<input class="pk" data-i="${i}" value="${esc(r.code||'')}" placeholder="${r.cat==='kr'?'005930':'AAPL'}"></label>
           </div>
           ${needCode? '<div class="warn">⚠️ 코드를 몰라서 시세가 안 붙어요 — 적어 주거나 체크를 빼 주세요</div>':''}
-          ${dup? `<div class="dup">이미 담아 둔 종목이에요 — 담으면 수량·평단이 이 값으로 바뀝니다</div>`:''}
+          ${dup? `<div class="dup">
+              <span>이미 있어요 (${esc(dup.acct||dup.owner||'')} ${qtyS(dup.qty,dup.cat)}${CAT(dup.cat).unit})</span>
+              <button class="chip ${(r.mode||'over')==='over'?'on':'line'}" data-act="pMode" data-i="${i}" data-m="over">덮어쓰기</button>
+              <button class="chip ${r.mode==='merge'?'on':'line'}" data-act="pMode" data-i="${i}" data-m="merge">합치기</button>
+            </div>`:''}
         </div>`;
       }).join('')}
     </div>` : '<div class="empty">종목을 못 찾았어요.<br>수량이 같이 있는 줄을 붙여넣어 주세요.</div>'}
@@ -1671,7 +1751,7 @@ function openHold(id){
   openModal(`
     <div class="mhead"><h3>${esc(h.name)}</h3><button class="x" data-act="close">✕</button></div>
     <div class="tiny muted" style="margin:-6px 0 12px">
-      ${c.emo} ${c.label}${h.code&&!amt? ' · '+esc(h.code):''}${h.official? ' · '+esc(h.official):''}
+      ${c.emo} ${c.label}${h.acct? ' · <b>'+esc(h.acct)+'</b>':''}${h.code&&!amt? ' · '+esc(h.code):''}${h.official? ' · '+esc(h.official):''}
       ${px.src? ' · 시세 '+esc(px.src)+' '+timeAgo(px.at) : ''}</div>
 
     <div class="card tight" style="margin-bottom:12px">
@@ -1717,6 +1797,9 @@ function openHold(id){
                placeholder="비워 두면 자동으로 가져옵니다">
         <div class="hint">시세가 안 붙거나 값이 이상할 때만 적어 주세요. 적으면 자동 조회보다 <b>이 값이 우선</b>입니다.</div></div>
     `}
+    ${!amt? `<div class="f"><label>어느 계좌 <span class="muted">선택</span></label>
+      <input id="hAcct" list="acctList" value="${esc(h.acct||'')}" placeholder="예: 미래에셋, 키움, 업비트">
+      ${acctDatalist()}</div>`:''}
     <div class="f"><label>누구 명의</label>
       <div class="seg" id="hOwner">${ownerList().map(o=>
         `<button class="${(h.owner||'공동')===o?'on':''}" data-act="segOwner" data-v="${esc(o)}">${esc(o)}</button>`).join('')}</div></div>
@@ -1729,6 +1812,67 @@ function openHold(id){
     </div>
     <button class="btn warn block mt" data-act="delHold" data-id="${h.id}">이 자산 지우기</button>`);
 }
+/* 이미 쓴 적 있는 계좌 이름을 자동완성으로 */
+let lastAcct = '';
+const acctNames = () => [...new Set((state.holdings||[]).map(h=>h.acct).filter(Boolean))];
+const acctDatalist = () =>
+  `<datalist id="acctList">${acctNames().map(a=>`<option value="${esc(a)}">`).join('')}</datalist>`;
+
+/* 같은 종목이 여러 계좌에 있을 때 — 합계와 계좌별 내역 */
+function openGroupModal(ids){
+  const list = String(ids||'').split(',').map(id=>(state.holdings||[]).find(h=>h.id===id)).filter(Boolean);
+  if(!list.length) return;
+  if(list.length===1) return openHold(list[0].id);
+  const h0 = list[0], c = CAT(h0.cat), g = calcGroup(list);
+  const isUs = h0.cat==='us';
+  openModal(`
+    <div class="mhead"><h3>${esc(h0.name)}</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted" style="margin:-6px 0 12px">
+      ${c.emo} ${c.label}${h0.code? ' · '+esc(h0.code):''} · <b>계좌 ${list.length}곳을 합친 값</b></div>
+
+    <div class="card tight" style="margin-bottom:12px">
+      <div class="between">
+        <div><div class="tiny muted">합계 평가금액</div>
+          <div style="font-size:20px;font-weight:900;letter-spacing:-.03em" class="num">${won(g.value)}</div></div>
+        <div class="right">
+          ${g.cost>0? `<div class="tiny muted">평가손익</div>
+            <div style="font-size:15px;font-weight:800" class="num ${sgn(g.pl)}">${arrow(g.pl)} ${num(Math.abs(g.pl))}원</div>
+            <div class="tiny num ${sgn(g.pl)}">${pctS(g.plRate,1)}</div>` : ''}
+        </div>
+      </div>
+      <div class="between tiny mt" style="border-top:1px solid var(--line);padding-top:8px">
+        <span class="muted">합계 수량</span><span><b class="num">${qtyS(g.qty,h0.cat)}${c.unit}</b></span>
+      </div>
+      <div class="between tiny" style="margin-top:4px">
+        <span class="muted">평균 매수가 <span style="font-weight:400">(수량으로 가중평균)</span></span>
+        <span><b class="num">${g.avg? priceS(g.avg, isUs?'USD':'KRW') : '—'}</b></span>
+      </div>
+      <div class="between tiny" style="margin-top:4px">
+        <span class="muted">현재가</span>
+        <span><b class="num">${g.ready? priceS(g.px.p, g.px.ccy) : '—'}</b>
+          ${g.dayRate? `<span class="num ${sgn(g.dayRate)}"> ${arrow(g.dayRate)}${pctS(Math.abs(g.dayRate))}</span>`:''}</span>
+      </div>
+    </div>
+
+    <div class="tiny muted" style="margin-bottom:2px">계좌별로 보기 — 누르면 고칠 수 있어요</div>
+    ${list.map(h=>{
+      const r = calc(h);
+      return `<div class="hold" data-act="open" data-id="${h.id}">
+        <div class="ic" style="background:${c.color}1f;color:${c.color}">${esc((h.acct||h.owner||'?').slice(0,2))}</div>
+        <div class="mid">
+          <div class="nm">${esc(h.acct || '계좌 이름 없음')}<span class="badge">${esc(h.owner||'공동')}</span></div>
+          <div class="sb">${qtyS(h.qty,h.cat)}${c.unit} · 평단 ${h.avg? priceS(h.avg, isUs?'USD':'KRW') : '—'}</div>
+        </div>
+        <div class="rt"><div class="amt num">${num(r.value)}원</div>
+          ${r.ready && r.cost>0? `<div class="pl num ${sgn(r.pl)}">${arrow(r.pl)} ${shortWon(Math.abs(r.pl))} (${pctS(r.plRate,1)})</div>`:''}
+        </div></div>`;
+    }).join('')}
+
+    <button class="btn ghost block mt" data-act="mergeGroup" data-ids="${esc(ids)}">
+      🔗 한 줄로 합치기 (수량 더하고 평단 다시 계산)</button>
+    <div class="tiny muted mt">합치면 계좌 구분은 사라지고 하나로 남습니다.</div>`);
+}
+
 /* 종목 차트·뉴스로 바로 가기 */
 function chartUrl(h){
   if(h.cat==='kr')   return 'https://m.stock.naver.com/domestic/stock/'+encodeURIComponent(h.code)+'/total';
@@ -1999,7 +2143,9 @@ document.addEventListener('click', async ev=>{
     if(!isFinite(qty) || qty<=0){ toast('수량을 적어 주세요'); break; }
     const avg = parseQty($('#pAvg')?.value);
     const avgFx = parseQty($('#pAvgFx')?.value);
-    addHolding({ cat:p.cat, code:p.code, sym:p.sym, name:p.name || p.code,
+    const acct = ($('#pAcct')?.value||'').trim();
+    lastAcct = acct;
+    addHolding({ cat:p.cat, code:p.code, sym:p.sym, name:p.name || p.code, acct,
                  owner: segPick('pOwner', ownerList()[0]),
                  qty, avg: isFinite(avg)? avg : 0,
                  avgFx: isFinite(avgFx)? avgFx : 0 });
@@ -2032,6 +2178,8 @@ document.addEventListener('click', async ev=>{
     const owner = segPick('pasteOwner', ownerList()[0]);
     if(!txt.trim()){ toast('붙여넣은 내용이 없어요'); break; }
     lastPasteOwner = owner;
+    lastPasteAcct = ($('#pasteAcct')?.value||'').trim();
+    lastAcct = lastPasteAcct;
     try{ await loadCoinList(); }catch(e){ /* 내장 목록으로도 충분합니다 */ }
     const out = parsePaste(txt);
     pasteRows = out.rows; pasteUnknown = out.unknown;
@@ -2039,10 +2187,17 @@ document.addEventListener('click', async ev=>{
     openPastePreview(owner, need);
     if(need){ await resolvePasteRows(pasteRows); openPastePreview(owner, false); }
     break; }
+  case 'pMode': {
+    syncPasteInputs();
+    const r = pasteRows[+b.dataset.i]; if(!r) break;
+    r.mode = b.dataset.m;
+    openPastePreview(lastPasteOwner, false);
+    break; }
   case 'pasteSave': {
     syncPasteInputs();
     const owner = b.dataset.owner || lastPasteOwner || ownerList()[0];
-    let added=0, updated=0, skipped=0;
+    const acct = lastPasteAcct;
+    let added=0, updated=0, merged=0, skipped=0;
     pasteRows.forEach(r=>{
       if(!r.use) return;
       if(!isFinite(r.qty) || r.qty<=0){ skipped++; return; }
@@ -2051,26 +2206,56 @@ document.addEventListener('click', async ev=>{
       if(c.auto && !r.code){ skipped++; return; }
       if(!c.auto){
         /* 예적금·연금·부동산은 '수량' 칸에 적힌 금액을 평가액으로 봅니다 */
-        addHolding({ cat:r.cat, code:'', sym:'', name:r.name||'이름 없음', owner,
+        addHolding({ cat:r.cat, code:'', sym:'', name:r.name||'이름 없음', owner, acct,
                      qty:1, avg:+r.avg||0, mp:r.qty, mpAt:Date.now() });
         added++; return;
       }
       const sym = r.cat==='kr'
         ? ((r.sym && r.sym.indexOf(r.code)===0) ? r.sym : r.code+'.KS')
         : (r.cat==='gold' ? (r.sym||'GC=F') : r.code);
-      const dup = dupOf(r);
-      if(dup){ dup.qty = r.qty; dup.avg = +r.avg||0; dup.owner = owner; dup.sym = sym;
-               dup.name = r.name || dup.name; updated++; }
-      else { addHolding({ cat:r.cat, code:r.code, sym, name:r.name||r.code, owner,
+      const dup = dupOf(r, owner, acct);
+      if(dup && r.mode==='merge'){
+        /* 수량은 더하고, 평단은 수량으로 가중평균 */
+        const q1 = +dup.qty||0, a1 = +dup.avg||0, q2 = r.qty, a2 = +r.avg||0;
+        const q = q1 + q2;
+        dup.avg = (a1>0 && a2>0) ? Math.round(((q1*a1 + q2*a2)/q)*10000)/10000 : (a1>0? a1 : a2);
+        dup.qty = q; dup.sym = sym; merged++;
+      }
+      else if(dup){ dup.qty = r.qty; dup.avg = +r.avg||0; dup.sym = sym;
+                    dup.name = r.name || dup.name; updated++; }
+      else { addHolding({ cat:r.cat, code:r.code, sym, name:r.name||r.code, owner, acct,
                           qty:r.qty, avg:+r.avg||0 }); added++; }
     });
     save(); closeModal(); ui.tab='list'; render();
-    toast(`${added}개 담고 ${updated}개 고쳤어요${skipped? ` · ${skipped}개는 건너뛰었어요`:''}`);
-    if(added+updated) refreshPrices();
+    toast([added && `${added}개 담기`, updated && `${updated}개 갱신`, merged && `${merged}개 합침`,
+           skipped && `${skipped}개 건너뜀`].filter(Boolean).join(' · ') || '담을 게 없었어요');
+    if(added+updated+merged) refreshPrices();
     break; }
 
   /* ---------- 종목 상세 ---------- */
   case 'open': openHold(id); break;
+  case 'openGroup': openGroupModal(b.dataset.ids); break;
+  case 'mergeGroup': {
+    const list = String(b.dataset.ids||'').split(',')
+      .map(x=>state.holdings.find(h=>h.id===x)).filter(Boolean);
+    if(list.length<2) break;
+    const where = list.map(h=>h.acct||h.owner||'계좌').join(', ');
+    if(!confirm(`${list[0].name} 을(를) 한 줄로 합칠까요?\n\n${where}\n\n계좌 구분은 사라지고 수량이 더해집니다.`)) break;
+    const keep = list[0];
+    let qty = 0, wSum = 0, wQty = 0;
+    list.forEach(h=>{
+      const q = +h.qty||0, a = +h.avg||0;
+      qty += q;
+      if(a>0){ wSum += q*a; wQty += q; }
+    });
+    keep.qty = qty;
+    keep.avg = wQty>0 ? Math.round((wSum/wQty)*10000)/10000 : 0;
+    keep.acct = '';
+    const drop = new Set(list.slice(1).map(h=>h.id));
+    state.holdings = state.holdings.filter(h=>!drop.has(h.id));
+    save(); closeModal(); render();
+    toast(`${keep.name} ${list.length}개를 한 줄로 합쳤어요`);
+    break; }
   case 'saveHold': {
     const h = state.holdings.find(x=>x.id===id); if(!h) break;
     const amt = isAmountCat(h.cat);
@@ -2089,6 +2274,7 @@ document.addEventListener('click', async ev=>{
       else { const v = parseQty(raw); if(isFinite(v)){ h.mp = v; h.mpAt = Date.now(); } }
     }
     h.owner = segPick('hOwner', h.owner||'공동');
+    if($('#hAcct')) h.acct = ($('#hAcct').value||'').trim();
     h.memo = ($('#hMemo')?.value||'').trim();
     save(); closeModal(); render(); toast('저장했어요');
     break; }
