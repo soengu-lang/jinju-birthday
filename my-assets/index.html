@@ -190,6 +190,21 @@ nav.tabs{position:sticky;top:0;z-index:30;background:var(--bg);padding:10px 0 8p
 .tbl th:first-child,.tbl td:first-child{text-align:left}
 .tbl td{text-align:right}
 .scrollx{overflow-x:auto;-webkit-overflow-scrolling:touch}
+/* ---------- 붙여넣기 미리보기 ---------- */
+.prow{border-bottom:1px solid var(--line);padding:9px 2px}
+.prow:last-child{border-bottom:none}
+.prow.off{opacity:.4}
+.prow .p1{display:flex;align-items:center;gap:7px}
+.prow .p1 input[type=checkbox]{width:17px;height:17px;flex:none;accent-color:var(--brand)}
+.prow .p1 .pn{flex:1;min-width:0;font-size:13px;font-weight:700;border:none;background:transparent;padding:2px 0}
+.prow .p1 select{width:auto;flex:none;font-size:11px;padding:4px 6px;border-radius:8px;max-width:38%}
+.prow .p2{display:flex;gap:6px;margin-top:5px;padding-left:24px}
+.prow .p2 label{flex:1;font-size:10px;color:var(--muted);font-weight:700}
+.prow .p2 input{font-size:12.5px;padding:6px 8px;margin-top:2px}
+.prow .warn{font-size:10.5px;color:var(--up);padding-left:24px;margin-top:3px;font-weight:700}
+.prow .dup{font-size:10.5px;color:var(--gold);padding-left:24px;margin-top:3px;font-weight:700}
+.praw{font-size:10.5px;color:var(--muted);white-space:pre-wrap;word-break:break-all;
+  background:#faf8f2;border:1px solid var(--line);border-radius:10px;padding:8px 10px;max-height:120px;overflow-y:auto}
 .note{background:var(--gold-s);border:1px solid #f0dcbb;border-radius:12px;padding:10px 12px;font-size:11.5px;
   line-height:1.6;color:#7a5518}
 .note.info{background:var(--soft);border-color:var(--soft-d);color:var(--brand-d)}
@@ -513,12 +528,13 @@ function calc(h){
   const cost = px.ccy==='USD' ? avg*q*(avgFx>0? avgFx : fx) : avg*q;
 
   const loan = +h.loan || 0;                           /* 부동산 대출 */
-  const pl = cost>0 ? value - cost : 0;
-  const plRate = cost>0 ? pl/cost : 0;
-  const day = prevValue>0 ? value - prevValue : 0;
-  const dayRate = prevP>0 ? (nowP-prevP)/prevP : 0;
-  return { px, value, cost, loan, net:value-loan, pl, plRate, day, dayRate,
-           ready: !px.none && nowP>0 };
+  const ready = !px.none && nowP>0;
+  /* 시세를 못 받았으면 손익은 0 — 안 그러면 -100% 손실처럼 보입니다 */
+  const pl = (ready && cost>0) ? value - cost : 0;
+  const plRate = (ready && cost>0) ? pl/cost : 0;
+  const day = (ready && prevValue>0) ? value - prevValue : 0;
+  const dayRate = (ready && prevP>0) ? (nowP-prevP)/prevP : 0;
+  return { px, value, cost, loan, net:value-loan, pl, plRate, day, dayRate, ready };
 }
 const activeHoldings = () => (state.holdings||[]).filter(h=>!h.hide);
 function inOwner(h){ return ui.owner==='전체' || (h.owner||'공동')===ui.owner; }
@@ -528,8 +544,8 @@ function totals(list){
   let value=0, cost=0, loan=0, day=0, missing=0;
   list.forEach(h=>{
     const r = calc(h);
-    value += r.value; cost += r.cost; loan += r.loan; day += r.day;
-    if(!r.ready) missing++;
+    value += r.value; loan += r.loan; day += r.day;
+    if(r.ready) cost += r.cost; else missing++;
   });
   return { value, cost, loan, net:value-loan, pl: cost>0? value-cost : 0,
            plRate: cost>0? (value-cost)/cost : 0, day, missing, n:list.length };
@@ -538,7 +554,8 @@ function byCat(list){
   list = list || activeHoldings().filter(inOwner);
   const m = {};
   list.forEach(h=>{ const r=calc(h); (m[h.cat] = m[h.cat] || {value:0,cost:0,loan:0,day:0,n:0,items:[]});
-    m[h.cat].value += r.value; m[h.cat].cost += r.cost; m[h.cat].loan += r.loan;
+    m[h.cat].value += r.value; m[h.cat].loan += r.loan;
+    if(r.ready) m[h.cat].cost += r.cost;
     m[h.cat].day += r.day; m[h.cat].n++; m[h.cat].items.push(h); });
   return m;
 }
@@ -643,7 +660,7 @@ function buildLedger(){
 /* 하루 한 번 총자산을 적어 둡니다 (추이 그래프용) */
 function takeSnapshot(){
   const t = totals(activeHoldings());
-  if(!t.n || !t.value) return;
+  if(!t.n || !t.value || t.missing) return;   /* 덜 붙은 시세로 추이를 망치지 않게 */
   state.snap = state.snap || {};
   state.snap[iso(new Date())] = { tot:Math.round(t.value), net:Math.round(t.net) };
   const keys = Object.keys(state.snap).sort();
@@ -944,6 +961,86 @@ const US_LIST = US_RAW.trim().split('\n').map(l=>{
   return { cat:'us', code:(code||'').trim(), sym:(code||'').trim(), name:(name||'').trim() };
 }).filter(x=>x.code);
 
+/* 인터넷이 없어도 알아볼 수 있게 자주 쓰는 코인은 미리 담아 뒀습니다 */
+const COIN_RAW = `
+BTC|비트코인
+ETH|이더리움
+XRP|리플
+SOL|솔라나
+DOGE|도지코인
+ADA|에이다
+TRX|트론
+LINK|체인링크
+AVAX|아발란체
+DOT|폴카닷
+XLM|스텔라루멘
+LTC|라이트코인
+BCH|비트코인캐시
+ETC|이더리움클래식
+ATOM|코스모스
+NEAR|니어프로토콜
+APT|앱토스
+ARB|아비트럼
+OP|옵티미즘
+SUI|수이
+SEI|세이
+STX|스택스
+HBAR|헤데라
+ALGO|알고랜드
+SAND|샌드박스
+MANA|디센트럴랜드
+AXS|엑시인피니티
+EOS|이오스
+VET|비체인
+THETA|세타토큰
+CHZ|칠리즈
+GRT|더그래프
+IMX|이뮤터블엑스
+INJ|인젝티브
+TIA|셀레스티아
+WLD|월드코인
+PEPE|페페
+BONK|봉크
+SHIB|시바이누
+ONDO|온도파이낸스
+ENA|에테나
+BLUR|블러
+MASK|마스크네트워크
+GMT|스테픈
+QTUM|퀀텀
+NEO|네오
+ONT|온톨로지
+IOTA|아이오타
+ZIL|질리카
+BAT|베이직어텐션토큰
+ANKR|앵커
+CELO|셀로
+KAVA|카바
+FLOW|플로우
+MINA|미나
+AAVE|에이브
+UNI|유니스왑
+COMP|컴파운드
+MKR|메이커
+SNX|신세틱스
+CRV|커브
+SUSHI|스시스왑
+WAVES|웨이브
+POL|폴리곤에코시스템토큰
+`;
+const COIN_SEED = COIN_RAW.trim().split('\n').map(l=>{
+  const [code, kn] = l.split('|');
+  return { code:(code||'').trim(), kn:(kn||'').trim(), en:'' };
+}).filter(x=>x.code);
+/* 업비트에서 받아 둔 목록 + 내장 목록을 합친 것 */
+function coinPool(){
+  const seen = new Set(), out = [];
+  [...(state.coins?.list||[]), ...COIN_SEED].forEach(c=>{
+    if(seen.has(c.code)) return; seen.add(c.code); out.push(c);
+  });
+  return out;
+}
+
 const norm = s => String(s||'').toLowerCase().replace(/[\s.\-&']/g,'');
 function localSearch(cat, q){
   const n = norm(q); if(!n) return [];
@@ -958,7 +1055,8 @@ function localSearch(cat, q){
   return hit.slice(0, 12);
 }
 async function coinSearch(q){
-  const list = await loadCoinList();
+  try{ await loadCoinList(); }catch(e){ /* 인터넷이 막혀도 내장 목록으로 찾습니다 */ }
+  const list = coinPool();
   const n = norm(q);
   const hit = !n ? list.slice(0, 20)
     : list.filter(c => norm(c.kn).includes(n) || norm(c.en).includes(n) || norm(c.code).includes(n));
@@ -980,6 +1078,152 @@ async function remoteSearch(cat, q){
   });
   return out.slice(0, 12);
 }
+
+/* ============================================================
+   3-2. 📋 잔고 붙여넣기 — 증권사·거래소 화면을 통째로
+   ------------------------------------------------------------
+   증권사마다 화면이 다 달라서 '이 형식만' 받지 않습니다.
+   줄마다 ① 종목처럼 보이는 말 ② 숫자를 찾아내고,
+   '수량 / 평균 / 현재가' 같은 말이 있으면 그걸 힌트로 씁니다.
+   알아들은 결과는 표로 보여주고, 고친 뒤에 담습니다.
+   ============================================================ */
+const cleanNum = t => parseFloat(String(t).replace(/,/g,''));
+/* 종목 이름·코드·티커 알아보기 */
+function findSym(tok){
+  const t = String(tok||'').trim();
+  if(!t || t.length > 30) return null;
+  const n = norm(t);
+  if(!n) return null;
+  /* ① 국내 6자리 코드 */
+  const code6 = t.match(/(?:^|\D)(\d{6})(?:\D|$)/);
+  if(code6){
+    const c = code6[1];
+    const seed = KR_LIST.find(x=>x.code===c);
+    return seed ? { ...seed } : { cat:'kr', code:c, sym:c+'.KS', name:c };
+  }
+  if(/^\d/.test(n)) return null;                       /* 숫자로 시작하면 이름이 아닙니다 */
+  /* ② 국내 종목 이름 */
+  let hit = KR_LIST.find(x=>norm(x.name)===n)
+         || KR_LIST.find(x=>norm(x.name).split(/\s+/)[0]===n);
+  if(hit) return { ...hit };
+  /* ③ 코인 (심볼 · 한글 이름) */
+  const up = t.toUpperCase().replace(/[^A-Z0-9]/g,'');
+  const coin = coinPool().find(c=>c.code===up) || coinPool().find(c=>norm(c.kn)===n || norm(c.en)===n);
+  if(coin) return { cat:'coin', code:coin.code, sym:coin.code, name:coin.kn || coin.en || coin.code };
+  /* ④ 미국 티커 · 이름 */
+  const us = US_LIST.find(x=>x.code===up) || US_LIST.find(x=>norm(x.name).includes(n) && n.length>=2);
+  if(us) return { ...us };
+  /* ⑤ 국내 종목 이름 일부만 적힌 경우 */
+  hit = KR_LIST.find(x=>norm(x.name).includes(n) && n.length>=2);
+  if(hit) return { ...hit };
+  return null;
+}
+/* 숫자 하나가 무엇을 뜻하는지, 바로 앞에 있는 말로 짐작 */
+function numTag(line, pos){
+  const head = line.slice(0, pos);
+  const last = arr => Math.max(...arr.map(w=>head.lastIndexOf(w)));
+  const q = last(['수량','보유','잔고','주식수']);
+  const a = last(['평균','평단','매입가','매수가','매입단가','평균단가']);
+  const skip = last(['현재','종가','평가','손익','수익','비중','총액','매입금액','합계','금액']);
+  const best = Math.max(q, a, skip);
+  if(best < 0) return '';
+  if(best === skip) return 'skip';
+  if(best === a) return 'avg';
+  return 'qty';
+}
+function collectNums(line){
+  const out = [];
+  const re = /(-?\d[\d,]*(?:\.\d+)?)\s*(주|개|좌|그램|g|G|%|퍼센트)?/g;
+  let m;
+  while((m = re.exec(line))){
+    const v = cleanNum(m[1]);
+    if(isFinite(v)) out.push({ v, unit:m[2]||'', at:m.index });
+  }
+  return out;
+}
+function applyNums(row, line, nums){
+  const rest = [];
+  nums.forEach(n=>{
+    if(n.unit==='%' || n.unit==='퍼센트') return;                 /* 수익률은 버립니다 */
+    if(/주|개|좌|그램|g|G/.test(n.unit)){ if(!isFinite(row.qty)) row.qty = n.v; return; }
+    const t = numTag(line, n.at);
+    if(t==='skip') return;
+    if(t==='qty'){ if(!isFinite(row.qty)) row.qty = n.v; return; }
+    if(t==='avg'){ if(!isFinite(row.avg)) row.avg = n.v; return; }
+    rest.push(n.v);
+  });
+  rest.forEach(v=>{
+    if(!isFinite(row.qty)) row.qty = v;
+    else if(!isFinite(row.avg)) row.avg = v;
+  });
+}
+const NOISE = /^(종목|종목명|종목코드|단축코드|코드|보유|잔고|수량|평균|평단|매입|매수|매도|현재가|현재가격|평가|손익|손익률|수익률|등락률|비중|계좌|합계|총계|주문|체결|가능|증거금|예수금|보유수량|보유량|보유주식|잔고수량|매수평균가|매입평균가|매입가|평균단가|평가금액|매입금액|평가손익|미실현손익|주문가능|전체|더보기|정렬|원화|KRW|USD|총자산|총평가금액)$/;
+/* 낱말에서 숫자·기호를 뺀 알맹이 ('보유수량 0.05' → '보유수량') */
+const nameCore = t => String(t||'').replace(/[\d,.\s%+\-원$()]/g,'');
+/* '이건 종목 이름 같다' — 알맹이가 두 자 이상이고, 수량·평균 같은 말이 아닌 것 */
+function isNameWord(t){
+  const raw = String(t||'').trim();
+  if(!raw || /^[\d$]/.test(raw)) return false;
+  const w = nameCore(raw);
+  return /[가-힣A-Za-z]{2,}/.test(w) && !NOISE.test(w);
+}
+function parsePaste(text){
+  const rows = [], unknown = [];
+  const lines = String(text||'').split(/\r?\n/).map(l=>l.replace(/ /g,' ').trim()).filter(Boolean);
+  let cur = null;
+  const flush = () => { if(cur){ rows.push(cur); cur = null; } };
+  for(const line of lines){
+    if(NOISE.test(line)) continue;
+    const cells = line.split(/\t+|\s{2,}|\|/).map(c=>c.trim()).filter(Boolean);
+    const toks = cells.length>1 ? cells : line.split(/\s+/);
+    /* 표 머리글처럼 전부 '수량·평균·현재가' 같은 말뿐이면 건너뜁니다 */
+    if(toks.length>1 && toks.every(t=>NOISE.test(t))) continue;
+    let hit = null;
+    for(const t of toks){ if(NOISE.test(t)) continue; const m = findSym(t); if(m){ hit = m; break; } }
+    /* 코드가 이름 뒤 칸에 따로 있는 경우도 잡아 줍니다 */
+    if(!hit) { const m = findSym(line); if(m) hit = m; }
+    const nums = collectNums(hit && hit.cat==='kr' && hit.code ? line.replace(hit.code,' ') : line);
+    if(hit){
+      /* 같은 종목이 이름·코드로 두 줄에 걸쳐 있으면 한 줄로 봅니다 */
+      if(cur && cur.cat===hit.cat && cur.code===hit.code){ applyNums(cur, line, nums); cur.raw += ' / ' + line; continue; }
+      flush();
+      cur = { ...hit, qty:NaN, avg:NaN, use:true, raw:line };
+      applyNums(cur, line, nums);
+      continue;
+    }
+    /* 이름은 모르겠지만 '이름 같은 말 + 숫자 2개' 면 새 종목 줄로 봅니다 */
+    const word = toks.filter(isNameWord).sort((a,b)=>b.length-a.length)[0];
+    if(word && nums.filter(n=>n.unit!=='%').length >= 2){
+      flush();
+      cur = { cat:'kr', code:'', sym:'', name:word.replace(/[\d,.%+\-$]/g,'').trim() || word,
+              qty:NaN, avg:NaN, use:true, raw:line, guess:true };
+      applyNums(cur, line, nums);
+      continue;
+    }
+    /* 그 밖에 숫자만 있는 줄은 바로 위 종목에 이어 붙입니다 */
+    if(cur && nums.length && !word){
+      applyNums(cur, line, nums); cur.raw += ' / ' + line;
+      continue;
+    }
+    if(word) unknown.push(line);
+  }
+  flush();
+  return { rows: rows.filter(r=>isFinite(r.qty) && r.qty>0), unknown };
+}
+/* 이름만 알고 코드를 모르는 줄은 인터넷 검색으로 채워 봅니다 */
+async function resolvePasteRows(rows){
+  const todo = rows.filter(r=>r.guess).slice(0, 10);
+  for(const r of todo){
+    try{
+      let out = await remoteSearch('kr', r.name);
+      if(!out.length) out = await remoteSearch('us', r.name);
+      const n = norm(r.name);
+      const best = out.find(x=>norm(x.name).includes(n) || norm(x.code)===n) || out[0];
+      if(best){ r.cat=best.cat; r.code=best.code; r.sym=best.sym; r.name=best.name; r.guess=false; r.found=true; }
+    }catch(e){ /* 인터넷이 막히면 직접 적게 둡니다 */ }
+  }
+}
+const dupOf = r => (state.holdings||[]).find(h=>h.cat===r.cat && h.code && h.code===r.code);
 
 /* ============================================================
    4. 공통 그리기 조각
@@ -1061,9 +1305,10 @@ function holdRow(h){
     </div>
     <div class="rt">
       <div class="amt num">${r.ready||isAmountCat(h.cat) ? num(r.value)+'원' : '—'}</div>
-      ${r.cost>0
+      ${r.ready && r.cost>0
         ? `<div class="pl num ${plCls}">${arrow(r.pl)} ${shortWon(Math.abs(r.pl))} (${pctS(r.plRate,1)})</div>`
-        : `<div class="pl muted">${h.loan>0 ? '순 '+shortWon(r.net)+'원' : ''}</div>`}
+        : `<div class="pl muted">${!r.ready ? '시세 기다리는 중'
+             : (h.loan>0 ? '순 '+shortWon(r.net)+'원' : '')}</div>`}
     </div>
   </div>`;
 }
@@ -1180,6 +1425,7 @@ function emptyHome(){
       그 다음부터는 열 때마다 <b>시세가 자동으로</b> 붙습니다.
     </div>
     <button class="btn block" data-act="tab" data-tab="add">＋ 첫 자산 담기</button>
+    <button class="btn ghost block mt" data-act="pasteOpen">📋 증권사 잔고 붙여넣기</button>
   </div>`;
 }
 
@@ -1231,6 +1477,14 @@ function viewAdd(){
   const cat = ui.qcat, c = CAT(cat);
   const manual = !c.auto;
   return `
+  <div class="card tight" style="display:flex;gap:8px;align-items:center">
+    <div style="flex:1;min-width:0">
+      <div style="font-size:12.5px;font-weight:800">📋 잔고 붙여넣기</div>
+      <div class="tiny muted">증권사·거래소 화면을 통째로 복사해 오면 한 번에 담습니다</div>
+    </div>
+    <button class="btn sm" style="flex:none" data-act="pasteOpen">열기</button>
+  </div>
+
   <div class="card">
     <h2>무엇을 담을까요?</h2>
     <div class="chips" style="margin-bottom:12px">${CATS.map(x=>
@@ -1349,6 +1603,64 @@ function openPickForm(pick){
       <div class="seg" id="pOwner">${ownerList().map((o,i)=>
         `<button class="${i===0?'on':''}" data-act="segOwner" data-v="${esc(o)}">${esc(o)}</button>`).join('')}</div></div>
     <button class="btn block mt" data-act="savePick" data-json='${esc(JSON.stringify(pick))}'>담기</button>`);
+}
+
+/* 📋 붙여넣기 — ① 붙여넣는 창 */
+let pasteRows = [], pasteUnknown = [], lastPasteOwner = '';
+function openPasteForm(){
+  openModal(`
+    <div class="mhead"><h3>📋 잔고 붙여넣기</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted" style="margin:-6px 0 10px;line-height:1.7">
+      증권사 앱이나 거래소의 <b>잔고·보유 종목 화면을 그대로 복사</b>해서 아래에 붙여넣으세요.
+      증권사마다 모양이 달라도 <b>종목 이름 · 수량 · 평균단가</b>를 찾아냅니다.
+      알아들은 걸 표로 보여 드리니 거기서 고치면 됩니다.
+    </div>
+    <div class="f"><textarea id="pasteBox" style="min-height:150px"
+      placeholder="예)&#10;삼성전자  30주  평균 70,000원&#10;에코프로비엠 247540 12 185,000&#10;비트코인 BTC&#10;보유수량 0.05  매수평균가 90,000,000&#10;AAPL 10 180"></textarea></div>
+    <div class="f"><label>누구 명의로 담을까요</label>
+      <div class="seg" id="pasteOwner">${ownerList().map((o,i)=>
+        `<button class="${i===0?'on':''}" data-act="segOwner" data-v="${esc(o)}">${esc(o)}</button>`).join('')}</div>
+      <div class="hint">한 계좌를 통째로 붙여넣는 거라 명의는 하나로 정합니다. 나중에 종목별로 바꿀 수 있어요.</div></div>
+    <button class="btn block" data-act="pasteParse">읽어 보기</button>`);
+  setTimeout(()=>$('#pasteBox')?.focus(), 60);
+}
+/* 📋 붙여넣기 — ② 알아들은 결과 고치기 */
+function openPastePreview(owner, working){
+  const catOpts = r => CATS.map(c=>
+    `<option value="${c.k}" ${c.k===r.cat?'selected':''}>${c.emo} ${c.label}</option>`).join('');
+  openModal(`
+    <div class="mhead"><h3>이렇게 담을까요?</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted" style="margin:-6px 0 10px">
+      ${esc(owner)} 명의 · ${pasteRows.length}개를 찾았어요.
+      ${working? '<span class="spin">↻</span> 모르는 종목을 찾아보는 중…' : '틀린 곳은 바로 고쳐 주세요.'}
+    </div>
+    ${pasteRows.length ? `<div style="max-height:46vh;overflow-y:auto;margin-bottom:10px">
+      ${pasteRows.map((r,i)=>{
+        const dup = dupOf(r);
+        const needCode = (r.cat==='kr'||r.cat==='us'||r.cat==='coin') && !r.code;
+        return `<div class="prow ${r.use?'':'off'}">
+          <div class="p1">
+            <input type="checkbox" data-act="pUse" data-i="${i}" ${r.use?'checked':''}>
+            <input class="pn" data-i="${i}" value="${esc(r.name)}" placeholder="종목 이름">
+            <select data-i="${i}" class="pc" data-act="pCat">${catOpts(r)}</select>
+          </div>
+          <div class="p2">
+            <label>수량<input class="pq" data-i="${i}" inputmode="decimal" value="${isFinite(r.qty)?r.qty:''}"></label>
+            <label>평균단가<input class="pa" data-i="${i}" inputmode="decimal" value="${isFinite(r.avg)?r.avg:''}"></label>
+            <label>코드·티커<input class="pk" data-i="${i}" value="${esc(r.code||'')}" placeholder="${r.cat==='kr'?'005930':'AAPL'}"></label>
+          </div>
+          ${needCode? '<div class="warn">⚠️ 코드를 몰라서 시세가 안 붙어요 — 적어 주거나 체크를 빼 주세요</div>':''}
+          ${dup? `<div class="dup">이미 담아 둔 종목이에요 — 담으면 수량·평단이 이 값으로 바뀝니다</div>`:''}
+        </div>`;
+      }).join('')}
+    </div>` : '<div class="empty">종목을 못 찾았어요.<br>수량이 같이 있는 줄을 붙여넣어 주세요.</div>'}
+    ${pasteUnknown.length? `<details style="margin-bottom:10px">
+      <summary class="tiny muted" style="cursor:pointer">못 알아들은 줄 ${pasteUnknown.length}개 보기</summary>
+      <div class="praw" style="margin-top:6px">${esc(pasteUnknown.join('\n'))}</div>
+    </details>`:''}
+    ${pasteRows.length? `<button class="btn block" data-act="pasteSave" data-owner="${esc(owner)}">
+      ${pasteRows.filter(r=>r.use).length}개 담기</button>`:''}
+    <button class="btn ghost block mt" data-act="pasteOpen">다시 붙여넣기</button>`);
 }
 
 /* 담아 둔 종목 하나 자세히 보기 · 고치기 */
@@ -1713,6 +2025,50 @@ document.addEventListener('click', async ev=>{
     ui.tab='list'; render(); toast(`${name} 담았어요`);
     break; }
 
+  /* ---------- 📋 잔고 붙여넣기 ---------- */
+  case 'pasteOpen': openPasteForm(); break;
+  case 'pasteParse': {
+    const txt = $('#pasteBox')?.value || '';
+    const owner = segPick('pasteOwner', ownerList()[0]);
+    if(!txt.trim()){ toast('붙여넣은 내용이 없어요'); break; }
+    lastPasteOwner = owner;
+    try{ await loadCoinList(); }catch(e){ /* 내장 목록으로도 충분합니다 */ }
+    const out = parsePaste(txt);
+    pasteRows = out.rows; pasteUnknown = out.unknown;
+    const need = pasteRows.some(r=>r.guess);
+    openPastePreview(owner, need);
+    if(need){ await resolvePasteRows(pasteRows); openPastePreview(owner, false); }
+    break; }
+  case 'pasteSave': {
+    syncPasteInputs();
+    const owner = b.dataset.owner || lastPasteOwner || ownerList()[0];
+    let added=0, updated=0, skipped=0;
+    pasteRows.forEach(r=>{
+      if(!r.use) return;
+      if(!isFinite(r.qty) || r.qty<=0){ skipped++; return; }
+      const c = CAT(r.cat);
+      if(r.cat==='gold' && !r.code){ r.code='GOLD'; r.sym='GC=F'; }
+      if(c.auto && !r.code){ skipped++; return; }
+      if(!c.auto){
+        /* 예적금·연금·부동산은 '수량' 칸에 적힌 금액을 평가액으로 봅니다 */
+        addHolding({ cat:r.cat, code:'', sym:'', name:r.name||'이름 없음', owner,
+                     qty:1, avg:+r.avg||0, mp:r.qty, mpAt:Date.now() });
+        added++; return;
+      }
+      const sym = r.cat==='kr'
+        ? ((r.sym && r.sym.indexOf(r.code)===0) ? r.sym : r.code+'.KS')
+        : (r.cat==='gold' ? (r.sym||'GC=F') : r.code);
+      const dup = dupOf(r);
+      if(dup){ dup.qty = r.qty; dup.avg = +r.avg||0; dup.owner = owner; dup.sym = sym;
+               dup.name = r.name || dup.name; updated++; }
+      else { addHolding({ cat:r.cat, code:r.code, sym, name:r.name||r.code, owner,
+                          qty:r.qty, avg:+r.avg||0 }); added++; }
+    });
+    save(); closeModal(); ui.tab='list'; render();
+    toast(`${added}개 담고 ${updated}개 고쳤어요${skipped? ` · ${skipped}개는 건너뛰었어요`:''}`);
+    if(added+updated) refreshPrices();
+    break; }
+
   /* ---------- 종목 상세 ---------- */
   case 'open': openHold(id); break;
   case 'saveHold': {
@@ -1843,6 +2199,26 @@ document.addEventListener('click', async ev=>{
     state = { ...blankState(), sync: state.sync, settings: state.settings };
     save(); ui.tab='home'; render(); toast('처음으로 되돌렸어요');
     break;
+  }
+});
+/* 미리보기 표에 손으로 고친 값을 읽어 옵니다 */
+function syncPasteInputs(){
+  const at = el => pasteRows[+el.dataset.i];
+  $$('.prow .pn').forEach(el=>{ const r=at(el); if(r) r.name = el.value.trim(); });
+  $$('.prow .pq').forEach(el=>{ const r=at(el); if(r){ const v=parseQty(el.value); r.qty = isFinite(v)? v : NaN; } });
+  $$('.prow .pa').forEach(el=>{ const r=at(el); if(r){ const v=parseQty(el.value); r.avg = isFinite(v)? v : 0; } });
+  $$('.prow .pk').forEach(el=>{ const r=at(el); if(r) r.code = el.value.trim().toUpperCase(); });
+  $$('.prow .pc').forEach(el=>{ const r=at(el); if(r) r.cat = el.value; });
+}
+document.addEventListener('change', e=>{
+  const el = e.target, r = pasteRows[+el.dataset?.i];
+  if(!r) return;
+  if(el.classList.contains('pc')) r.cat = el.value;
+  if(el.dataset.act === 'pUse'){
+    r.use = el.checked;
+    el.closest('.prow')?.classList.toggle('off', !r.use);
+    const btn = $('[data-act="pasteSave"]');
+    if(btn) btn.textContent = pasteRows.filter(x=>x.use).length + '개 담기';
   }
 });
 /* 검색창에서 엔터 */
