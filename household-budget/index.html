@@ -2359,6 +2359,7 @@ function openSettings(){
         </div>
         <button class="btn gold sm block" style="margin-top:8px" data-act="syncInvite">🔗 초대 링크 복사</button>
         <button class="btn ghost sm block" style="margin-top:7px" data-act="syncNow">🔄 지금 동기화</button>
+        <button class="btn ghost sm block" style="margin-top:7px" data-act="syncDiag">🩺 연결 점검</button>
         <button class="btn ghost sm block" style="margin-top:7px;color:var(--spend)" data-act="syncOff">공유 끄기</button>
       ` : `
         <div class="tiny muted" style="line-height:1.7;margin-bottom:8px">
@@ -3258,6 +3259,11 @@ document.addEventListener('click', async (e)=>{
 
   /* ---- 공유 ---- */
   case 'syncSetup': openSyncSetup(); break;
+  case 'syncDiag': await runSyncDiag(); break;
+  case 'sdiagCopy': {
+    const t = '💑 연결 점검\n' + (window._sdiag||[]).map(r=>`· ${r.n}: ${r.s}${r.tip? ' — '+r.tip:''}`).join('\n');
+    try{ await navigator.clipboard.writeText(t); toast('복사했어요'); }catch(e){ toast('복사가 안 됐어요'); }
+    break; }
   case 'syncFromFridge': {
     const cfg = fridgeFbConfig();
     if(!cfg){ toast('냉장고 앱 설정을 찾지 못했어요'); break; }
@@ -3382,10 +3388,65 @@ function fsUrl(path){
 }
 async function fsErr(r){
   let m=''; try{ m=(await r.json()).error?.message||''; }catch(e){}
-  if(r.status===403) return '권한이 거부됐어요 — Firestore 보안 규칙을 확인해 주세요';
-  if(r.status===400) return 'API 키나 프로젝트 ID가 올바르지 않아요';
-  if(r.status===404) return '프로젝트를 찾을 수 없어요 (Firestore 데이터베이스를 만들었는지 확인)';
-  return `오류 ${r.status} ${m}`.trim();
+  return fbErrKo(m, r.status);
+}
+/* 구글이 주는 영어 오류를 '무엇을 고쳐야 하는지'로 바꿔 줍니다 (자산 앱과 같은 문구) */
+function fbErrKo(msg, status){
+  const m = String(msg||'');
+  if(/API key not valid|API_KEY_INVALID/i.test(m))
+    return '열쇠(apiKey)가 맞지 않아요 — 설정값을 다시 붙여넣어 주세요';
+  if(/has not been used in project|is disabled|SERVICE_DISABLED/i.test(m))
+    return 'Firestore 를 아직 안 만드셨어요 — 빌드 → Firestore Database → 데이터베이스 만들기';
+  if(/database.*does not exist|NOT_FOUND.*database/i.test(m))
+    return 'Firestore 데이터베이스가 없어요 — 빌드 → Firestore Database → 데이터베이스 만들기';
+  if(/project.*(not found|does not exist)|PROJECT_NOT_FOUND/i.test(m))
+    return '프로젝트 이름(projectId)이 맞지 않아요 — 설정값을 다시 붙여넣어 주세요';
+  if(/blocked|referer|referrer/i.test(m))
+    return 'API 키에 사이트 제한이 걸려 있어요 — 제한을 풀거나 이 주소를 허용해 주세요';
+  if(/Missing or insufficient permissions|PERMISSION_DENIED/i.test(m) || status===403)
+    return '규칙이 막고 있어요 — 규칙 탭에 붙여넣고 게시(Publish) 하셨는지 봐 주세요';
+  if(status===404) return '주소를 못 찾았어요 — Firestore 데이터베이스를 만드셨는지 봐 주세요';
+  return m || ('오류 '+status);
+}
+/* 🩺 연결 점검 — 공유가 어디서 막혔는지 짚어 줍니다 */
+async function runSyncDiag(){
+  const c = state.sync || {};
+  const rows = [];
+  const draw = () => openModal(`<div class="modal">
+    <div class="mhead"><h3>🩺 연결 점검</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted" style="margin-bottom:10px">❌ 가 난 줄이 고칠 곳입니다.</div>
+    <div class="box">${rows.map(r=>
+      `<div style="display:flex;justify-content:space-between;gap:8px;padding:3px 0;font-size:12.5px">
+         <b>${esc(r.n)}</b><span>${esc(r.s)}</span></div>`
+      + (r.tip? `<div class="tiny muted" style="line-height:1.6;margin:-2px 0 4px">${esc(r.tip)}</div>`:'')
+    ).join('')}</div>
+    <button class="btn ghost block" style="margin-top:10px" data-act="sdiagCopy">📋 결과 복사하기</button></div>`);
+  const step = (n,s,tip)=>{ rows.push({n,s,tip:tip||''}); draw(); };
+
+  if(!c.apiKey || !c.projectId){ step('설정값','❌ 없음','Firebase 설정을 아직 안 넣으셨어요.'); window._sdiag=rows; return; }
+  step('설정값','✅ 있음', `프로젝트 ${c.projectId}`);
+  const room = c.room||'';
+  step('방 이름', room.length>=16?'✅ 좋음':'❌ 너무 짧음',
+       room.length>=16? `${room.length}자` : '규칙이 16자 이상만 받습니다.');
+  let reach = false;
+  try{
+    const u = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(c.projectId)}`
+            + `/databases/(default)/documents/rooms/zzcheckzzcheckzz/state/ping?key=${encodeURIComponent(c.apiKey)}`;
+    const r = await fetch(u);
+    let bad = '';
+    if(!r.ok){
+      let m=''; try{ m=(await r.clone().json())?.error?.message||''; }catch(e){}
+      if(r.status!==404 || /project|database|does not exist|not found/i.test(m)) bad = fbErrKo(m, r.status);
+    }
+    if(!bad){ reach = true; step('프로젝트·DB','✅ 닿음'); }
+    else step('프로젝트·DB','❌ '+bad);
+  }catch(e){ step('프로젝트·DB','❌ 인터넷이 안 닿아요', e.message); }
+  if(reach && room.length>=16){
+    try{ await fsPut(`rooms/${room}/state/ping`, 'ok', Date.now()); step('규칙(쓰기)','✅ 됨');
+         try{ await fetch(fsUrl(`rooms/${room}/state/ping`), {method:'DELETE'}); }catch(e){}
+    }catch(e){ step('규칙(쓰기)','❌ '+e.message); }
+  }
+  window._sdiag = rows;
 }
 async function fsGet(path){
   const r = await fetch(fsUrl(path));

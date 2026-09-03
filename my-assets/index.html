@@ -3106,8 +3106,13 @@ function viewSet(){
     ${c.enabled ? `
       <div class="note info">연결됨 · 방 이름 <b>${esc(c.room||'')}</b><br>
         ${c.error? '<span class="up">⚠️ '+esc(c.error)+'</span>' : '마지막 동기화 '+timeAgo(c.lastAt)}</div>
+      <button class="btn block mt" data-act="copyInvite">🔗 초대 링크 복사</button>
+      <div class="tiny muted mt" style="line-height:1.8">
+        이 링크를 <b>다른 기기·사파리·홈 화면 앱·가계부 앱</b> 어디에든 붙여넣으면 같은 방을 봅니다.
+        (자산 앱은 <b>초대 링크 붙여넣어 참여하기</b>, 가계부는 <b>🔗 초대 링크로 연결</b>)
+      </div>
       <div class="row mt" style="gap:6px">
-        <button class="btn ghost sm" style="flex:1" data-act="copyInvite">🔗 초대 링크 복사</button>
+        <button class="btn ghost sm" style="flex:1" data-act="syncDiag">🩺 연결 점검</button>
         <button class="btn ghost sm" style="flex:1" data-act="syncOff">연결 끊기</button>
       </div>`
     : `
@@ -3126,21 +3131,42 @@ function viewSet(){
       <button class="btn ghost block" data-act="joinPaste">🔗 초대 링크 붙여넣어 참여하기</button>
       <div class="tiny muted mt">배우자가 보내 준 링크, 또는 사파리에서 복사한 링크를 붙여넣으세요.</div>
 
-      <details style="margin-top:12px">
+      <details style="margin-top:12px" ${fbFromOtherApp()? '' : 'open'}>
         <summary class="tiny muted" style="cursor:pointer;font-weight:700">
-          ${fbFromOtherApp()? '다른 Firebase로 처음부터 만들기' : 'Firebase 처음 만들기 (무료 · 5분)'}</summary>
+          ${fbFromOtherApp()? '다른 Firebase로 처음부터 만들기' : '▸ Firebase 처음 만들기 (무료 · 5분) — 한 번만 하면 됩니다'}</summary>
+
         <div class="note" style="margin-top:8px;line-height:1.9">
           <b>1</b> <a href="https://console.firebase.google.com" target="_blank" rel="noopener">console.firebase.google.com</a>
             → 구글 로그인 → <b>프로젝트 만들기</b><br>
-          <b>2</b> 빌드 → <b>Firestore Database</b> → 데이터베이스 만들기<br>
-          <b>3</b> <b>규칙</b> 탭을 아래 내용으로 바꾸고 <b>게시</b><br>
-          <b>4</b> ⚙️ 프로젝트 설정 → <b>웹앱(&lt;/&gt;) 추가</b> → 나오는 설정값 복사<br>
-          <b>5</b> 아래에 붙여넣고 <b>연결하고 방 만들기</b>
+          &nbsp;&nbsp;<span class="tiny muted">이름은 아무거나. 애널리틱스는 <b>꺼도</b> 됩니다.</span>
+        </div>
+
+        <div class="note mt" style="line-height:1.9">
+          <b>2</b> 왼쪽 <b>빌드</b> → <b>Firestore Database</b> → <b>데이터베이스 만들기</b><br>
+          &nbsp;&nbsp;<span class="tiny muted">위치는 그대로 두고, <b>테스트 모드</b>로 시작하면 편합니다.
+          이걸 안 만들면 3·4번을 아무리 해도 안 됩니다.</span>
+        </div>
+
+        <div class="note mt" style="line-height:1.9">
+          <b>3</b> 같은 화면 위쪽 <b>규칙</b> 탭 → 있는 내용을 <b>다 지우고</b> 아래를 붙여넣고 <b>게시</b>
         </div>
         <button class="btn ghost block mt" data-act="copyRules">📋 3번 규칙 복사</button>
-        <div class="f mt"><label>4번에서 복사한 설정 붙여넣기</label>
-          <textarea id="fbCfg" placeholder="const firebaseConfig = { apiKey: '...', projectId: '...' , ... } 통째로"></textarea></div>
+
+        <div class="note mt" style="line-height:1.9">
+          <b>4</b> 왼쪽 위 <b>⚙️ 프로젝트 설정</b> → 아래로 내려 <b>내 앱</b> →
+          <b>웹(&lt;/&gt;)</b> 아이콘 → 닉네임 아무거나 → <b>앱 등록</b><br>
+          &nbsp;&nbsp;<span class="tiny muted">그러면 <b>const firebaseConfig = {…}</b> 가 나옵니다.
+          그 중괄호까지 <b>통째로</b> 복사하세요.</span>
+        </div>
+
+        <div class="f mt"><label>5 · 여기에 붙여넣기</label>
+          <textarea id="fbCfg" style="min-height:110px;font-size:11px"
+            placeholder="const firebaseConfig = {&#10;  apiKey: &quot;AIza...&quot;,&#10;  projectId: &quot;my-project&quot;,&#10;  ...&#10;};"></textarea></div>
         <button class="btn block" data-act="syncOn">연결하고 방 만들기</button>
+        <div class="tiny muted mt" style="line-height:1.7">
+          안 되면 <b>🩺 연결 점검</b> 이 어디가 막혔는지 짚어 줍니다.
+        </div>
+        <button class="btn ghost sm block mt" data-act="syncDiag">🩺 연결 점검</button>
       </details>`}
   </div>
 
@@ -3200,8 +3226,113 @@ const DEVICE = (()=>{ let d=localStorage.getItem('ma.device');
 const fsUrl = path => `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(state.sync.projectId)}`
   + `/databases/(default)/documents/${path}?key=${encodeURIComponent(state.sync.apiKey)}`;
 async function fsErr(r){
-  try{ const j = await r.json(); return j?.error?.message || ('오류 '+r.status); }
-  catch(e){ return '오류 '+r.status; }
+  let m = '';
+  try{ const j = await r.json(); m = j?.error?.message || ''; }catch(e){}
+  return fbErrKo(m, r.status);
+}
+/* ------------------------------------------------------------
+   🩺 연결 점검 — 부부 공유가 어디서 막혔는지 짚어 줍니다.
+   설정값 → 인터넷 → 프로젝트 → 규칙 → 방 순서로 하나씩 봅니다.
+   ------------------------------------------------------------ */
+let sdiag = { running:false, rows:[], done:false };
+const sdRow = (n, s, tip) => ({ n, s, tip:tip||'' });
+async function runSyncDiag(){
+  if(sdiag.running) return;
+  const c = state.sync || {};
+  sdiag = { running:true, rows:[], done:false };
+  const step = (n,s,tip)=>{ sdiag.rows.push(sdRow(n,s,tip)); openSyncDiag(); };
+
+  /* ① 설정값 */
+  if(!c.apiKey || !c.projectId){
+    step('설정값', '❌ 없음', 'Firebase 설정(firebaseConfig)을 아직 안 넣으셨어요.');
+    sdiag.running=false; sdiag.done=true; openSyncDiag(); return;
+  }
+  step('설정값', '✅ 있음', `프로젝트 ${c.projectId}`);
+
+  /* ② 방 이름 — 규칙이 16자 이상만 허용합니다 */
+  const room = c.room || '';
+  step('방 이름', room.length>=16 ? '✅ 좋음' : '❌ 너무 짧음',
+       room.length>=16 ? `${room.length}자` : '규칙이 16자 이상만 받습니다. 연결을 끊고 다시 만들어 주세요.');
+
+  /* ③ 프로젝트·데이터베이스 — 아무 문서나 읽어 봅니다 */
+  let reach = false;
+  try{
+    const u = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(c.projectId)}`
+            + `/databases/(default)/documents/rooms/zzcheckzzcheckzz/assets/ping`
+            + `?key=${encodeURIComponent(c.apiKey)}`;
+    const r = await fetch(u);
+    /* 404 는 두 가지입니다 — '그 문서가 없다'(정상)와 '프로젝트·DB 가 없다'(문제).
+       본문에 오류 설명이 붙어 있으면 뒤쪽입니다. */
+    let bad = '';
+    if(!r.ok){
+      let m=''; try{ m=(await r.clone().json())?.error?.message||''; }catch(e){}
+      if(r.status!==404 || /project|database|does not exist|not found/i.test(m)) bad = fbErrKo(m, r.status);
+    }
+    if(!bad){ reach = true; step('프로젝트·DB', '✅ 닿음'); }
+    else step('프로젝트·DB', '❌ ' + bad);
+  }catch(e){ step('프로젝트·DB', '❌ 인터넷이 안 닿아요', e.message); }
+  if(!reach){ sdiag.running=false; sdiag.done=true; openSyncDiag(); return; }
+
+  /* ④ 규칙 — 실제로 써 보고 지웁니다 */
+  if(room.length>=16){
+    try{
+      await fsPut(`rooms/${room}/assets/ping`, 'ok', Date.now());
+      step('규칙(쓰기)', '✅ 됨');
+      const g = await fsGet(`rooms/${room}/assets/ping`);
+      step('규칙(읽기)', g ? '✅ 됨' : '⚠️ 방금 쓴 게 안 읽혀요');
+      try{ await fetch(fsUrl(`rooms/${room}/assets/ping`), {method:'DELETE'}); }catch(e){}
+    }catch(e){ step('규칙(쓰기)', '❌ ' + e.message); }
+  }
+
+  /* ⑤ 실제 자산 문서 */
+  if(room.length>=16){
+    try{
+      const g = await fsGet(`rooms/${room}/assets/core`);
+      step('자산 문서', g ? '✅ 있음' : '⚠️ 아직 안 올라감',
+           g ? '' : '자산 앱에서 한 번 바뀌면 올라갑니다.');
+    }catch(e){ step('자산 문서', '❌ ' + e.message); }
+  }
+  sdiag.running=false; sdiag.done=true; openSyncDiag();
+}
+function syncDiagText(){
+  return '💑 연결 점검\n' + sdiag.rows.map(r=>`· ${r.n}: ${r.s}${r.tip? ' — '+r.tip : ''}`).join('\n');
+}
+function openSyncDiag(){
+  openModal(`
+    <div class="mhead"><h3>🩺 연결 점검</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted" style="margin:-6px 0 10px">
+      ${sdiag.running ? '<span class="spin">↻</span> 확인하는 중…' : '아래에서 ❌ 가 난 줄이 고칠 곳입니다.'}
+    </div>
+    <div class="card tight" style="margin-bottom:10px">
+      <table class="tbl"><tbody>${sdiag.rows.map(r=>
+        `<tr><td>${esc(r.n)}</td><td style="text-align:right">${esc(r.s)}</td></tr>`
+        + (r.tip? `<tr><td colspan="2" class="tiny muted" style="padding-top:0">${esc(r.tip)}</td></tr>` : '')
+      ).join('')}</tbody></table>
+    </div>
+    ${sdiag.done && sdiag.rows.some(r=>/규칙/.test(r.n) && /❌/.test(r.s)) ? `<div class="note">
+      규칙이 막고 있습니다. Firebase 콘솔 → <b>Firestore Database</b> → <b>규칙</b> 탭 →
+      아래 내용으로 통째로 바꾸고 <b>게시</b> 를 누르세요.
+      <button class="btn ghost sm block mt" data-act="copyRules">📋 규칙 복사</button></div>` : ''}
+    <button class="btn ghost block mt" data-act="sdiagCopy">📋 결과 복사하기</button>
+    <div class="tiny muted mt">복사해서 보내 주시면 어디가 막혔는지 바로 봐 드릴게요.</div>`);
+}
+/* 구글이 주는 영어 오류를 '무엇을 고쳐야 하는지'로 바꿔 줍니다 */
+function fbErrKo(msg, status){
+  const m = String(msg||'');
+  if(/API key not valid|API_KEY_INVALID/i.test(m))
+    return '열쇠(apiKey)가 맞지 않아요 — 설정값을 다시 붙여넣어 주세요';
+  if(/has not been used in project|is disabled|SERVICE_DISABLED/i.test(m))
+    return 'Firestore 를 아직 안 만드셨어요 — 빌드 → Firestore Database → 데이터베이스 만들기';
+  if(/database.*does not exist|NOT_FOUND.*database/i.test(m))
+    return 'Firestore 데이터베이스가 없어요 — 빌드 → Firestore Database → 데이터베이스 만들기';
+  if(/project.*(not found|does not exist)|PROJECT_NOT_FOUND/i.test(m))
+    return '프로젝트 이름(projectId)이 맞지 않아요 — 설정값을 다시 붙여넣어 주세요';
+  if(/blocked|referer|referrer/i.test(m))
+    return 'API 키에 사이트 제한이 걸려 있어요 — 제한을 풀거나 이 주소를 허용해 주세요';
+  if(/Missing or insufficient permissions|PERMISSION_DENIED/i.test(m) || status===403)
+    return '규칙이 막고 있어요 — 규칙 탭에 붙여넣고 게시(Publish) 하셨는지 봐 주세요';
+  if(status===404) return '주소를 못 찾았어요 — Firestore 데이터베이스를 만드셨는지 봐 주세요';
+  return m || ('오류 '+status);
 }
 async function fsGet(path){
   const r = await fetch(fsUrl(path));
@@ -3792,17 +3923,26 @@ document.addEventListener('click', async ev=>{
     break; }
   case 'syncOn': {
     const cfg = parseFbConfig($('#fbCfg')?.value);
-    if(!cfg){ toast('firebaseConfig 를 통째로 붙여넣어 주세요'); break; }
+    if(!cfg){ toast('firebaseConfig 를 통째로 붙여넣어 주세요 — 중괄호 { } 까지'); break; }
     state.sync = { enabled:true, ...cfg, room:randId(20), rev:0, lastAt:0, error:'', dirty:true };
     save(false); await syncPush(); render(); syncStart();
-    toast(state.sync.error ? state.sync.error : '연결했어요 — 초대 링크를 배우자에게 보내세요');
+    /* 실패하면 어디가 막혔는지 바로 짚어 줍니다 */
+    if(state.sync.error){ toast(state.sync.error); runSyncDiag(); }
+    else toast('연결했어요 — 초대 링크를 다른 기기에 붙여넣으세요');
     break; }
   case 'syncReuse': {
     const c = fbFromOtherApp(); if(!c){ toast('다른 앱 설정을 못 찾았어요'); break; }
     state.sync = { enabled:true, apiKey:c.apiKey, projectId:c.projectId,
                    room:randId(20), rev:0, lastAt:0, error:'', dirty:true };
     save(false); await syncPush(); render(); syncStart();
-    toast(state.sync.error ? state.sync.error : '연결했어요 — 초대 링크를 배우자에게 보내세요');
+    if(state.sync.error){ toast(state.sync.error); runSyncDiag(); }
+    else toast('연결했어요 — 초대 링크를 다른 기기에 붙여넣으세요');
+    break; }
+  case 'syncDiag': runSyncDiag(); break;
+  case 'sdiagCopy': {
+    const t = syncDiagText();
+    try{ await navigator.clipboard.writeText(t); toast('복사했어요'); }
+    catch(e){ openCopyFallback(t); }
     break; }
   case 'joinPaste': openJoinPaste(); break;
   case 'joinPasteGo': {
