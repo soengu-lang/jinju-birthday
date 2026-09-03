@@ -989,6 +989,13 @@ function investFbConfig(){
   }catch(e){}
   return null;
 }
+/* 자산 앱 방을 읽을 설정 — 초대 링크로 받아 둔 게 있으면 그걸 먼저 */
+function investRoomCfg(){
+  const V = state.inv || {};
+  if(V.apiKey && V.projectId) return { apiKey:V.apiKey, projectId:V.projectId, room:V.room };
+  const c = investFbConfig();
+  return c ? { ...c, room: V.room || c.room } : null;
+}
 async function investRemote(cfg){
   const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(cfg.projectId)}`
             + `/databases/(default)/documents/rooms/${cfg.room}/assets/core?key=${encodeURIComponent(cfg.apiKey)}`;
@@ -1007,8 +1014,8 @@ async function refreshInvest(){
   try{
     let led;
     if(V.mode==='remote'){
-      const cfg = investFbConfig();
-      if(!cfg) throw new Error('Firebase 설정을 못 찾았어요');
+      const cfg = investRoomCfg();
+      if(!cfg?.room) throw new Error('자산 앱 초대 링크를 붙여넣어 주세요');
       led = await investRemote({ ...cfg, room: V.room || cfg.room });
     } else {
       led = readInvestLocal();
@@ -1076,7 +1083,7 @@ function invCard(key){
   const V = state.inv || (state.inv = blankInv());
   const cfg = investFbConfig();
   if(!V.enabled){
-    if(!investHere() && !cfg) return '';        /* 자산 앱 흔적이 없으면 아예 안 보입니다 */
+    if(V.asked && !investHere() && !cfg) return '';   /* 한 번 끄셨고 흔적도 없으면 숨깁니다 */
     return `<div class="card pad" style="margin-top:12px">
       <div style="font-size:13px;font-weight:900;margin-bottom:6px">📊 자산 앱 연동</div>
       <div class="tiny muted" style="line-height:1.7">
@@ -1086,8 +1093,12 @@ function invCard(key){
       </div>
       <div class="row wrap" style="margin-top:9px">
         ${investHere()? `<button class="btn sm" data-act="invOn" data-mode="local">이 브라우저에서 읽기</button>`:''}
-        ${cfg? `<button class="btn ghost sm" data-act="invOn" data-mode="remote">자산 앱 방에서 읽기</button>`:''}
+        <button class="btn ${investHere()?'ghost ':''}sm" data-act="invOn" data-mode="remote">
+          🔗 자산 앱 초대 링크로 연결</button>
       </div>
+      ${!investHere()? `<div class="tiny muted" style="margin-top:8px;line-height:1.7">
+        📱 <b>홈 화면에 추가한 앱끼리는 저장 공간이 서로 다릅니다.</b>
+        가계부와 자산 앱을 둘 다 홈 화면 앱으로 쓰신다면 <b>초대 링크로 연결</b>해야 해요.</div>`:''}
     </div>`;
   }
   const plan = invPlan();
@@ -1133,6 +1144,24 @@ function invCard(key){
     </div>
   </div>`;
 }
+/* 자산 앱 초대 링크를 붙여넣어 방을 연결합니다.
+   홈 화면 앱끼리는 저장 공간이 서로 달라 이 방법이 유일합니다. */
+function openInvRemote(){
+  openModal(`<div class="modal">
+    <div class="mhead"><h3>📊 자산 앱과 연결</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted" style="line-height:1.8;margin-bottom:10px">
+      자산 앱 ⚙️ → <b>💑 배우자와 함께 보기</b> → <b>🔗 초대 링크 복사</b> 한 것을 붙여넣으세요.<br>
+      자산 앱에서 아직 공유를 안 켰다면 거기서 먼저 켜 주셔야 합니다.
+    </div>
+    <div class="field" style="margin-top:0"><label>자산 앱 초대 링크</label>
+      <textarea id="invLink" placeholder="https://soengu-lang.github.io/jinju-birthday/my-assets/#join=..."></textarea></div>
+    <button class="btn block" data-act="invRemoteGo">연결하기</button>
+    <div class="tiny muted" style="margin-top:8px;line-height:1.7">
+      가계부는 자산 앱 방을 <b>읽기만</b> 합니다. 아무것도 쓰지 않아요.
+    </div>
+  </div>`);
+}
+
 /* 배당을 어느 수입 항목에 넣을지 고르기 */
 function openInvDivPick(){
   openModal(`<div class="modal">
@@ -2269,10 +2298,19 @@ function openSettings(){
                </div></div>`
           : `<div class="tiny muted" style="line-height:1.7;margin-bottom:8px">
                자산 앱에 담아 둔 <b>주식·코인·달러·금·부동산</b> 금액을 💎 자산 칸으로 불러옵니다.
-               ${investHere()? '' : '<br>이 브라우저에는 자산 앱 기록이 없어요 — 자산 앱에서 부부 공유를 켜면 방에서 읽어옵니다.'}</div>`;
+               ${investHere()? '' : '<br>📱 홈 화면 앱끼리는 저장 공간이 서로 달라요 — 자산 앱에서 <b>부부 공유</b>를 켜고 <b>초대 링크</b>를 복사해 오세요.'}</div>
+             <div class="row wrap">
+               ${investHere()? `<button class="btn sm" data-act="invOn" data-mode="local">이 브라우저에서 읽기</button>`:''}
+               <button class="btn ${investHere()?'ghost ':''}sm" data-act="invOn" data-mode="remote">
+                 🔗 자산 앱 초대 링크로 연결</button>
+             </div>`;
       })()}
       <a class="btn ghost sm block" style="margin-top:8px;text-decoration:none;text-align:center;display:block"
          href="../my-assets/">자산 앱 열기 →</a>
+      <div class="tiny muted" style="margin-top:6px;line-height:1.7">
+        ⚠️ 홈 화면 앱에서 이 버튼을 누르면 <b>빈 화면</b>이 뜰 수 있어요.
+        링크로 열린 창은 저장 공간이 또 달라서 그렇습니다 —
+        자산은 <b>홈 화면의 자산 앱 아이콘</b>으로 열어 주세요.</div>
     </div>
 
     <div class="field"><label>기본값</label>
@@ -2986,16 +3024,23 @@ document.addEventListener('click', async (e)=>{
   case 'invOn': {
     const V = state.inv = state.inv || blankInv();
     V.enabled = true; V.asked = true; V.mode = b.dataset.mode || 'local';
-    if(V.mode==='remote'){
-      const cfg = investFbConfig();
-      const room = prompt('자산 앱 방 이름', V.room || cfg?.room || '') || '';
-      V.room = room.trim().replace(/[^A-Za-z0-9_\-]/g,'');
-      if(!V.room){ V.enabled = false; break; }
-    }
+    if(V.mode==='remote'){ save(); openInvRemote(); break; }
     save(); await refreshInvest(); render();
     toast(state.inv.error ? state.inv.error : '자산 앱에서 금액을 읽어왔어요');
     break;
   }
+  case 'invRemoteGo': {
+    const t = ($('#invLink')?.value||'').trim();
+    const m = t.match(/join=([A-Za-z0-9_\-]+)/);
+    let v = null;
+    if(m){ try{ v = JSON.parse(b64d(m[1])); }catch(e){} }
+    if(!v?.k || !v?.p || !v?.r){ toast('초대 링크를 읽지 못했어요 — 잘리지 않았는지 봐 주세요'); break; }
+    const V = state.inv = state.inv || blankInv();
+    V.enabled = true; V.asked = true; V.mode = 'remote';
+    V.apiKey = v.k; V.projectId = v.p; V.room = v.r;
+    save(); closeModal(); await refreshInvest(); render();
+    toast(state.inv.error ? state.inv.error : '자산 앱 방을 읽어왔어요');
+    break; }
   case 'invOff':
     state.inv = blankInv(); state.inv.asked = true; save(); render();
     toast('연동을 껐어요 — 이미 반영한 금액은 그대로 남습니다'); break;
