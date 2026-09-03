@@ -664,7 +664,8 @@ function sheetFormula(){
     rows.push(`"${key}",IFERROR(GOOGLEFINANCE("${g}","price"),""),IFERROR(GOOGLEFINANCE("${g}","closeyest"),"")`);
   });
   rows.push('"fx:USD",IFERROR(GOOGLEFINANCE("CURRENCY:USDKRW"),""),""');
-  return '={"code","price","prev";\n' + rows.join(';\n') + '}';
+  /* 반드시 '한 줄'이어야 합니다 — 줄바꿈이 있으면 구글시트가 여러 칸으로 쪼개 넣습니다 */
+  return '={"code","price","prev";' + rows.join(';') + '}';
 }
 /* 어떤 형태로 주소를 넣어도 CSV 주소로 바꿔 줍니다 */
 function sheetCsvUrl(u){
@@ -2595,6 +2596,11 @@ function viewSet(){
         <button class="btn ghost sm" style="flex:1" data-act="sheetOff">연결 끊기</button>
       </div>
       <div class="tiny muted mt">종목을 새로 담았으면 <b>수식을 다시 복사</b>해서 시트 A1에 붙여넣어 주세요.</div>
+      <details style="margin-top:8px">
+        <summary class="tiny muted" style="cursor:pointer">수식 직접 보기</summary>
+        <textarea readonly style="margin-top:6px;font-size:11px;min-height:90px"
+          onclick="this.select()">${esc(sheetFormula())}</textarea>
+      </details>
     ` : `
       <div class="tiny muted" style="line-height:1.8;margin-bottom:10px">
         무료 공개 중계 서버들이 막히면 네이버·야후 시세를 못 가져옵니다.
@@ -2603,11 +2609,21 @@ function viewSet(){
       </div>
       <div class="note" style="margin-bottom:10px;line-height:1.9">
         <b>1</b> 아래 <b>수식 복사</b>를 누르세요<br>
-        <b>2</b> <a href="https://sheets.new" target="_blank" rel="noopener"><b>sheets.new</b></a> 로 새 시트를 만들고 <b>A1</b>에 붙여넣기<br>
+        <b>2</b> <a href="https://sheets.new" target="_blank" rel="noopener"><b>sheets.new</b></a> 로 새 시트를 만들고 <b>A1 한 칸</b>에 붙여넣기<br>
         <b>3</b> 파일 → 공유 → <b>웹에 게시</b> → 형식을 <b>쉼표로 구분된 값(.csv)</b> 으로 → 게시<br>
         <b>4</b> 나온 주소를 아래에 붙여넣고 <b>연결하기</b>
       </div>
       <button class="btn ghost block" data-act="copyFormula">📋 1. 수식 복사</button>
+      <details style="margin-top:8px">
+        <summary class="tiny muted" style="cursor:pointer">수식 직접 보기 (눌러서 길게 눌러 복사)</summary>
+        <textarea readonly style="margin-top:6px;font-size:11px;min-height:90px"
+          onclick="this.select()">${esc(sheetFormula())}</textarea>
+      </details>
+      <div class="note mt" style="margin-bottom:0">
+        ⚠️ <b>A1 한 칸</b>에 통째로 들어가야 합니다.
+        A1에 <b>#ERROR!</b> 가 뜨고 A2·A3에 글자가 흩어져 있으면 잘못 들어간 거예요 —
+        <b>A1부터 아래까지 다 지우고</b> 다시 붙여넣어 주세요.
+      </div>
       <div class="f mt"><label>4. 게시된 주소 붙여넣기</label>
         <input id="shUrl" placeholder="https://docs.google.com/spreadsheets/d/e/.../pub?output=csv"></div>
       <button class="btn block" data-act="sheetSave">연결하기</button>
