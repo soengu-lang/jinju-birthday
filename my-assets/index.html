@@ -2976,17 +2976,37 @@ function viewSet(){
         <button class="btn ghost sm" style="flex:1" data-act="syncOff">연결 끊기</button>
       </div>`
     : `
-      <div class="tiny muted" style="margin-bottom:10px">
-        무료 Firebase 프로젝트 하나만 있으면 두 사람 폰에서 <b>같은 자산 목록</b>을 봅니다.
-        ${fbFromOtherApp()? '가계부·냉장고 앱에 쓰던 설정이 있어서 <b>버튼 하나로</b> 연결됩니다.':''}
+      <div class="tiny muted" style="margin-bottom:10px;line-height:1.8">
+        연결하면 두 사람 폰이 <b>같은 자산 목록</b>을 봅니다.
+        사파리와 홈 화면 앱처럼 <b>저장 공간이 나뉜 곳끼리도</b> 저절로 맞춰져요.
       </div>
-      ${fbFromOtherApp()? `<button class="btn block" data-act="syncReuse">
-        🔗 가계부와 같은 Firebase로 연결하기</button><div style="height:8px"></div>`:''}
-      <div class="f"><label>Firebase 설정 붙여넣기</label>
-        <textarea id="fbCfg" placeholder="firebaseConfig = { apiKey: '...', projectId: '...' } 통째로 붙여넣기"></textarea></div>
-      <div class="f"><label>방 이름 (두 사람이 같아야 합니다)</label>
-        <input id="fbRoom" placeholder="예: ourassets2026"></div>
-      <button class="btn block" data-act="syncOn">연결하기</button>`}
+
+      ${fbFromOtherApp()? `
+        <div class="note info" style="margin-bottom:8px">
+          가계부·냉장고 앱에 쓰던 Firebase가 있어서 <b>버튼 하나로</b> 끝납니다.
+          자산 앱 전용 방이 새로 만들어져 다른 기록과 섞이지 않아요.</div>
+        <button class="btn block" data-act="syncReuse">🔗 가계부와 같은 Firebase로 연결하기</button>
+        <div style="height:10px"></div>` : ''}
+
+      <button class="btn ghost block" data-act="joinPaste">🔗 초대 링크 붙여넣어 참여하기</button>
+      <div class="tiny muted mt">배우자가 보내 준 링크, 또는 사파리에서 복사한 링크를 붙여넣으세요.</div>
+
+      <details style="margin-top:12px">
+        <summary class="tiny muted" style="cursor:pointer;font-weight:700">
+          ${fbFromOtherApp()? '다른 Firebase로 처음부터 만들기' : 'Firebase 처음 만들기 (무료 · 5분)'}</summary>
+        <div class="note" style="margin-top:8px;line-height:1.9">
+          <b>1</b> <a href="https://console.firebase.google.com" target="_blank" rel="noopener">console.firebase.google.com</a>
+            → 구글 로그인 → <b>프로젝트 만들기</b><br>
+          <b>2</b> 빌드 → <b>Firestore Database</b> → 데이터베이스 만들기<br>
+          <b>3</b> <b>규칙</b> 탭을 아래 내용으로 바꾸고 <b>게시</b><br>
+          <b>4</b> ⚙️ 프로젝트 설정 → <b>웹앱(&lt;/&gt;) 추가</b> → 나오는 설정값 복사<br>
+          <b>5</b> 아래에 붙여넣고 <b>연결하고 방 만들기</b>
+        </div>
+        <button class="btn ghost block mt" data-act="copyRules">📋 3번 규칙 복사</button>
+        <div class="f mt"><label>4번에서 복사한 설정 붙여넣기</label>
+          <textarea id="fbCfg" placeholder="const firebaseConfig = { apiKey: '...', projectId: '...' , ... } 통째로"></textarea></div>
+        <button class="btn block" data-act="syncOn">연결하고 방 만들기</button>
+      </details>`}
   </div>
 
   <div class="card">
@@ -3111,6 +3131,18 @@ function parseFbConfig(text){
   if(!api || !pid) return null;
   return { apiKey: api[1], projectId: pid[1] };
 }
+/* 방 이름은 자동으로 만듭니다 — Firestore 규칙이 16자 이상을 요구합니다 */
+function randId(n){
+  const a = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let out = '';
+  try{
+    const b = new Uint8Array(n); crypto.getRandomValues(b);
+    for(let i=0;i<n;i++) out += a[b[i] % a.length];
+  }catch(e){
+    for(let i=0;i<n;i++) out += a[Math.floor(Math.random()*a.length)];
+  }
+  return out;
+}
 function inviteLink(){
   const c = state.sync || {};
   return location.href.split('#')[0] + '#join='
@@ -3122,6 +3154,26 @@ function inviteLink(){
   try{ const v = JSON.parse(b64d(m[1])); if(v.k&&v.p&&v.r) pendingInvite = v; }catch(e){}
   history.replaceState(null, '', location.pathname + location.search);
 })();
+const FS_RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /rooms/{roomId}/{document=**} {
+      allow read, write: if roomId.size() >= 16;
+    }
+  }
+}`;
+/* 홈 화면 앱은 주소창이 없어서 초대 링크를 열 수 없습니다 — 붙여넣어 참여합니다 */
+function openJoinPaste(){
+  openModal(`
+    <div class="mhead"><h3>🔗 초대 링크로 참여</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted" style="margin:-6px 0 10px;line-height:1.7">
+      배우자가 보내 준 링크, 또는 다른 브라우저의 자산 앱에서
+      <b>🔗 초대 링크 복사</b> 한 것을 붙여넣으세요.</div>
+    <div class="f"><textarea id="jnText" style="min-height:90px;font-size:11px"
+      placeholder="https://soengu-lang.github.io/jinju-birthday/my-assets/#join=..."></textarea></div>
+    <button class="btn block" data-act="joinPasteGo">참여하기</button>`);
+  setTimeout(()=>$('#jnText')?.focus(), 60);
+}
 function openJoinPrompt(){
   const v = pendingInvite; pendingInvite = null; if(!v) return;
   openModal(`<div class="mhead"><h3>배우자 초대</h3><button class="x" data-act="close">✕</button></div>
@@ -3573,22 +3625,33 @@ document.addEventListener('click', async ev=>{
     state.settings.goal = isFinite(g)? g : 0;
     save(); render(); toast('저장했어요');
     break; }
+  case 'copyRules': {
+    const t = FS_RULES;
+    try{ await navigator.clipboard.writeText(t); toast('규칙을 복사했어요 — Firestore 규칙 탭에 붙여넣고 게시하세요'); }
+    catch(e){ openCopyFallback(t); }
+    break; }
   case 'syncOn': {
     const cfg = parseFbConfig($('#fbCfg')?.value);
-    const room = ($('#fbRoom')?.value||'').trim().replace(/[^A-Za-z0-9_\-]/g,'');
     if(!cfg){ toast('firebaseConfig 를 통째로 붙여넣어 주세요'); break; }
-    if(!room){ toast('방 이름을 적어 주세요'); break; }
-    state.sync = { enabled:true, ...cfg, room, rev:0, lastAt:0, error:'', dirty:true };
+    state.sync = { enabled:true, ...cfg, room:randId(20), rev:0, lastAt:0, error:'', dirty:true };
     save(false); await syncPush(); render(); syncStart();
-    toast('연결했어요 — 초대 링크를 배우자에게 보내세요');
+    toast(state.sync.error ? state.sync.error : '연결했어요 — 초대 링크를 배우자에게 보내세요');
     break; }
   case 'syncReuse': {
     const c = fbFromOtherApp(); if(!c){ toast('다른 앱 설정을 못 찾았어요'); break; }
-    const room = prompt('방 이름 (두 사람이 같아야 합니다)', c.room || 'ourassets') || '';
-    const r = room.trim().replace(/[^A-Za-z0-9_\-]/g,''); if(!r) break;
-    state.sync = { enabled:true, apiKey:c.apiKey, projectId:c.projectId, room:r, rev:0, lastAt:0, error:'', dirty:true };
+    state.sync = { enabled:true, apiKey:c.apiKey, projectId:c.projectId,
+                   room:randId(20), rev:0, lastAt:0, error:'', dirty:true };
     save(false); await syncPush(); render(); syncStart();
-    toast('연결했어요');
+    toast(state.sync.error ? state.sync.error : '연결했어요 — 초대 링크를 배우자에게 보내세요');
+    break; }
+  case 'joinPaste': openJoinPaste(); break;
+  case 'joinPasteGo': {
+    const t = ($('#jnText')?.value||'').trim();
+    const m = t.match(/join=([A-Za-z0-9_\-]+)/);
+    if(!m){ toast('초대 링크가 아닌 것 같아요'); break; }
+    let v; try{ v = JSON.parse(b64d(m[1])); }catch(e){ v = null; }
+    if(!v?.k || !v?.p || !v?.r){ toast('링크를 읽지 못했어요 — 잘리지 않았는지 봐 주세요'); break; }
+    closeModal(); pendingInvite = v; openJoinPrompt();
     break; }
   case 'syncOff':
     if(!confirm('연결을 끊을까요? 이 폰의 내용은 그대로 남습니다.')) break;
