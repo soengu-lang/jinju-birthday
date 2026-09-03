@@ -644,6 +644,21 @@ async function yahooSearch(q){
   const j = await relayJSON(u);
   return (j?.quotes||[]).filter(x=>x.symbol);
 }
+/* 환율을 넣을 때 '어제 값'을 같이 남겨 둡니다 (등락 표시용)
+   · 출처가 전일 종가를 주면 그걸 쓰고
+   · 아니면 날짜가 바뀐 순간의 값을 어제 값으로 삼습니다 */
+function setFx(v, src, prevFromSrc){
+  const today = iso(new Date());
+  const old = state.fx || {};
+  let prev = +old.prev || 0;
+  if(+prevFromSrc > 0) prev = +prevFromSrc;
+  else if(+old.v > 0 && old.day && old.day !== today) prev = +old.v;
+  state.fx = { v, at:Date.now(), src, day:today, prev };
+}
+const fxRate = () => {
+  const f = state.fx || {};
+  return (+f.prev > 0 && +f.v > 0) ? (f.v - f.prev) / f.prev : 0;
+};
 /* 원/달러 환율 — 브라우저가 바로 부를 수 있는 곳부터 */
 async function fetchFx(){
   /* 브라우저가 바로 부를 수 있는 곳(중계 필요 없음)부터 */
@@ -660,9 +675,10 @@ async function fetchFx(){
     const v = +(Array.isArray(j)? j[0]?.basePrice : j?.basePrice);
     if(v>0) return { v, src:'두나무' };
   }catch(e){}
-  try{ const n = await naverIndex('exchange/FX_USDKRW'); if(n.p>0) return { v:n.p, src:'네이버' }; }catch(e){}
+  try{ const n = await naverIndex('exchange/FX_USDKRW');
+       if(n.p>0) return { v:n.p, prev:n.prev, src:'네이버' }; }catch(e){}
   const y = await yahoo('KRW=X');
-  return { v:y.p, src:'야후' };
+  return { v:y.p, prev:y.prev, src:'야후' };
 }
 /* ============================================================
    📗 구글시트로 시세 받기
@@ -929,6 +945,9 @@ function calc(h){
   return { px, value, cost, loan, net:value-loan, pl, plRate, day, dayRate, ready };
 }
 const activeHoldings = () => (state.holdings||[]).filter(h=>!h.hide);
+/* 자동으로 받아올 수 있는데 직접 넣은 시세를 쓰고 있는 것들 */
+const hasMp = h => h.mp !== undefined && h.mp !== null && h.mp !== '';
+const manualPriced = () => activeHoldings().filter(h=>CAT(h.cat).auto && hasMp(h));
 function inOwner(h){ return ui.owner==='전체' || (h.owner||'공동')===ui.owner; }
 /* 전체 합계 */
 function totals(list){
@@ -1067,7 +1086,7 @@ async function refreshPrices(manual){
     if(state.sheet?.url){
       try{
         const m = await fetchSheet();
-        if(m['fx:USD']?.p > 0){ state.fx = { v:m['fx:USD'].p, at:Date.now(), src:'구글시트' }; ok++; }
+        if(m['fx:USD']?.p > 0){ setFx(m['fx:USD'].p, '구글시트', m['fx:USD'].prev); ok++; }
         list.forEach(h=>{
           if(h.cat!=='kr' && h.cat!=='us') return;
           const q = m[h.cat+':'+h.code]; if(!q) return;
@@ -1079,16 +1098,14 @@ async function refreshPrices(manual){
         state.sheet.keys = Object.keys(m);
       }catch(e){ state.sheet.error = e.message; }
     }
-    /* ① 환율 — 미국주식·달러·금 계산에 먼저 필요합니다 */
-    const needFx = (list.some(h=>h.cat==='us'||h.cat==='fx'||h.cat==='gold') || !state.fx?.v)
-                 && state.fx?.src !== '구글시트';
-    if(needFx){
-      try{ const f = await fetchFx(); state.fx = { v:f.v, at:Date.now(), src:f.src }; ok++; }
+    /* ① 환율 — 국내주식만 갖고 있어도 늘 새로 받습니다 (전에는 그럴 때 영영 안 바뀌었습니다) */
+    if(state.fx?.src !== '구글시트'){
+      try{ const f = await fetchFx(); setFx(f.v, f.src, f.prev); ok++; }
       catch(e){ fail++; }
     }
     /* ② 달러(현금) 는 환율이 곧 시세입니다 */
     list.filter(h=>h.cat==='fx').forEach(h=>{
-      if(state.fx?.v>0) state.px[pxKey(h)] = { p:state.fx.v, prev:state.px[pxKey(h)]?.p || state.fx.v,
+      if(state.fx?.v>0) state.px[pxKey(h)] = { p:state.fx.v, prev:(+state.fx.prev || state.fx.v),
         ccy:'KRW', name:'원/달러', at:Date.now(), src:state.fx.src };
     });
     /* ③ 코인 — 한 번에 모아서 */
@@ -1143,7 +1160,10 @@ async function refreshPrices(manual){
     if(manual) toast(
       relayDead ? '시세 서버에 닿지 못했어요 — 인터넷을 확인하거나 종목을 눌러 직접 넣어 주세요'
       : fail ? `${ok}건 갱신 · ${fail}건 실패 — 종목을 눌러 직접 넣을 수 있어요`
-      : (ok ? '시세를 새로 가져왔어요' : '가져올 시세가 없어요'));
+      : ok ? '시세를 새로 가져왔어요'
+      : manualPriced().length
+        ? `직접 넣은 시세를 쓰는 중이에요 (${manualPriced().length}개) — ⚙️에서 자동으로 되돌릴 수 있어요`
+        : '가져올 시세가 없어요');
   }
 }
 /* 종목 하나의 시세
@@ -1987,8 +2007,15 @@ function viewHome(){
     <div class="between tiny">
       <span class="muted">💵 원/달러</span>
       <span><b class="num">${state.fx?.v ? num(state.fx.v)+'원' : '—'}</b>
-        <span class="muted"> ${state.fx?.src||''} ${timeAgo(state.fx?.at)}</span></span>
+        ${(()=>{ const r = fxRate(); if(!r) return '';
+          const d = state.fx.v - state.fx.prev;
+          return ` <span class="num ${sgn(r)}">${arrow(r)} ${num(Math.abs(d))} (${pctS(Math.abs(r))})</span>`;
+        })()}
+        <span class="muted"> ${esc(state.fx?.src||'')} ${timeAgo(state.fx?.at)}</span></span>
     </div>
+    ${manualPriced().length? `<div class="tiny muted" style="margin-top:6px;border-top:1px solid var(--line);padding-top:6px">
+      ✍️ ${manualPriced().length}개 종목은 <b>직접 넣은 시세</b>를 쓰는 중이라 새로고침해도 안 바뀝니다 —
+      <button class="chip line" style="padding:2px 8px;font-size:10px" data-act="autoAll">자동으로 되돌리기</button></div>`:''}
   </div>`;
 }
 function emptyHome(){
@@ -2588,7 +2615,9 @@ function viewSet(){
     <table class="tbl"><tbody>
       <tr><td>마지막 갱신</td><td>${timeAgo(state.lastRefresh)}</td></tr>
       <tr><td>못 가져온 종목</td><td class="${state.lastFail?'up':''}">${state.lastFail||0}건</td></tr>
-      <tr><td>원/달러</td><td>${state.fx?.v? num(state.fx.v)+'원 ('+esc(state.fx.src||'')+')' : '—'}</td></tr>
+      <tr><td>원/달러</td><td>${state.fx?.v? num(state.fx.v)+'원 ('+esc(state.fx.src||'')+')' : '—'}
+        ${(()=>{ const r=fxRate(); return r? `<span class="${sgn(r)}"> ${arrow(r)}${pctS(Math.abs(r))}</span>`:''; })()}</td></tr>
+      <tr><td>직접 넣은 시세</td><td>${manualPriced().length? manualPriced().length+'개' : '없음'}</td></tr>
       <tr><td>연결 경로</td><td>${esc(RELAYS[state.relay|0]?.n || '직접')}</td></tr>
       <tr><td>담은 자산</td><td>${t.n}개</td></tr>
     </tbody></table>
@@ -2602,6 +2631,9 @@ function viewSet(){
       <button class="btn ghost sm" style="flex:1" data-act="refresh">🔄 지금 새로고침</button>
       <button class="btn ghost sm" style="flex:1" data-act="diag">🩺 시세 점검</button>
     </div>
+    ${manualPriced().length? `<button class="btn ghost block mt" data-act="autoAll">
+      ↩️ 직접 넣은 시세 지우고 자동으로 (${manualPriced().length}개)</button>
+      <div class="tiny muted mt">직접 넣은 시세가 있으면 그 종목은 <b>새로고침해도 안 바뀝니다.</b></div>`:''}
     <div class="note mt">
       <b>국내주식은 네이버 금융</b>에서 가져옵니다 — 증권사 앱과 같은 값입니다.
       미국주식은 야후, 안 되면 네이버 해외주식으로 이어서 봅니다.<br>
@@ -3177,6 +3209,15 @@ document.addEventListener('click', async ev=>{
     toast(everyMin()? `${EVERY.find(e=>e.v===everyMin())?.l}마다 가져옵니다` : '열 때만 가져옵니다');
     break;
   case 'diag': runDiag(); break;
+  case 'autoAll': {
+    const box = manualPriced();
+    if(!box.length){ toast('직접 넣은 시세가 없어요'); break; }
+    if(!confirm(`${box.length}개 종목의 직접 넣은 시세를 지우고 자동으로 되돌릴까요?`)) break;
+    box.forEach(h=>{ h.mp = ''; });
+    save(); closeModal(); render();
+    toast('자동 시세로 되돌렸어요 — 지금 가져올게요');
+    refreshPrices(true);
+    break; }
   case 'copyGas': {
     try{ await navigator.clipboard.writeText(GAS_CODE); toast('코드를 복사했어요 — script.new 에 붙여넣으세요'); }
     catch(e){ prompt('이 코드를 script.new 에 붙여넣으세요', GAS_CODE); }
