@@ -791,8 +791,9 @@ const DIAG_TARGETS = [
     pick:j=>+j?.chart?.result?.[0]?.meta?.regularMarketPrice },
   { n:'업비트 (비트코인)', u:DIAG_PROBE, direct:true,
     pick:j=>+(Array.isArray(j)? j[0]?.trade_price : 0) },
-  { n:'두나무 (원/달러)', u:'https://quotation-api-cdn.dunamu.com/v1/forex/recent?codes=FRX.KRWUSD',
-    direct:true, pick:j=>+(Array.isArray(j)? j[0]?.basePrice : j?.basePrice) }
+  /* 환율은 앱이 실제로 먼저 쓰는 곳을 봅니다 (두나무는 예비라 여기선 확인하지 않습니다) */
+  { n:'환율 (원/달러)', u:'https://open.er-api.com/v6/latest/USD',
+    direct:true, pick:j=>+j?.rates?.KRW }
 ];
 let diag = { running:false, relays:[], sources:[], good:-1, at:0 };
 const errWord = e => e?.net ? '연결 안 됨' : (e?.http ? 'HTTP '+e.http : (e?.message || '오류'));
