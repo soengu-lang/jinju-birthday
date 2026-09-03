@@ -273,12 +273,14 @@ const CATS = [
   { k:'fx',   label:'달러·외화',    emo:'💵', unit:'달러',  ccy:'KRW', auto:true,  color:'#2e7d6b' },
   { k:'real', label:'부동산',       emo:'🏠', unit:'채', ccy:'KRW', auto:false, color:'#5a6dab' },
   { k:'cash', label:'예적금·현금',  emo:'💰', unit:'',   ccy:'KRW', auto:false, color:'#7c8390' },
-  { k:'etc',  label:'연금·펀드·기타',emo:'💼', unit:'',  ccy:'KRW', auto:false, color:'#9b5aa8' }
+  { k:'etc',  label:'연금·펀드·기타',emo:'💼', unit:'',  ccy:'KRW', auto:false, color:'#9b5aa8' },
+  { k:'debt', label:'대출·부채',    emo:'💳', unit:'',  ccy:'KRW', auto:false, color:'#d1453b' }
 ];
 const CAT = k => CATS.find(c=>c.k===k) || CATS[6];
 const catLabel = k => { const c=CAT(k); return c.emo+' '+c.label; };
 /* 수량 없이 '금액'만 적는 종류 */
-const isAmountCat = k => k==='cash' || k==='etc' || k==='real';
+const isAmountCat = k => k==='cash' || k==='etc' || k==='real' || k==='debt';
+const isDebt = k => k==='debt';
 
 /* 계좌 종류 — 세금·인출 규칙이 달라서 따로 봅니다 */
 const ACCT_TYPES = [
@@ -321,6 +323,7 @@ function guessKind(h){
   if(BOND_RE.test(n)) return 'bond';
   if(REIT_RE.test(n)) return 'real';
   if(h.cat!=='cash' && DOLL_RE.test(n)) return 'fx';
+  if(h.cat === 'debt') return 'etc';
   switch(h.cat){
     case 'kr': case 'us': return 'stock';
     case 'coin': return 'coin';
@@ -1039,6 +1042,11 @@ function priceOf(h){
 
 /* 원화 환산 계산 — 한 종목의 평가금액 · 원금 · 손익 */
 function calc(h){
+  if(h.cat === 'debt'){
+    const loan = +h.loan || 0;
+    return { px:{ p:0, prev:0, ccy:'KRW', src:'', manual:false }, value:0, cost:0,
+             loan, net:-loan, pl:0, plRate:0, day:0, dayRate:0, ready:true };
+  }
   const c = CAT(h.cat);
   const q = +h.qty || 0;
   const px = priceOf(h);
@@ -2001,6 +2009,17 @@ function holdRow(h){
           (r.dayRate ? ` <span class="${cls}">${arrow(r.dayRate)}${pctS(Math.abs(r.dayRate))}</span>` : '');
   }
   const plCls = sgn(r.pl);
+  if(h.cat === 'debt'){
+    return `<div class="hold" data-act="open" data-id="${h.id}">
+      <div class="ic" style="background:${c.color}1f;color:${c.color}">${c.emo}</div>
+      <div class="mid">
+        <div class="nm">${esc(h.name)}${h.owner && h.owner!=='공동' ? `<span class="badge">${esc(h.owner)}</span>`:''}</div>
+        <div class="sb">${[h.acct && `<b>${esc(h.acct)}</b>`, h.rate>0 && `연 ${(+h.rate).toFixed(2)}%`,
+                          h.memo && esc(h.memo)].filter(Boolean).join(' · ') || '남은 금액'}</div>
+      </div>
+      <div class="rt"><div class="amt num up">-${num(r.loan)}원</div></div>
+    </div>`;
+  }
   return `<div class="hold" data-act="open" data-id="${h.id}">
     <div class="ic" style="background:${c.color}1f;color:${c.color}">${c.emo}</div>
     <div class="mid">
@@ -2206,10 +2225,12 @@ function viewList(){
       <div class="ghead">
         <div class="gl"><span class="dot" style="background:${g.color}"></span>${g.label}
           <span class="muted" style="font-weight:600">${g.n}</span></div>
-        <div class="gr num">${won(g.value)} <span class="muted" style="font-weight:600">${pct.toFixed(0)}%</span>
-          ${g.cost>0? `<span class="${sgn(gc)}"> ${pctS(gc,1)}</span>`:''}</div>
+        <div class="gr num">${g.value===0 && g.loan>0
+          ? `<span class="up">-${num(g.loan)}원</span>`
+          : `${won(g.value)} <span class="muted" style="font-weight:600">${pct.toFixed(0)}%</span>
+             ${g.cost>0? `<span class="${sgn(gc)}"> ${pctS(gc,1)}</span>`:''}`}</div>
       </div>
-      <div class="bar" style="margin-bottom:6px"><i style="width:${pct.toFixed(1)}%;background:${g.color}"></i></div>
+      ${g.value>0? `<div class="bar" style="margin-bottom:6px"><i style="width:${pct.toFixed(1)}%;background:${g.color}"></i></div>`:''}
       ${groups.map(holdGroupRow).join('')}
     </div>`;
   }).join('')}
@@ -2412,6 +2433,26 @@ function paintRes(){ const el = $('#res'); if(el) el.innerHTML = resultsHTML(); 
 /* 부동산·예적금·연금 처럼 금액만 적는 것 */
 function manualAddForm(cat){
   const c = CAT(cat);
+  if(cat === 'debt') return `
+    <div class="f"><label>어떤 대출인가요</label>
+      <input id="mName" placeholder="예: 주택담보대출(미래에셋)" autocomplete="off">
+      <div class="chips" style="margin-top:6px">${
+        ['주택담보대출','신용대출','전세자금대출','마이너스통장','자동차 할부','기타 대출']
+        .map(x=>`<button class="chip line" data-act="fillName" data-v="${esc(x)}">${esc(x)}</button>`).join('')}</div>
+    </div>
+    <div class="f"><label>남은 금액 (원)</label>
+      <input id="mVal" inputmode="decimal" placeholder="예: 5300만 · 53000000">
+      <div class="hint">순자산에서 이 금액만큼 뺍니다.</div></div>
+    <div class="grid2">
+      <div class="f"><label>연 금리 % <span class="muted">선택</span></label>
+        <input id="mRate" inputmode="decimal" placeholder="예: 4.5"></div>
+      <div class="f"><label>메모 <span class="muted">선택</span></label>
+        <input id="mMemo" placeholder="은행·상환일 등"></div>
+    </div>
+    <div class="f"><label>누구 명의</label>
+      <div class="seg" id="mOwner">${ownerList().map((o,i)=>
+        `<button class="${i===0?'on':''}" data-act="segOwner" data-v="${esc(o)}">${esc(o)}</button>`).join('')}</div></div>
+    <button class="btn block mt" data-act="saveManual" data-c="${cat}">담기</button>`;
   const preset = cat==='real' ? ['우리집 아파트','전세보증금','토지','오피스텔']
                : cat==='cash' ? ['예금','적금','CMA','파킹통장','비상금']
                : ['연금저축','IRP','ISA','퇴직금','펀드'];
@@ -2563,6 +2604,20 @@ function openHold(id){
       ${c.emo} ${c.label}${h.acct? ' · <b>'+esc(h.acct)+'</b>':''}${h.code&&!amt? ' · '+esc(h.code):''}${h.official? ' · '+esc(h.official):''}
       ${px.src? ' · 시세 '+esc(px.src)+' '+timeAgo(px.at) : ''}</div>
 
+    ${h.cat==='debt' ? `
+    <div class="card tight" style="margin-bottom:12px">
+      <div class="between">
+        <div><div class="tiny muted">남은 금액</div>
+          <div style="font-size:20px;font-weight:900;letter-spacing:-.03em" class="num up">-${num(r.loan)}원</div></div>
+        <div class="right">${h.rate>0? `<div class="tiny muted">연 금리 ${(+h.rate).toFixed(2)}%</div>
+          <div class="tiny muted">월 이자 약 <b>${won(Math.round(r.loan*(+h.rate)/100/12))}</b></div>`:''}</div>
+      </div>
+    </div>
+    <div class="f"><label>남은 금액 (원)</label>
+      <input id="hLoan" inputmode="decimal" value="${h.loan?esc(h.loan):''}"></div>
+    <div class="f"><label>연 금리 % <span class="muted">선택</span></label>
+      <input id="hRate" inputmode="decimal" value="${h.rate?esc(h.rate):''}"></div>
+    ` : `
     <div class="card tight" style="margin-bottom:12px">
       <div class="between">
         <div><div class="tiny muted">평가금액</div>
@@ -2587,9 +2642,9 @@ function openHold(id){
         ⚠️ 가져온 시세(${priceS(px.p, px.ccy)})가 평균 매수가(${priceS(h.avg, isUs?'USD':'KRW')})와
         너무 차이 납니다. <b>잘못 붙었을 수 있어요.</b> 증권사 앱 값과 다르면 아래
         <b>시세 직접 입력</b>에 적어 주세요.</div>`:''}
-    </div>
+    </div>`}
 
-    ${amt ? `
+    ${h.cat==='debt' ? '' : amt ? `
       <div class="f"><label>지금 평가금액 (원)</label>
         <input id="hMp" inputmode="decimal" value="${h.mp!==undefined&&h.mp!==''?esc(h.mp):''}" placeholder="예: 3.5억"></div>
       <div class="grid2">
@@ -2631,12 +2686,13 @@ function openHold(id){
       ).join('')}</div>
       <div id="hAT" class="hidden">${esc(acctTypeOf(h))}</div>
       <div class="hint">ISA·연금저축·IRP는 세금과 인출 규칙이 달라서 따로 묶어 볼 수 있게 해 둡니다.</div></div>`:''}
+    ${h.cat==='debt' ? '' : `
     <div class="f"><label>이 자산의 성격</label>
       <div class="chips">${KINDS.map(k=>
         `<button class="chip ${kindOf(h)===k.k?'on':'line'}" data-act="segChip" data-g="hKind" data-v="${k.k}">${k.emo} ${k.label}</button>`
       ).join('')}</div>
       <div id="hKind" class="hidden">${esc(kindOf(h))}</div>
-      <div class="hint">금을 현물로 갖든 <b>금 ETF</b>로 갖든 '금'으로 묶여 보입니다. 채권 ETF도 마찬가지예요.</div></div>
+      <div class="hint">금을 현물로 갖든 <b>금 ETF</b>로 갖든 '금'으로 묶여 보입니다. 채권 ETF도 마찬가지예요.</div></div>`}
     <div class="f"><label>누구 명의</label>
       <div class="seg" id="hOwner">${ownerList().map(o=>
         `<button class="${(h.owner||'공동')===o?'on':''}" data-act="segOwner" data-v="${esc(o)}">${esc(o)}</button>`).join('')}</div></div>
@@ -2674,15 +2730,17 @@ function openHold(id){
     })()}
 
     <div style="border-top:1px solid var(--line);margin:14px 0 12px;padding-top:12px">
-      <div style="font-size:12.5px;font-weight:900;margin-bottom:8px">📝 투자 메모</div>
+      <div style="font-size:12.5px;font-weight:900;margin-bottom:8px">📝 ${h.cat==='debt'?'메모':'투자 메모'}</div>
       ${!amt? `<div class="grid2">
         <div class="f"><label>🎯 목표가 ${isUs?'($)':'(원)'}</label>
           <input id="hTarget" inputmode="decimal" value="${h.target?esc(h.target):''}" placeholder="선택"></div>
         <div class="f"><label>🛑 손절가 ${isUs?'($)':'(원)'}</label>
           <input id="hStop" inputmode="decimal" value="${h.stop?esc(h.stop):''}" placeholder="선택"></div>
       </div>`:''}
-      <div class="f"><label>왜 샀나 · 언제까지 들고 갈까</label>
-        <textarea id="hWhy" placeholder="예) 2026.3 매수. 반도체 사이클 회복 보고 담음. 10만원 가면 절반 정리.">${esc(h.why||'')}</textarea>
+      <div class="f"><label>${h.cat==='debt' ? '상환 계획 · 메모' : '왜 샀나 · 언제까지 들고 갈까'}</label>
+        <textarea id="hWhy" placeholder="${h.cat==='debt'
+          ? '예) 2027년까지 원금 절반 상환 목표. 금리 높아 우선 상환.'
+          : '예) 2026.3 매수. 반도체 사이클 회복 보고 담음. 10만원 가면 절반 정리.'}">${esc(h.why||'')}</textarea>
       </div>
       ${(h.notes||[]).length? `<div class="tiny muted" style="margin-bottom:6px">지난 기록</div>
         ${(h.notes||[]).slice().reverse().slice(0,5).map(n=>
@@ -3402,7 +3460,16 @@ document.addEventListener('click', async ev=>{
     const name = ($('#mName')?.value||'').trim();
     const val = parseAmount($('#mVal')?.value);
     if(!name){ toast('이름을 적어 주세요'); break; }
-    if(!isFinite(val)){ toast('평가금액을 적어 주세요'); break; }
+    if(!isFinite(val)){ toast(cat==='debt'? '남은 금액을 적어 주세요' : '평가금액을 적어 주세요'); break; }
+    if(cat === 'debt'){
+      addHolding({ cat, code:'', sym:'', name,
+                   owner: segPick('mOwner', ownerList()[0]),
+                   qty:1, avg:0, loan:Math.abs(val),
+                   rate: parseQty($('#mRate')?.value) || 0,
+                   memo: ($('#mMemo')?.value||'').trim() });
+      ui.tab='list'; render(); toast(`${name} 담았어요`);
+      break;
+    }
     const cost = parseAmount($('#mCost')?.value);
     const loan = parseAmount($('#mLoan')?.value);
     addHolding({ cat, code:'', sym:'', name,
@@ -3521,7 +3588,12 @@ document.addEventListener('click', async ev=>{
   case 'saveHold': {
     const h = state.holdings.find(x=>x.id===id); if(!h) break;
     const amt = isAmountCat(h.cat);
-    if(amt){
+    if(h.cat === 'debt'){
+      const l = parseAmount($('#hLoan')?.value); h.loan = isFinite(l)? Math.abs(l) : 0;
+      const rt = parseQty($('#hRate')?.value);   h.rate = isFinite(rt)? rt : 0;
+      h.qty = 1;
+    }
+    else if(amt){
       const v = parseAmount($('#hMp')?.value);
       h.mp = isFinite(v)? v : ''; h.mpAt = Date.now();
       h.qty = 1;

@@ -1027,6 +1027,14 @@ function invRowTarget(r){
   if(Object.prototype.hasOwnProperty.call(m, sig))
     return (m[sig] && state.assetRows.some(x=>x.id===m[sig])) ? m[sig] : '';
   const os = state.settings.owners || [];
+  /* 💳 대출은 명의와 상관없이 부채 칸으로 */
+  if(r.cat === 'debt'){
+    const dp = state.assetRows.filter(x=>x.owner==='부채');
+    const n0 = String(r.name||'');
+    const hitD = dp.find(x=>x.name && (n0.includes(x.name) || x.name.includes(n0)))
+              || dp.find(x=>/기타/.test(x.name)) || dp[0];
+    return hitD ? hitD.id : '';
+  }
   /* 공동 명의는 첫 번째 사람 칸으로 보냅니다 (직접 바꿀 수 있어요) */
   const owner = os.includes(r.owner) ? r.owner : os[0];
   const pool = state.assetRows.filter(x=>x.owner===owner);
@@ -1049,10 +1057,12 @@ function invPlan(){
   if(!V?.enabled || !V.rows?.length) return [];
   const g = {};
   V.rows.forEach(r=>{
-    if(!(+r.value > 0)) return;
+    /* 대출은 남은 금액이 그대로 부채 칸으로 갑니다 */
+    const amt = r.cat === 'debt' ? (+r.loan || 0) : (+r.value || 0);
+    if(!(amt > 0)) return;
     const id = invRowTarget(r);
     (g[id] = g[id] || { rowId:id, sum:0, from:[] });
-    g[id].sum += +r.value || 0;
+    g[id].sum += amt;
     g[id].from.push(r);
   });
   return Object.values(g).map(x=>{
@@ -1118,7 +1128,8 @@ function invCard(key){
       <span class="tiny muted">자산 앱 기준 ${V.at? new Date(V.at).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '-'}</span>
     </div>
     <div class="pad tiny muted" style="padding-top:0;line-height:1.7">
-      부동산 대출은 여기 금액에서 빼지 않았습니다 — 💳 부채 칸에서 따로 관리하세요.
+      부동산에 딸린 대출은 여기 금액에서 빼지 않았습니다 — 자산 앱의
+      <b>💳 대출·부채</b> 로 담으면 이 목록에 부채 칸으로 따로 나옵니다.
     </div>
   </div>`;
 }
