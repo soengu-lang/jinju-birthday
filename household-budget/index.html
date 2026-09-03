@@ -1010,6 +1010,7 @@ async function investRemote(cfg){
 async function refreshInvest(){
   const V = state.inv;
   if(!V?.enabled) return;
+  if(V.mode === 'paste') return;   /* 붙여넣어 가져온 것은 그대로 둡니다 */
   const before = JSON.stringify(V.rows||[]);
   try{
     let led;
@@ -1093,12 +1094,13 @@ function invCard(key){
       </div>
       <div class="row wrap" style="margin-top:9px">
         ${investHere()? `<button class="btn sm" data-act="invOn" data-mode="local">이 브라우저에서 읽기</button>`:''}
-        <button class="btn ${investHere()?'ghost ':''}sm" data-act="invOn" data-mode="remote">
-          🔗 자산 앱 초대 링크로 연결</button>
+        <button class="btn ${investHere()?'ghost ':''}sm" data-act="invPaste">📋 붙여넣어 가져오기</button>
+        <button class="btn ghost sm" data-act="invOn" data-mode="remote">🔗 초대 링크로 연결</button>
       </div>
       ${!investHere()? `<div class="tiny muted" style="margin-top:8px;line-height:1.7">
         📱 <b>홈 화면에 추가한 앱끼리는 저장 공간이 서로 다릅니다.</b>
-        가계부와 자산 앱을 둘 다 홈 화면 앱으로 쓰신다면 <b>초대 링크로 연결</b>해야 해요.</div>`:''}
+        둘 다 홈 화면 앱이라면 자산 앱 ⚙️ → <b>📋 가계부에 붙여넣을 요약 복사</b> 한 것을
+        <b>붙여넣어 가져오기</b> 에 넣어 주세요.</div>`:''}
     </div>`;
   }
   const plan = invPlan();
@@ -1106,7 +1108,8 @@ function invCard(key){
   const diffs = plan.filter(p=>p.ok && Math.round(p.sum) !== Math.round(assetRaw(p.rowId,key) ?? -1));
   return `<div class="card" style="margin-top:12px">
     <div class="sec-head">
-      <div class="t">📊 자산 앱 ${V.mode==='remote'?'<span class="tiny muted" style="font-weight:600">방에서 읽는 중</span>':''}</div>
+      <div class="t">📊 자산 앱 ${V.mode==='remote'?'<span class="tiny muted" style="font-weight:600">방에서 읽는 중</span>'
+        : V.mode==='paste'?'<span class="tiny muted" style="font-weight:600">붙여넣은 요약</span>':''}</div>
       <div class="v">${bigWon(total)}원</div>
     </div>
     ${V.error? `<div class="pad tiny" style="color:var(--spend)">⚠️ ${esc(V.error)}</div>` : ''}
@@ -1134,7 +1137,7 @@ function invCard(key){
     <div class="sec-foot" style="padding:10px 12px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
       ${diffs.length? `<button class="chip" data-act="invApplyAll" data-key="${esc(key)}">${assetKeyLabel(key)}에 모두 반영 (${diffs.length})</button>`
                     : '<span class="tiny muted">모두 반영되어 있어요</span>'}
-      <button class="chip line" data-act="invRefresh">🔄 다시 읽기</button>
+      <button class="chip line" data-act="invRefresh">${V.mode==='paste'?'📋 다시 붙여넣기':'🔄 다시 읽기'}</button>
       <button class="chip line" data-act="invOff">연동 끄기</button>
       <span class="tiny muted">자산 앱 기준 ${V.at? new Date(V.at).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '-'}</span>
     </div>
@@ -1160,6 +1163,28 @@ function openInvRemote(){
       가계부는 자산 앱 방을 <b>읽기만</b> 합니다. 아무것도 쓰지 않아요.
     </div>
   </div>`);
+}
+
+/* 자산 앱 요약을 붙여넣어 한 번만 가져옵니다.
+   Firebase 없이도 홈 화면 앱끼리 넘길 수 있는 길입니다. */
+function openInvPaste(){
+  openModal(`<div class="modal">
+    <div class="mhead"><h3>📋 자산 앱 요약 붙여넣기</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted" style="line-height:1.8;margin-bottom:10px">
+      자산 앱 ⚙️ → <b>🧾 가계부 앱과 연동</b> → <b>📋 가계부에 붙여넣을 요약 복사</b><br>
+      한 것을 아래에 길게 눌러 붙여넣으세요.
+    </div>
+    <div class="field" style="margin-top:0"><label>붙여넣기</label>
+      <textarea id="invPasteText" style="min-height:110px;font-size:11px"
+        placeholder="myAssetsLed:..."></textarea></div>
+    <button class="btn block" data-act="invPasteGo">가져오기</button>
+    <div class="tiny muted" style="margin-top:8px;line-height:1.7">
+      금액이 바뀌면 다시 복사·붙여넣기 하시면 됩니다.
+      매번 하기 번거로우면 자산 앱에서 <b>배우자와 함께 보기</b>를 켜고
+      <b>🔗 초대 링크로 연결</b> 하세요 — 그 뒤로는 저절로 맞춰집니다.
+    </div>
+  </div>`);
+  setTimeout(()=>$('#invPasteText')?.focus(), 60);
 }
 
 /* 배당을 어느 수입 항목에 넣을지 고르기 */
@@ -2290,7 +2315,8 @@ function openSettings(){
       ${(()=>{ const V = state.inv || {};
         return V.enabled
           ? `<div class="box">
-               <div style="font-size:12.5px;font-weight:800;color:var(--navy)">켜짐 · ${V.mode==='remote'?'자산 앱 방에서 읽는 중':'이 브라우저에서 읽는 중'}</div>
+               <div style="font-size:12.5px;font-weight:800;color:var(--navy)">켜짐 · ${V.mode==='remote'?'자산 앱 방에서 읽는 중'
+                 : V.mode==='paste'?'붙여넣은 요약으로':'이 브라우저에서 읽는 중'}</div>
                <div class="tiny muted" style="margin-top:4px;line-height:1.7">
                  종목 ${(V.rows||[]).length}개 · 합계 <b>${bigWon((V.rows||[]).reduce((a,r)=>a+(+r.value||0),0))}원</b><br>
                  ${V.error? `<span style="color:var(--spend)">⚠️ ${esc(V.error)}</span>`
@@ -2301,8 +2327,8 @@ function openSettings(){
                ${investHere()? '' : '<br>📱 홈 화면 앱끼리는 저장 공간이 서로 달라요 — 자산 앱에서 <b>부부 공유</b>를 켜고 <b>초대 링크</b>를 복사해 오세요.'}</div>
              <div class="row wrap">
                ${investHere()? `<button class="btn sm" data-act="invOn" data-mode="local">이 브라우저에서 읽기</button>`:''}
-               <button class="btn ${investHere()?'ghost ':''}sm" data-act="invOn" data-mode="remote">
-                 🔗 자산 앱 초대 링크로 연결</button>
+               <button class="btn ${investHere()?'ghost ':''}sm" data-act="invPaste">📋 붙여넣어 가져오기</button>
+               <button class="btn ghost sm" data-act="invOn" data-mode="remote">🔗 초대 링크로 연결</button>
              </div>`;
       })()}
       <a class="btn ghost sm block" style="margin-top:8px;text-decoration:none;text-align:center;display:block"
@@ -3029,6 +3055,19 @@ document.addEventListener('click', async (e)=>{
     toast(state.inv.error ? state.inv.error : '자산 앱에서 금액을 읽어왔어요');
     break;
   }
+  case 'invPaste': openInvPaste(); break;
+  case 'invPasteGo': {
+    const t = ($('#invPasteText')?.value||'').trim();
+    const m = t.match(/myAssetsLed:([A-Za-z0-9_\-=]+)/);
+    let led = null;
+    if(m){ try{ led = JSON.parse(b64d(m[1])); }catch(e){} }
+    if(!Array.isArray(led?.rows)){ toast('요약을 읽지 못했어요 — 잘리지 않았는지 봐 주세요'); break; }
+    const V = state.inv = state.inv || blankInv();
+    V.enabled = true; V.asked = true; V.mode = 'paste';
+    V.rows = led.rows; V.divs = led.divs || {}; V.at = led.at || Date.now(); V.error = '';
+    save(); closeModal(); render();
+    toast(`자산 ${led.rows.length}줄을 가져왔어요`);
+    break; }
   case 'invRemoteGo': {
     const t = ($('#invLink')?.value||'').trim();
     const m = t.match(/join=([A-Za-z0-9_\-]+)/);
@@ -3045,6 +3084,7 @@ document.addEventListener('click', async (e)=>{
     state.inv = blankInv(); state.inv.asked = true; save(); render();
     toast('연동을 껐어요 — 이미 반영한 금액은 그대로 남습니다'); break;
   case 'invRefresh':
+    if(state.inv?.mode === 'paste'){ openInvPaste(); break; }
     await refreshInvest(); render();
     toast(state.inv?.error || '다시 읽었어요'); break;
   case 'invApply': {

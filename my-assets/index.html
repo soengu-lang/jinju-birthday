@@ -749,8 +749,10 @@ async function fetchFx(){
    ============================================================ */
 /* GOOGLEFINANCE 가 알아듣는 이름으로 */
 function gfSymbol(h){
-  if(h.cat==='kr') return 'KRX:'+h.code;
-  if(h.cat==='us') return h.code.replace('-','.');     /* BRK-B → BRK.B */
+  const code = String(h.code || h.sym || '').trim();   /* 코드가 비면 시트에 못 넣습니다 */
+  if(!code) return '';
+  if(h.cat==='kr') return 'KRX:'+code;
+  if(h.cat==='us') return code.replace('-','.');       /* BRK-B → BRK.B */
   return '';
 }
 /* 담은 종목으로 시트에 붙여넣을 수식을 만들어 줍니다 */
@@ -758,9 +760,9 @@ function sheetFormula(){
   const seen = new Set(), rows = [];
   (state.holdings||[]).forEach(h=>{
     if(h.cat!=='kr' && h.cat!=='us') return;
-    const key = h.cat+':'+h.code;
-    if(seen.has(key)) return; seen.add(key);
     const g = gfSymbol(h); if(!g) return;
+    const key = h.cat+':'+(h.code || h.sym);
+    if(seen.has(key)) return; seen.add(key);
     rows.push(`"${key}",IFERROR(GOOGLEFINANCE("${g}","price"),""),IFERROR(GOOGLEFINANCE("${g}","closeyest"),"")`);
   });
   rows.push('"fx:USD",IFERROR(GOOGLEFINANCE("CURRENCY:USDKRW"),""),""');
@@ -3146,8 +3148,14 @@ function viewSet(){
     <h2>🧾 가계부 앱과 연동</h2>
     <div class="tiny muted" style="line-height:1.7">
       가계부 앱 <b>💎 자산</b> 탭에서 이 앱의 금액을 그대로 불러올 수 있습니다.<br>
-      · 두 앱을 <b>같은 폰</b>에서 쓰면 아무 설정 없이 바로 읽힙니다.<br>
-      · 다른 폰이라면 위에서 <b>배우자와 함께 보기</b>를 켜고, 가계부에서 같은 방으로 연결하면 됩니다.
+      · 두 앱을 <b>같은 사파리 창</b>에서 쓰면 아무 설정 없이 바로 읽힙니다.<br>
+      · <b>둘 다 홈 화면 앱</b>이면 저장 공간이 서로 달라 그냥은 안 읽힙니다 —
+        아래 <b>요약 복사</b> 를 눌러 가계부에 붙여넣으세요.
+    </div>
+    <button class="btn block mt" data-act="copyLed">📋 가계부에 붙여넣을 요약 복사</button>
+    <div class="tiny muted mt" style="line-height:1.7">
+      복사한 뒤 <b>홈 화면 가계부 앱</b> → 💎 자산 탭 → <b>📋 붙여넣어 가져오기</b> 에 넣으면 됩니다.
+      ${state.sync?.enabled ? '' : '금액이 바뀔 때마다 다시 복사해 주세요 — 위에서 <b>배우자와 함께 보기</b>를 켜면 저절로 맞춰집니다.'}
     </div>
     <a class="btn ghost block mt" style="text-decoration:none" href="../household-budget/">가계부 앱 열기 →</a>
   </div>
@@ -3825,6 +3833,13 @@ document.addEventListener('click', async ev=>{
     const t = backupText();
     try{ await navigator.clipboard.writeText(t);
          toast(`복사했어요 (${(state.holdings||[]).length}개 자산) — 다른 쪽에서 붙여넣기 하세요`); }
+    catch(e){ openCopyFallback(t); }
+    break; }
+  case 'copyLed': {
+    buildLedger();
+    const t = 'myAssetsLed:' + b64e(JSON.stringify(state.led));
+    try{ await navigator.clipboard.writeText(t);
+         toast(`복사했어요 (${(state.led.rows||[]).length}줄) — 가계부에 붙여넣으세요`); }
     catch(e){ openCopyFallback(t); }
     break; }
   case 'pasteBackup': openPasteBackup(); break;
