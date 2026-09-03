@@ -2630,8 +2630,15 @@ function viewSet(){
         <b>1</b> <a href="https://script.new" target="_blank" rel="noopener"><b>script.new</b></a> 를 엽니다<br>
         <b>2</b> 안에 있던 코드를 <b>전부 지우고</b> 아래 <b>코드 복사</b>한 것을 붙여넣기<br>
         <b>3</b> 오른쪽 위 <b>배포</b> → <b>새 배포</b> → 톱니바퀴에서 유형 <b>웹 앱</b><br>
-        <b>4</b> 액세스 권한을 <b>모든 사용자</b> 로 → <b>배포</b> → 권한 승인<br>
-        <b>5</b> 나온 <b>웹 앱 URL</b>(…/exec)을 아래에 붙여넣고 연결하기
+        <b>4</b> 액세스 권한을 <b>모든 사용자</b> 로 → <b>배포</b><br>
+        <b>5</b> 권한 화면에서 <b>고급(Advanced)</b> → <b>…(으)로 이동 / Go to …(unsafe)</b> → <b>허용(Allow)</b><br>
+        <b>6</b> 나온 <b>웹 앱 URL</b>(…/exec)을 아래에 붙여넣고 연결하기
+      </div>
+      <div class="note info" style="margin-bottom:10px;line-height:1.8">
+        ⚠️ 5번에서 <b>「Google hasn't verified this app」</b> 경고가 뜨는 건 <b>정상</b>입니다.
+        내가 방금 만든 스크립트라 구글이 심사한 적이 없어서 그래요
+        (경고문에 개발자가 <b>내 이메일</b>로 적혀 있습니다).<br>
+        <b>고급 → 이동 → 허용</b> 으로 통과하세요. <b>BACK TO SAFETY 를 누르면 취소</b>됩니다.
       </div>
       <button class="btn ghost block" data-act="copyGas">📋 2. 코드 복사</button>
       <details style="margin-top:8px">
@@ -2639,7 +2646,7 @@ function viewSet(){
         <textarea readonly style="margin-top:6px;font-size:11px;min-height:150px"
           onclick="this.select()">${esc(GAS_CODE)}</textarea>
       </details>
-      <div class="f mt"><label>5. 웹 앱 URL 붙여넣기</label>
+      <div class="f mt"><label>6. 웹 앱 URL 붙여넣기</label>
         <input id="gasUrl" placeholder="https://script.google.com/macros/s/.../exec"></div>
       <button class="btn block" data-act="gasSave">연결하기</button>
       <div class="tiny muted mt">내 구글 계정 안에서만 도는 중계라 남이 쓸 수 없고, 시세 주소만 받아옵니다.</div>
