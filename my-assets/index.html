@@ -343,6 +343,54 @@ const pad2 = n => String(n).padStart(2,'0');
 const iso = d => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
 const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
 const OZ_G = 31.1034768;                       /* 금 1트로이온스 = 31.1034768g */
+/* 금은 '돈'으로 세는 게 익숙합니다 — 1돈 = 3.75g */
+const DON_G = 3.75, NYANG_G = 37.5, PUN_G = 0.375;
+/* '3돈' '1냥 2돈' '100g' '1kg' '2oz' 를 모두 그램으로 */
+function parseGold(text){
+  let t = String(text ?? '').trim().replace(/[,\s]/g, '');
+  if(!t) return NaN;
+  if(/^[\d.]+$/.test(t)) return parseFloat(t);          /* 숫자만 적으면 그램 */
+  let g = 0, hit = false;
+  const take = (re, mul) => {
+    t = t.replace(re, (_, n) => { const v = parseFloat(n);
+      if(isFinite(v)){ g += v*mul; hit = true; } return ''; });
+  };
+  take(/([\d.]+)(?:kg|킬로그램|킬로)/gi, 1000);
+  take(/([\d.]+)(?:냥)/g,            NYANG_G);
+  take(/([\d.]+)(?:돈)/g,            DON_G);
+  take(/([\d.]+)(?:푼)/g,            PUN_G);
+  take(/([\d.]+)(?:oz|온스|온즈)/gi, OZ_G);
+  take(/([\d.]+)(?:g|그램)/gi,       1);
+  const rest = parseFloat(String(t).replace(/[^\d.]/g, ''));
+  if(isFinite(rest)) { g += rest; hit = true; }         /* 단위 없이 남은 숫자는 그램 */
+  return hit ? g : NaN;
+}
+/* '600000' 은 1g 값, '60만/돈' '돈당 60만' 은 한 돈 값으로 봅니다 */
+function parseGoldPrice(text){
+  const t = String(text ?? '');
+  const perDon = /돈/.test(t);
+  const v = parseAmount(t.replace(/^[^\d]*/, ''));   /* '돈당 60만' 처럼 앞에 붙은 말은 버립니다 */
+  if(!isFinite(v)) return NaN;
+  return perDon ? v / DON_G : v;
+}
+const donS = g => (Math.round((+g||0)/DON_G*1000)/1000).toLocaleString('ko-KR',{maximumFractionDigits:3});
+/* 화면에는 그램과 돈을 같이 */
+const goldQtyS = g => `${qtyS(g,'gold')}g (${donS(g)}돈)`;
+/* 수량 칸에 적는 동안 바로 환산해 보여줍니다 */
+function goldEcho(el){
+  const box = document.getElementById(el.dataset.echo);
+  if(!box) return;
+  const g = parseGold(el.value);
+  box.innerHTML = (isFinite(g) && g > 0)
+    ? `= <b>${qtyS(g,'gold')}g</b> (${donS(g)}돈)` : '';
+}
+function goldPriceEcho(el){
+  const box = document.getElementById(el.dataset.echo);
+  if(!box) return;
+  const p = parseGoldPrice(el.value);
+  box.innerHTML = (isFinite(p) && p > 0)
+    ? `= <b>${won(Math.round(p))}/g</b> · 한 돈 ${won(Math.round(p*DON_G))}` : '';
+}
 
 /* 소수점 자리: 코인처럼 잘게 쪼개지는 건 많이, 주식은 적게 */
 function qtyS(q, cat){
@@ -1948,7 +1996,8 @@ function holdRow(h){
     sub = (h.loan>0 ? `대출 ${shortWon(h.loan)}원 · ` : '') + (h.memo ? esc(h.memo) : (h.owner||'공동'));
   } else {
     sub = (h.acct? `<b>${esc(h.acct)}</b> · ` : '') +
-          `${qtyS(h.qty,h.cat)}${c.unit} · ${priceS(px.p, px.ccy)}` +
+          (h.cat==='gold' ? goldQtyS(h.qty) : `${qtyS(h.qty,h.cat)}${c.unit}`) +
+          ` · ${priceS(px.p, px.ccy)}` +
           (r.dayRate ? ` <span class="${cls}">${arrow(r.dayRate)}${pctS(Math.abs(r.dayRate))}</span>` : '');
   }
   const plCls = sgn(r.pl);
@@ -1978,7 +2027,8 @@ function holdGroupRow(list){
   const cls = sgn(g.dayRate), plCls = sgn(g.pl);
   const where = list.map(h=>h.acct || h.owner || '계좌').join(' · ');
   const sub = g.ready
-    ? `${qtyS(g.qty,h0.cat)}${c.unit} · ${priceS(g.px.p, g.px.ccy)}` +
+    ? (h0.cat==='gold' ? goldQtyS(g.qty) : `${qtyS(g.qty,h0.cat)}${c.unit}`)
+      + ` · ${priceS(g.px.p, g.px.ccy)}` +
       (g.dayRate ? ` <span class="${cls}">${arrow(g.dayRate)}${pctS(Math.abs(g.dayRate))}</span>` : '')
     : '시세 기다리는 중…';
   return `<div class="hold" data-act="openGroup" data-ids="${list.map(h=>h.id).join(',')}">
@@ -2402,12 +2452,24 @@ function openPickForm(pick){
   openModal(`
     <div class="mhead"><h3>${esc(pick.name||pick.code)}</h3><button class="x" data-act="close">✕</button></div>
     <div class="tiny muted" style="margin:-6px 0 12px">${c.emo} ${c.label} · ${esc(pick.sym||pick.code)}</div>
+    ${pick.cat==='gold' ? `
+      <div class="f"><label>수량 <span class="muted">g · 돈 · 냥 아무거나</span></label>
+        <input id="pQty" inputmode="text" placeholder="예: 3돈 · 11.25g · 1냥" autofocus
+               data-echo="pQtyEcho" oninput="goldEcho(this)">
+        <div class="hint" id="pQtyEcho"></div>
+        <div class="chips" style="margin-top:6px">${[1,2,3,5,10].map(d=>
+          `<button class="chip line" data-act="fillGold" data-v="${d}돈">${d}돈</button>`).join('')}</div></div>
+      <div class="f"><label>평균 매수가 <span class="muted">선택 · 1g 값 또는 '60만/돈'</span></label>
+        <input id="pAvg" inputmode="text" placeholder="예: 160000 · 60만/돈"
+               data-echo="pAvgEcho" oninput="goldPriceEcho(this)">
+        <div class="hint" id="pAvgEcho"></div></div>
+    ` : `
     <div class="grid2">
       <div class="f"><label>수량 (${c.unit})</label>
-        <input id="pQty" inputmode="decimal" placeholder="예: ${pick.cat==='coin'?'0.05':(pick.cat==='gold'?'100':'10')}" autofocus></div>
+        <input id="pQty" inputmode="decimal" placeholder="예: ${pick.cat==='coin'?'0.05':'10'}" autofocus></div>
       <div class="f"><label>평균 매수가 ${isUs?'($)':'(원)'} <span class="muted">선택</span></label>
         <input id="pAvg" inputmode="decimal" placeholder="수익률용"></div>
-    </div>
+    </div>`}
     ${isUs? `<div class="f"><label>살 때 환율 <span class="muted">선택</span></label>
       <input id="pAvgFx" inputmode="decimal" placeholder="비우면 달러 기준 수익률로 봅니다">
       <div class="hint">적어 두면 <b>원화 기준</b> 수익률로 계산합니다.</div></div>`:''}
@@ -2513,6 +2575,8 @@ function openHold(id){
           : '<div class="tiny muted">원금을 적으면<br>수익률이 나옵니다</div>'}
         </div>
       </div>
+      ${h.cat==='gold' && r.ready? `<div class="between tiny mt" style="border-top:1px solid var(--line);padding-top:8px">
+        <span class="muted">한 돈 값</span><span><b class="num">${won(Math.round(r.px.p*DON_G))}</b></span></div>`:''}
       ${!amt? `<div class="between tiny mt" style="border-top:1px solid var(--line);padding-top:8px">
         <span class="muted">현재가</span>
         <span><b class="num">${r.ready? priceS(px.p,px.ccy) : '—'}</b>
@@ -2535,12 +2599,22 @@ function openHold(id){
           <input id="hLoan" inputmode="decimal" value="${h.loan?esc(h.loan):''}"></div>
       </div>
     ` : `
+      ${h.cat==='gold' ? `
+        <div class="f"><label>수량 <span class="muted">g · 돈 · 냥 아무거나</span></label>
+          <input id="hQty" inputmode="text" value="${h.qty?esc(h.qty):''}"
+                 data-echo="hQtyEcho" oninput="goldEcho(this)">
+          <div class="hint" id="hQtyEcho">지금 <b>${goldQtyS(h.qty)}</b></div></div>
+        <div class="f"><label>평균 매수가 <span class="muted">1g 값 또는 '60만/돈'</span></label>
+          <input id="hAvg" inputmode="text" value="${h.avg?esc(h.avg):''}"
+                 data-echo="hAvgEcho" oninput="goldPriceEcho(this)">
+          <div class="hint" id="hAvgEcho">${h.avg? `한 돈 ${won(Math.round(h.avg*DON_G))}` : ''}</div></div>
+      ` : `
       <div class="grid2">
         <div class="f"><label>수량 (${c.unit})</label>
           <input id="hQty" inputmode="decimal" value="${h.qty?esc(h.qty):''}"></div>
         <div class="f"><label>평균 매수가 ${isUs?'($)':'(원)'}</label>
           <input id="hAvg" inputmode="decimal" value="${h.avg?esc(h.avg):''}"></div>
-      </div>
+      </div>`}
       ${isUs? `<div class="f"><label>살 때 환율 <span class="muted">선택</span></label>
         <input id="hAvgFx" inputmode="decimal" value="${h.avgFx?esc(h.avgFx):''}" placeholder="비우면 달러 기준"></div>`:''}
       <div class="f"><label>시세 직접 입력 ${isUs?'($)':'(원)'} <span class="muted">선택</span></label>
@@ -2677,7 +2751,8 @@ function openGroupModal(ids){
         </div>
       </div>
       <div class="between tiny mt" style="border-top:1px solid var(--line);padding-top:8px">
-        <span class="muted">합계 수량</span><span><b class="num">${qtyS(g.qty,h0.cat)}${c.unit}</b></span>
+        <span class="muted">합계 수량</span><span><b class="num">${
+          h0.cat==='gold' ? goldQtyS(g.qty) : qtyS(g.qty,h0.cat)+c.unit}</b></span>
       </div>
       <div class="between tiny" style="margin-top:4px">
         <span class="muted">평균 매수가 <span style="font-weight:400">(수량으로 가중평균)</span></span>
@@ -2711,7 +2786,7 @@ function openGroupModal(ids){
         <div class="mid">
           <div class="nm">${esc(h.acct || '계좌 이름 없음')}<span class="badge">${esc(h.owner||'공동')}</span>${
             r.px.manual? '<span class="badge man">직접</span>':''}</div>
-          <div class="sb">${qtyS(h.qty,h.cat)}${c.unit} · 평단 ${h.avg? priceS(h.avg, isUs?'USD':'KRW') : '—'}</div>
+          <div class="sb">${h.cat==='gold'? goldQtyS(h.qty) : qtyS(h.qty,h.cat)+c.unit} · 평단 ${h.avg? priceS(h.avg, isUs?'USD':'KRW') : '—'}</div>
           <div class="sb">지금 ${r.ready? priceS(r.px.p, r.px.ccy) : '—'}</div>
         </div>
         <div class="rt"><div class="amt num">${num(r.value)}원</div>
@@ -3301,12 +3376,14 @@ document.addEventListener('click', async ev=>{
     const box = $('#'+b.dataset.g); if(box) box.textContent = b.dataset.v;
     break; }
   case 'fillName': { const el=$('#mName'); if(el){ el.value = b.dataset.v; el.focus(); } break; }
+  case 'fillGold': { const el=$('#pQty'); if(el){ el.value = b.dataset.v; goldEcho(el); el.focus(); } break; }
 
   case 'savePick': {
     const p = JSON.parse(b.dataset.json);
-    const qty = parseQty($('#pQty')?.value);
+    const isGold = p.cat==='gold';
+    const qty = isGold ? parseGold($('#pQty')?.value) : parseQty($('#pQty')?.value);
     if(!isFinite(qty) || qty<=0){ toast('수량을 적어 주세요'); break; }
-    const avg = parseQty($('#pAvg')?.value);
+    const avg = isGold ? parseGoldPrice($('#pAvg')?.value) : parseQty($('#pAvg')?.value);
     const avgFx = parseQty($('#pAvgFx')?.value);
     const acct = ($('#pAcct')?.value||'').trim();
     lastAcct = acct;
@@ -3451,8 +3528,11 @@ document.addEventListener('click', async ev=>{
       const a = parseAmount($('#hAvg')?.value); h.avg = isFinite(a)? a : 0;
       const l = parseAmount($('#hLoan')?.value); h.loan = isFinite(l)? l : 0;
     } else {
-      const q = parseQty($('#hQty')?.value); if(isFinite(q)) h.qty = q;
-      const a = parseQty($('#hAvg')?.value); h.avg = isFinite(a)? a : 0;
+      const gold = h.cat==='gold';
+      const q = gold ? parseGold($('#hQty')?.value) : parseQty($('#hQty')?.value);
+      if(isFinite(q)) h.qty = q;
+      const a = gold ? parseGoldPrice($('#hAvg')?.value) : parseQty($('#hAvg')?.value);
+      h.avg = isFinite(a)? a : 0;
       const fxv = parseQty($('#hAvgFx')?.value); h.avgFx = isFinite(fxv)? fxv : 0;
       const raw = ($('#hMp')?.value||'').trim();
       if(raw===''){ h.mp = ''; }
