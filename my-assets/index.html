@@ -1277,8 +1277,16 @@ const symOf = h => h.sym || (h.cat==='kr' ? h.code+'.KS' : h.code);
    가계부에는 시세가 없으니, 원화로 환산된 값을 여기서 미리 적어 둡니다.
    ------------------------------------------------------------ */
 function buildLedger(){
+  /* 배당은 수입이라 가계부의 '부수입'으로 갑니다 — 달마다 합쳐서 넘겨 둡니다 */
+  const divs = {};
+  (state.divs||[]).forEach(d=>{
+    const m = String(d.date||'').slice(0,7);
+    if(!/^\d{4}-\d{2}$/.test(m)) return;
+    divs[m] = (divs[m]||0) + Math.round(divKrw(d));
+  });
   state.led = {
     at: Date.now(),
+    divs,
     rows: activeHoldings().map(h=>{
       const r = calc(h);
       return { owner:h.owner||'공동', cat:h.cat, name:h.name,

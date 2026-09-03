@@ -963,7 +963,17 @@ const INV_CATS = [
   { k:'etc',  label:'💼 연금·기타', match:/연금|ISA|IRP|퇴직|펀드/ }
 ];
 const invCat = k => INV_CATS.find(c=>c.k===k) || INV_CATS[7];
-function blankInv(){ return { enabled:false, asked:false, mode:'local', room:'', rows:[], map:{}, at:0, error:'' }; }
+/* divItem 은 일부러 넣지 않습니다 — 키가 있으면 '직접 고른 적 있음'으로 봅니다 */
+function blankInv(){ return { enabled:false, asked:false, mode:'local', room:'', rows:[], divs:{}, map:{}, at:0, error:'' }; }
+/* 배당을 받을 수입 항목 — 직접 고른 적이 있으면 그대로, 없으면 이름으로 찾습니다 */
+function invDivItem(){
+  const V = state.inv || {};
+  if(Object.prototype.hasOwnProperty.call(V, 'divItem'))
+    return (V.divItem && itemById(V.divItem)) ? V.divItem : '';
+  const hit = itemsOf('income').find(i=>/부수입|투자수입|배당/.test(i.name));
+  return hit ? hit.id : '';
+}
+const invDivFor = key => +((state.inv?.divs)||{})[key] || 0;
 function readInvestLocal(){
   try{ const d = JSON.parse(localStorage.getItem(INVEST_KEY)||'null');
     return Array.isArray(d?.led?.rows) ? d.led : null; }catch(e){ return null; }
@@ -1004,7 +1014,7 @@ async function refreshInvest(){
       led = readInvestLocal();
       if(!led) throw new Error('이 브라우저에는 자산 앱 기록이 없어요');
     }
-    V.rows = led.rows || []; V.at = led.at || Date.now(); V.error = '';
+    V.rows = led.rows || []; V.divs = led.divs || {}; V.at = led.at || Date.now(); V.error = '';
   }catch(e){ V.error = e.message; }
   writeLocal();
   if(JSON.stringify(V.rows||[]) !== before) render();
@@ -1112,6 +1122,20 @@ function invCard(key){
     </div>
   </div>`;
 }
+/* 배당을 어느 수입 항목에 넣을지 고르기 */
+function openInvDivPick(){
+  openModal(`<div class="modal">
+    <div class="mhead"><h3>배당을 어디에 넣을까요?</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted" style="margin-bottom:10px">자산 앱에 적어 둔 배당을 이 항목에 넣습니다.</div>
+    <div class="row wrap">
+      ${itemsOf('income').map(i=>
+        `<button class="chip ${invDivItem()===i.id?'':'line'}" data-act="invDivSet" data-row="${i.id}">${esc(i.name)}</button>`
+      ).join('')}
+    </div>
+    <button class="btn ghost block" style="margin-top:12px" data-act="invDivSet" data-row="">넣지 않기</button>
+  </div>`);
+}
+
 /* 어느 자산 항목으로 보낼지 고르기 */
 function openInvPick(sigs){
   const list = sigs.split('§');
@@ -1344,6 +1368,35 @@ function viewLedger(){
             이전 기록으로 채우기 (수입·고정비·저축)</button>
           <button class="btn ghost sm" data-act="goMonth" data-m="${lastM}">${lastM}월 보기</button>
         </div>`; })()}
+
+    ${(()=>{
+      const V = state.inv;
+      if(!V?.enabled) return '';
+      const amt = invDivFor(cur);
+      if(!amt) return '';
+      const rowId = invDivItem();
+      const row = rowId ? itemById(rowId) : null;
+      const now = row ? cellVal(rowId, cur) : 0;
+      const same = row && Math.round(now) === Math.round(amt);
+      return `<div class="card" style="margin-top:11px">
+        <div class="sec-head"><div class="t">💰 자산 앱 배당</div>
+          <div class="v" style="color:var(--income)">${num(amt)}원</div></div>
+        <div class="pad" style="padding-top:0">
+          <div class="tiny muted" style="line-height:1.7">
+            ${mLabel(ui.m)}에 받은 배당이에요.
+            ${row? `<b>${esc(row.name)}</b> 항목에 넣을 수 있습니다.`
+                 : '<span style="color:var(--spend)">받을 수입 항목을 골라 주세요.</span>'}
+            ${row && now && !same ? `<br>지금 그 항목에는 ${num(now)}원이 적혀 있어요.` : ''}
+          </div>
+          <div class="row wrap" style="margin-top:9px">
+            ${row && !same ? `<button class="btn sm" data-act="invDivApply" data-v="${Math.round(amt)}"
+              data-row="${rowId}">${esc(row.name)}에 반영</button>` : ''}
+            ${same ? '<span class="tiny muted">반영되어 있어요</span>' : ''}
+            <button class="chip line" data-act="invDivPick">넣을 항목 바꾸기</button>
+          </div>
+        </div>
+      </div>`;
+    })()}
 
     ${SECTIONS.map(sec=>{
       const list = itemsOf(sec.key), tot = sectionTotal(sec.key, cur);
@@ -2201,7 +2254,7 @@ function openSettings(){
                <div class="tiny muted" style="margin-top:4px;line-height:1.7">
                  종목 ${(V.rows||[]).length}개 · 합계 <b>${bigWon((V.rows||[]).reduce((a,r)=>a+(+r.value||0),0))}원</b><br>
                  ${V.error? `<span style="color:var(--spend)">⚠️ ${esc(V.error)}</span>`
-                   : `💎 자산 탭 맨 위에서 <b>반영</b>을 누르면 그 달 평가액이 채워집니다`}
+                   : `💎 자산 탭에서 <b>평가액</b>을, 🧾 가계부 탭에서 <b>배당</b>을 반영할 수 있어요`}
                </div></div>`
           : `<div class="tiny muted" style="line-height:1.7;margin-bottom:8px">
                자산 앱에 담아 둔 <b>주식·코인·달러·금·부동산</b> 금액을 💎 자산 칸으로 불러옵니다.
@@ -2957,6 +3010,18 @@ document.addEventListener('click', async (e)=>{
     save(); render(); toast(n? `${n}개 항목을 자산 앱 금액으로 맞췄어요` : '바꿀 게 없었어요');
     break;
   }
+  case 'invDivApply': {
+    const v = +b.dataset.v || 0, rowId = b.dataset.row;
+    if(!rowId) break;
+    state.cells[`${rowId}|${mk(ui.m)}`] = v;
+    save(); render(); toast(`${mLabel(ui.m)} 배당 ${num(v)}원을 반영했어요`);
+    break; }
+  case 'invDivPick': openInvDivPick(); break;
+  case 'invDivSet': {
+    state.inv = state.inv || blankInv();
+    state.inv.divItem = b.dataset.row || '';
+    save(); closeModal(); render();
+    break; }
   case 'invPick': openInvPick(b.dataset.sig); break;
   case 'invSetRow': {
     const V = state.inv = state.inv || blankInv();
