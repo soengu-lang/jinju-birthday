@@ -224,14 +224,15 @@ AAPL 10 180                          ← 손으로 적어도 됨
 3. 파일 → 공유 → **웹에 게시** → 형식을 **쉼표로 구분된 값(.csv)** → 게시
 4. 나온 주소를 앱에 붙여넣고 **연결하기**
 
-붙여넣는 수식은 이렇게 생겼습니다.
+붙여넣는 수식은 이렇게 생겼습니다 (**줄바꿈 없는 한 줄**입니다).
 
 ```
-={"code","price","prev";
-"kr:000660",IFERROR(GOOGLEFINANCE("KRX:000660","price"),""),IFERROR(GOOGLEFINANCE("KRX:000660","closeyest"),"");
-"us:AAPL",IFERROR(GOOGLEFINANCE("AAPL","price"),""),IFERROR(GOOGLEFINANCE("AAPL","closeyest"),"");
-"fx:USD",IFERROR(GOOGLEFINANCE("CURRENCY:USDKRW"),""),""}
+={"code","price","prev";"kr:000660",IFERROR(GOOGLEFINANCE("KRX:000660","price"),""),IFERROR(GOOGLEFINANCE("KRX:000660","closeyest"),"");"fx:USD",IFERROR(GOOGLEFINANCE("CURRENCY:USDKRW"),""),""}
 ```
+
+> ⚠️ **A1 한 칸**에 통째로 들어가야 합니다.
+> A1에 `#ERROR!` 가 뜨고 A2·A3에 글자가 흩어져 있으면 잘못 들어간 것이니,
+> A1부터 아래까지 다 지우고 다시 붙여넣어 주세요.
 
 시트를 연결하면 **주식과 환율을 여기서 먼저** 받고, 시트에 없는 것만 네이버·야후로 갑니다.
 코인은 그대로 업비트에서 받습니다.
