@@ -113,6 +113,13 @@ nav.tabs{position:sticky;top:0;z-index:30;background:var(--bg);padding:10px 0 8p
 .badge.err{background:#f7e7e5;color:var(--up)}
 .badge.man{background:var(--soft);color:var(--brand)}
 .badge.tgt{background:#e4f1ec;color:#2e7d6b}
+.mbar{display:flex;align-items:flex-end;gap:3px;height:64px;margin:8px 0 4px}
+.mbar > div{flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%}
+.mbar i{display:block;background:var(--gold);border-radius:4px 4px 0 0;min-height:2px}
+.mbar i.on{background:var(--brand)}
+.mlab{display:flex;gap:3px;font-size:9px;color:var(--muted);text-align:center}
+.mlab > span{flex:1}
+.mlab > span.on{color:var(--brand);font-weight:800}
 .diary{border-left:3px solid var(--soft-d);padding:2px 0 2px 11px;margin-bottom:14px}
 .diary .d1{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
 .diary .dt{font-size:11.5px;font-weight:800;color:var(--brand)}
@@ -439,6 +446,8 @@ function blankState(){
     pxV: 3,                       /* 시세 저장 방식 판 번호 */
     accts: {},                    /* 계좌 등록부  '미래에셋 ISA' -> {type:'ISA'} */
     sheet: { url:'', at:0, error:'' },   /* 📗 구글시트 시세 */
+    divs: [],                     /* 💰 받은 배당 기록 */
+    divInfo: {},                  /* 종목별 배당 정보 캐시 (야후) */
     relayUrl: '',                 /* 직접 만든 중계 주소 */
     diary: [],                    /* 투자 일기 */
     relay: 0,                     /* 마지막에 성공한 우회 경로 */
@@ -898,6 +907,68 @@ function openDiag(){
     <div class="tiny muted mt">복사해서 보내 주시면 어디가 막혔는지 바로 알 수 있어요.</div>`);
 }
 
+/* ============================================================
+   💰 배당
+   ------------------------------------------------------------
+   야후가 과거 배당 내역(날짜 + 1주당 금액)을 줍니다.
+   여기서 '배당 월'과 '연 배당금'을 알아냅니다.
+   ※ 날짜는 배당 기준일(배당락)입니다 — 실제 입금은 뒤에 옵니다.
+      국내는 보통 2~3개월 뒤, 미국은 2~4주 뒤예요.
+   ============================================================ */
+async function fetchDivInfo(h){
+  const sym = h.cat==='kr' ? (h.sym || h.code+'.KS') : (h.sym || h.code);
+  const u = 'https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(sym)
+          + '?range=3y&interval=1mo&events=div';
+  const j = await relayJSON(u);
+  const res = j?.chart?.result?.[0];
+  const evs = res?.events?.dividends || {};
+  const ccy = res?.meta?.currency || (h.cat==='kr' ? 'KRW' : 'USD');
+  const list = Object.values(evs)
+    .map(d=>({ ts:(+d.date||0)*1000, amount:+d.amount||0 }))
+    .filter(d=>d.ts>0 && d.amount>0)
+    .sort((a,b)=>a.ts-b.ts);
+  const now = Date.now();
+  const recent = list.filter(d=>d.ts > now - 2*365*86400000);
+  const months = [...new Set(recent.map(d=>new Date(d.ts).getMonth()+1))].sort((a,b)=>a-b);
+  const yearSum = list.filter(d=>d.ts > now - 370*86400000).reduce((s,d)=>s+d.amount, 0);
+  return { at:now, ccy, months, yearSum, n:list.length,
+           last: list.length ? list[list.length-1] : null };
+}
+const divKey = h => h.cat + ':' + (h.code || h.id);
+const divInfoOf = h => (state.divInfo||{})[divKey(h)] || null;
+/* 몇 번 주는지 */
+function divFreq(info){
+  const n = info?.months?.length || 0;
+  return n >= 10 ? '월배당' : n >= 4 ? '분기 배당' : n >= 2 ? '반기 배당' : n === 1 ? '연 1회' : '';
+}
+/* 이번 달에 배당 기준일이 있는 종목 */
+function divThisMonth(){
+  const m = new Date().getMonth() + 1;
+  return activeHoldings().filter(h=>{
+    const i = divInfoOf(h);
+    return i && (i.months||[]).includes(m);
+  });
+}
+/* 배당 받은 기록 — 원화로 환산한 금액 */
+function divKrw(d){
+  const v = +d.amount || 0;
+  return d.ccy === 'USD' ? v * (+state.fx?.v || 0) : v;
+}
+const divsOf = h => (state.divs||[]).filter(d=>d.code && d.code===h.code && d.cat===h.cat);
+function divYearTotal(year){
+  return (state.divs||[]).filter(d=>String(d.date||'').slice(0,4) === String(year))
+    .reduce((s,d)=>s+divKrw(d), 0);
+}
+function divByMonth(year){
+  const out = new Array(12).fill(0);
+  (state.divs||[]).forEach(d=>{
+    if(String(d.date||'').slice(0,4) !== String(year)) return;
+    const m = +String(d.date).slice(5,7);
+    if(m>=1 && m<=12) out[m-1] += divKrw(d);
+  });
+  return out;
+}
+
 /* 시세는 '종목' 기준으로 담습니다.
    예전에는 sym(000660.KS 같은 거래소 붙은 이름)으로 담아서,
    같은 종목이라도 계좌마다 다른 칸에 저장돼 시세가 어긋날 수 있었습니다. */
@@ -1134,6 +1205,20 @@ async function refreshPrices(manual){
           ok++;
         }catch(e){ fail++; state.px[pxKey(h)] = { ...(state.px[pxKey(h)]||{}), err:e.message }; }
       }));
+    }
+    /* ④-2 배당 정보 — 자주 바뀌지 않으니 일주일에 한 번, 한 번에 4종목까지만 */
+    if(!relayDead && !outOfTime()){
+      state.divInfo = state.divInfo || {};
+      const stale = activeHoldings()
+        .filter(h=>(h.cat==='kr'||h.cat==='us') && h.code)
+        .filter(h=>{ const i = state.divInfo[divKey(h)];
+                     return !i || Date.now() - (i.at||0) > 7*86400000; })
+        .slice(0, 4);
+      for(const h of stale){
+        if(relayDead || outOfTime()) break;
+        try{ state.divInfo[divKey(h)] = await fetchDivInfo(h); }
+        catch(e){ state.divInfo[divKey(h)] = { at:Date.now(), months:[], yearSum:0, n:0, err:true }; }
+      }
     }
     /* ⑤ 금 */
     if(list.some(h=>h.cat==='gold') && state.fx?.v>0){
@@ -2095,6 +2180,45 @@ function viewNote(){
     <div class="tiny muted mt">적을 때 <b>그 순간 순자산</b>도 같이 저장돼서, 나중에 그때 무슨 생각이었는지 같이 보입니다.</div>
   </div>
 
+  ${(()=>{
+    const y = new Date().getFullYear(), m = new Date().getMonth()+1;
+    const by = divByMonth(y), tot = by.reduce((a,b)=>a+b,0), mx = Math.max(...by, 1);
+    const soon = divThisMonth();
+    const list = (state.divs||[]).slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))).slice(0,12);
+    return `<div class="card">
+      <h2>💰 배당 <span class="sub">${y}년</span></h2>
+      <div class="between" style="margin-bottom:2px">
+        <div><div class="tiny muted">올해 받은 배당</div>
+          <div style="font-size:19px;font-weight:900;letter-spacing:-.03em" class="num">${won(tot)}</div></div>
+        <div class="right"><div class="tiny muted">${m}월</div>
+          <div style="font-size:15px;font-weight:800" class="num">${won(by[m-1])}</div></div>
+      </div>
+      <div class="mbar">${by.map((v,i)=>
+        `<div><i class="${i===m-1?'on':''}" style="height:${Math.max(2,(v/mx)*100).toFixed(0)}%"
+           title="${i+1}월 ${num(v)}원"></i></div>`).join('')}</div>
+      <div class="mlab">${by.map((v,i)=>`<span class="${i===m-1?'on':''}">${i+1}</span>`).join('')}</div>
+
+      ${soon.length? `<div class="note mt" style="margin-bottom:0">
+        🗓 <b>${m}월</b>이 배당 기준월인 종목 — ${esc(soon.map(h=>h.name).join(', '))}<br>
+        <span class="tiny">기준일이 이 달이라는 뜻이고, 실제 입금은
+        국내는 보통 2~3개월 뒤, 미국은 2~4주 뒤예요.</span></div>`:''}
+
+      <button class="btn block mt" data-act="divAdd">＋ 배당 받은 것 기록하기</button>
+
+      ${list.length? `<div style="margin-top:10px">
+        ${list.map(d=>`<div class="hold" data-act="divEdit" data-id="${d.id}">
+          <div class="ic" style="background:var(--gold-s);color:var(--gold)">💰</div>
+          <div class="mid">
+            <div class="nm">${esc(d.name || '배당')}</div>
+            <div class="sb">${esc(String(d.date||'').replace(/-/g,'.'))}${d.memo? ' · '+esc(d.memo):''}</div>
+          </div>
+          <div class="rt"><div class="amt num">${won(divKrw(d))}</div>
+            ${d.ccy==='USD'? `<div class="pl muted num">$${(+d.amount).toFixed(2)}</div>`:''}</div>
+        </div>`).join('')}
+      </div>` : '<div class="empty">아직 기록한 배당이 없어요</div>'}
+    </div>`;
+  })()}
+
   ${al.length? `<div class="card">
     <h2>지금 봐야 할 것 <span class="sub">${al.length}건</span></h2>
     ${al.map(x=>{
@@ -2436,6 +2560,37 @@ function openHold(id){
         `<button class="${(h.owner||'공동')===o?'on':''}" data-act="segOwner" data-v="${esc(o)}">${esc(o)}</button>`).join('')}</div></div>
     <div class="f"><label>메모</label><input id="hMemo" value="${esc(h.memo||'')}" placeholder="선택"></div>
 
+    ${(()=>{
+      if(amt) return '';
+      const i = divInfoOf(h);
+      const got = divsOf(h).reduce((s,d)=>s+divKrw(d), 0);
+      if(!i && !got) return '';
+      const yearPer = i?.yearSum || 0;
+      const my = yearPer * (+h.qty||0);
+      const yld = (yearPer>0 && r.px.p>0) ? yearPer / r.px.p : 0;
+      return `<div style="border-top:1px solid var(--line);margin:14px 0 12px;padding-top:12px">
+        <div class="between" style="margin-bottom:8px">
+          <div style="font-size:12.5px;font-weight:900">💰 배당</div>
+          <button class="chip line" data-act="divAdd" data-id="${h.id}">＋ 받은 것 기록</button>
+        </div>
+        ${i && i.months?.length ? `<table class="tbl"><tbody>
+          <tr><td>배당 월 <span class="muted">(기준일)</span></td>
+              <td><b>${i.months.map(m=>m+'월').join(' · ')}</b> ${esc(divFreq(i))}</td></tr>
+          ${i.last? `<tr><td>최근 배당 (1주당)</td>
+              <td>${priceS(i.last.amount, i.ccy)} · ${esc(String(iso(new Date(i.last.ts))).replace(/-/g,'.'))}</td></tr>`:''}
+          ${yearPer>0? `<tr><td>최근 1년 배당 (1주당)</td><td>${priceS(yearPer, i.ccy)}</td></tr>
+          <tr><td>내 수량 기준 연 배당</td><td><b>${won(i.ccy==='USD' ? my*(+state.fx?.v||0) : my)}</b></td></tr>
+          <tr><td>배당수익률</td><td>${yld? pctS(yld,2).replace('+','') : '—'}</td></tr>`:''}
+        </tbody></table>
+        <div class="tiny muted mt">날짜는 <b>배당 기준일(배당락)</b>이에요.
+          실제 입금은 국내는 보통 <b>2~3개월 뒤</b>, 미국은 <b>2~4주 뒤</b>입니다.</div>`
+        : (i?.err || i ? '<div class="tiny muted">배당 내역을 못 찾았어요 (배당이 없는 종목일 수 있어요)</div>'
+                                        : '<div class="tiny muted">배당 정보를 아직 안 가져왔어요 — 🔄 새로고침하면 채워집니다</div>')}
+        ${got>0? `<div class="between tiny mt" style="border-top:1px solid var(--line);padding-top:8px">
+          <span class="muted">이 종목에서 받은 배당</span><span><b class="num">${won(got)}</b></span></div>`:''}
+      </div>`;
+    })()}
+
     <div style="border-top:1px solid var(--line);margin:14px 0 12px;padding-top:12px">
       <div style="font-size:12.5px;font-weight:900;margin-bottom:8px">📝 투자 메모</div>
       ${!amt? `<div class="grid2">
@@ -2561,6 +2716,57 @@ function openGroupModal(ids){
     <button class="btn ghost block mt" data-act="mergeGroup" data-ids="${esc(ids)}">
       🔗 한 줄로 합치기 (수량 더하고 평단 다시 계산)</button>
     <div class="tiny muted mt">합치면 계좌 구분은 사라지고 하나로 남습니다.</div>`);
+}
+
+/* 💰 배당 받은 것 적기 */
+function openDivForm(divId, holdId){
+  const d = (state.divs||[]).find(x=>x.id===divId) || null;
+  const h = holdId ? (state.holdings||[]).find(x=>x.id===holdId) : null;
+  const seen = new Set(), opts = [];
+  activeHoldings().forEach(x=>{
+    const k = x.cat + ':' + (x.code || x.id);
+    if(seen.has(k)) return; seen.add(k);
+    opts.push({ k, name:x.name, cat:x.cat, code:x.code || '' });
+  });
+  const curKey = d ? (d.cat + ':' + (d.code || '')) : (h ? h.cat + ':' + (h.code || h.id) : '');
+  /* 새로 적을 때, 최근 배당 × 내 수량으로 예상 금액을 채워 둡니다 (세금 뺀 값) */
+  let est = '';
+  if(!d && h){
+    const i = divInfoOf(h);
+    if(i?.last?.amount > 0){
+      const gross = i.last.amount * (+h.qty || 0);
+      const net = gross * (h.cat==='kr' ? 0.846 : 0.85);
+      est = h.cat==='us' ? (Math.round(net*100)/100) : Math.round(net);
+    }
+  }
+  const name = d ? (d.name||'') : (h ? h.name : '');
+  openModal(`
+    <div class="mhead"><h3>${d? '배당 기록 고치기' : '💰 배당 받은 것 기록'}</h3>
+      <button class="x" data-act="close">✕</button></div>
+    <div class="grid2">
+      <div class="f"><label>받은 날</label>
+        <input id="dvDate" type="date" value="${esc(d? d.date : iso(new Date()))}"></div>
+      <div class="f"><label>통화</label>
+        <div class="seg" id="dvCcy">${['KRW','USD'].map((c,i)=>
+          `<button class="${(d? d.ccy : (h?.cat==='us'?'USD':'KRW'))===c ? 'on':''}"
+            data-act="segOwner" data-v="${c}">${c==='KRW'?'원':'달러 $'}</button>`).join('')}</div></div>
+    </div>
+    <div class="f"><label>어느 종목</label>
+      <select id="dvItem" onchange="var o=this.selectedOptions[0];var n=document.getElementById('dvName');if(n)n.value=o.dataset.nm||'';">
+        <option value="" data-nm="">직접 적기</option>
+        ${opts.map(o=>`<option value="${esc(o.k)}" data-nm="${esc(o.name)}"
+          ${o.k===curKey?'selected':''}>${esc(o.name)}</option>`).join('')}
+      </select></div>
+    <div class="f"><label>이름</label>
+      <input id="dvName" value="${esc(name)}" placeholder="예: SK하이닉스 배당"></div>
+    <div class="f"><label>실제 받은 금액 <span class="muted">(세금 뗀 뒤)</span></label>
+      <input id="dvAmt" inputmode="decimal" value="${d? esc(d.amount) : esc(est)}"
+             placeholder="통장에 들어온 금액">
+      ${est!==''? `<div class="hint">최근 배당 × 내 수량으로 계산한 <b>예상 금액</b>이에요. 실제 입금액으로 고쳐 주세요.</div>`:''}</div>
+    <div class="f"><label>메모 <span class="muted">선택</span></label>
+      <input id="dvMemo" value="${esc(d? (d.memo||'') : '')}" placeholder="예: 2분기 배당"></div>
+    <button class="btn block" data-act="divSave" data-id="${esc(divId||'')}">저장</button>
+    ${d? `<button class="btn warn block mt" data-act="divDel" data-id="${d.id}">이 기록 지우기</button>`:''}`);
 }
 
 /* 종목 차트·뉴스로 바로 가기 */
@@ -2831,7 +3037,7 @@ async function fsPut(path, json, rev){
   if(!r.ok) throw new Error(await fsErr(r));
 }
 /* 가계부 앱이 이 목록을 읽어 갑니다 — 이름을 바꾸지 마세요 */
-const CORE_KEYS = ['settings','holdings','accts','diary','memo','led'];
+const CORE_KEYS = ['settings','holdings','accts','diary','divs','memo','led'];
 function corePayload(){
   const o = {}; CORE_KEYS.forEach(k=>o[k]=state[k]);
   return JSON.stringify(o);
@@ -3185,6 +3391,36 @@ document.addEventListener('click', async ev=>{
     const u = chartUrl(h); if(u) window.open(u, '_blank', 'noopener');
     break; }
 
+  /* ---------- 💰 배당 ---------- */
+  case 'divAdd': openDivForm('', id); break;
+  case 'divEdit': openDivForm(id, ''); break;
+  case 'divSave': {
+    const amt = parseAmount($('#dvAmt')?.value);
+    if(!isFinite(amt) || amt <= 0){ toast('받은 금액을 적어 주세요'); break; }
+    const sel = $('#dvItem');
+    const key = sel?.value || '';
+    const [kcat, kcode] = key ? key.split(':') : ['',''];
+    const o = {
+      date: ($('#dvDate')?.value || iso(new Date())),
+      cat: kcat, code: kcode,
+      name: ($('#dvName')?.value||'').trim() || '배당',
+      amount: amt,
+      ccy: segPick('dvCcy', 'KRW'),
+      memo: ($('#dvMemo')?.value||'').trim()
+    };
+    state.divs = state.divs || [];
+    const cur = state.divs.find(x=>x.id===id);
+    if(cur) Object.assign(cur, o);
+    else state.divs.push({ id:uid(), at:Date.now(), ...o });
+    save(); closeModal(); ui.tab='note'; render();
+    toast(cur? '고쳤어요' : `${o.name} 배당 ${won(divKrw(o))} 기록했어요`);
+    break; }
+  case 'divDel': {
+    if(!confirm('이 배당 기록을 지울까요?')) break;
+    state.divs = (state.divs||[]).filter(d=>d.id!==id);
+    save(); closeModal(); render(); toast('지웠어요');
+    break; }
+
   /* ---------- 📝 기록 ---------- */
   case 'dAdd': {
     const t = ($('#dText')?.value||'').trim();
@@ -3375,6 +3611,8 @@ state.snap = state.snap || {};
 state.coins = state.coins || { list:[], at:0 };
 state.accts = state.accts || {};
 state.sheet = state.sheet || { url:'', at:0, error:'' };
+state.divs = state.divs || [];
+state.divInfo = state.divInfo || {};
 state.diary = state.diary || [];
 healPrices();
 state.sync = state.sync || { enabled:false };
