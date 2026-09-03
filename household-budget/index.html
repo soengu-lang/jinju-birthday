@@ -461,7 +461,7 @@ function blankState(){
     items:[], cells:{}, entries:[], assetRows:[], assetCells:{},
     fixed:[], loans:[], goal:{ target:0, rate:0.05, monthlySave:0 },
     habits:[], habitLog:{}, memo:'', sync:{ enabled:false }, link:blankLink(),
-    pays:DEF_PAYS.map(p=>({...p})), itemPay:{}, stmt:{}, stmtFill:{}, payeeMap:{} };
+    pays:DEF_PAYS.map(p=>({...p})), itemPay:{}, stmt:{}, stmtFill:{}, payeeMap:{}, annuals:[] };
 }
 function seedState(){
   const s = blankState();
@@ -737,6 +737,40 @@ function guessItemFor(memo, type, raw){
     if(hit) return hit.id;
   }
   return '';
+}
+
+/* ---------- 📅 1년에 한두 번 나가는 돈 (세금·연회비) ---------- */
+/* 우리나라에서 흔한 납부 일정입니다. 대상·금액은 집집마다 달라서
+   고지서(위택스·홈택스)를 보고 금액만 채워 쓰시면 됩니다. */
+const TAX_TEMPLATES = [
+  { name:'재산세 (주택)',        months:[7,9],  memo:'7월·9월에 반씩 · 위택스' },
+  { name:'재산세 (토지)',        months:[9],    memo:'9월 · 토지분' },
+  { name:'재산세 (건축물)',      months:[7],    memo:'7월' },
+  { name:'종합부동산세',         months:[12],   memo:'12월 · 공제 넘을 때만' },
+  { name:'자동차세',             months:[6,12], memo:'6월·12월 · 1월 연납하면 할인' },
+  { name:'주민세 (개인분)',      months:[8],    memo:'8월 · 세대주' },
+  { name:'종합소득세·지방소득세', months:[5],    memo:'5월 · 부수입 있을 때' },
+  { name:'건강보험료 정산',      months:[4],    memo:'4월 급여에서 정산' },
+  { name:'연말정산 (추가납부·환급)', months:[2], memo:'2월 급여에 반영' },
+  { name:'자동차 보험 갱신',     months:[3],    memo:'갱신 달로 바꿔 쓰세요' },
+  { name:'등록면허세',           months:[1],    memo:'1월' }
+];
+const MONTH_LABEL = m => `${m}월`;
+const annualList = () => (state.annuals || []).filter(a=>a.active !== false);
+const annualYearTotal = () => annualList().reduce((s,a)=>s+(+a.amount||0)*(a.months||[]).length, 0);
+const annualDoneKey = (a, m) => `${state.year}-${m}`;
+const annualDone = (a, m) => !!((a.done||{})[annualDoneKey(a,m)]);
+/* 이번 달에 낼 것 / 다음 달에 낼 것 */
+function annualsOfMonth(m){
+  return annualList().filter(a=>(a.months||[]).includes(m) && !annualDone(a,m));
+}
+/* 세금을 적어 둘 가계부 항목 (없으면 생활비에 만든다) */
+function taxItemId(){
+  const hit = state.items.find(i=>/세금|공과/.test(i.name));
+  if(hit) return hit.id;
+  const it = { id:uid(), section:'living', name:'세금·공과금', auto:false };
+  state.items.push(it);
+  return it.id;
 }
 
 /* ---------- 💳 결제수단 · 카드 대조 ---------- */
@@ -1238,6 +1272,23 @@ function viewHome(){
         </div>
       </div>`:''}
 
+    ${(()=>{ const m = nowMonthIdx(), thisM = annualsOfMonth(m), nextM = annualsOfMonth(m===12?1:m+1);
+      if(!thisM.length && !nextM.length) return '';
+      return `<div class="sec-title"><h2>📅 세금·연회비</h2>
+          <button class="chip" data-act="tab" data-tab="fixed">전체 보기 ›</button></div>
+        <div class="card">
+          ${thisM.map(a=>`<div class="fx">
+            <div class="ic" style="background:var(--gold-s)">🔔</div>
+            <div class="grow"><div class="nm" style="font-size:13px;font-weight:800">${esc(a.name)}</div>
+              <div class="tiny muted">${m}월에 낼 차례${a.amount? ` · ${num(a.amount)}원`:' · 금액을 넣어 주세요'}</div></div>
+            ${a.amount? `<button class="btn sm" data-act="annualDone" data-id="${a.id}" data-m="${m}">기록</button>`
+              : `<button class="btn ghost sm" data-act="editAnnual" data-id="${a.id}">금액 넣기</button>`}
+          </div>`).join('')}
+          ${nextM.length? `<div class="sec-foot"><span>다음 달(${m===12?1:m+1}월) 예정</span>
+            <b>${esc(nextM.map(a=>a.name).join(', '))}</b></div>`:''}
+        </div>`;
+    })()}
+
     <div class="card">
       <div class="sec-head"><div class="t">🔁 고정비</div>
         <button class="chip" data-act="tab" data-tab="fixed">점검하기 ›</button></div>
@@ -1554,7 +1605,47 @@ function viewFixed(){
         <b>${bigWon(loanBalance())}원 · 월 ${num(loanMonthly())}원</b></div>`:''}
     </div>
     <button class="btn ghost block sm" style="margin-top:10px" data-act="editLoan">＋ 대출 추가</button>
+
+    ${viewAnnuals()}
   </section>`;
+}
+/* 📅 세금처럼 1년에 한두 번 나가는 돈 */
+function viewAnnuals(){
+  const list = state.annuals || [];
+  const now = nowMonthIdx();
+  const total = annualYearTotal();
+  return `<div class="sec-title"><h2>📅 세금·연회비</h2><p>1년에 한두 번 나가는 돈</p></div>
+    <div class="card">
+      ${list.length? list.map(a=>{
+        const ms = (a.months||[]).slice().sort((x,y)=>x-y);
+        const soon = ms.includes(now) && !annualDone(a, now);
+        const doneMs = ms.filter(m=>annualDone(a,m));
+        return `<div class="fx">
+          <div class="ic" style="background:${soon? 'var(--gold-s)':'var(--soft)'}">${soon?'🔔':'📅'}</div>
+          <button class="grow" style="text-align:left" data-act="editAnnual" data-id="${a.id}">
+            <div style="font-size:13px;font-weight:800">${esc(a.name)}
+              ${a.active===false? '<span class="badge">중지</span>':''}
+              ${soon? '<span class="badge check">이번 달</span>':''}</div>
+            <div class="tiny muted">${ms.map(MONTH_LABEL).join('·') || '납부 달 미정'}
+              ${a.amount? ` · 한 번에 ${num(a.amount)}원` : ' · 금액 미정'}
+              ${doneMs.length? ` · ${state.year}년 ${doneMs.map(MONTH_LABEL).join('·')} 완료` : ''}
+              ${a.memo? `<br>${esc(a.memo)}` : ''}</div>
+          </button>
+          ${soon && a.amount? `<button class="btn sm" data-act="annualDone" data-id="${a.id}" data-m="${now}">기록</button>`
+            : `<div class="tiny muted" style="text-align:right">${a.amount? num((+a.amount||0)*ms.length)+'원/년':''}</div>`}
+        </div>`;
+      }).join('') : `<div class="empty">재산세·자동차세처럼 <b>1년에 한두 번</b> 나가는 돈을 넣어 두면<br>
+          그 달이 왔을 때 홈에서 알려드려요</div>`}
+      <div class="sec-foot">
+        <button class="chip line" data-act="editAnnual">＋ 직접 추가</button>
+        <span>${total? `1년 합계 <b>${num(total)}원</b> · 월 평균 ${num(Math.round(total/12))}원` : ''}</span>
+      </div>
+      <div class="pad" style="padding-top:0">
+        <button class="btn ghost sm block" data-act="taxPick">🇰🇷 우리나라 세금 일정에서 고르기</button>
+      </div>
+    </div>
+    <div class="tiny muted" style="margin:8px 4px 0;line-height:1.7">
+      납부 달은 <b>보통 이렇다</b>는 안내예요. 대상인지와 실제 금액은 <b>고지서(위택스·홈택스)</b>를 따라 주세요.</div>`;
 }
 
 /* ---------- 4-5. 목표 · 절약 ---------- */
@@ -2248,6 +2339,56 @@ function openPasteRestore(){
   </div>`);
 }
 
+/* ---------- 5-3-1. 📅 세금·연회비 ---------- */
+function openAnnualForm(id){
+  const a = (state.annuals||[]).find(x=>x.id===id) ||
+    { id:null, name:'', amount:'', months:[], memo:'', itemId:'', active:true, done:{} };
+  openModal(`<div class="modal">
+    <div class="mhead"><h3>${a.id?'세금·연회비 수정':'세금·연회비 추가'}</h3><button class="x" data-act="close">✕</button></div>
+    <div class="field" style="margin-top:0"><label>이름</label>
+      <input id="anName" value="${esc(a.name)}" placeholder="예: 재산세 (주택)"></div>
+    <div class="field"><label>한 번에 내는 금액 (모르면 비워 두세요)</label>
+      <input id="anAmt" data-money inputmode="numeric" value="${a.amount? num(a.amount):''}"></div>
+    <div class="field"><label>내는 달 (여러 개 고를 수 있어요)</label>
+      <div class="mgrid">
+        ${Array.from({length:12},(_,i)=>i+1).map(m=>`<button class="${(a.months||[]).includes(m)?'on':''}"
+          data-act="anMonth" data-m="${m}"><div class="mm">${m}월</div></button>`).join('')}
+      </div>
+    </div>
+    <div class="field"><label>가계부에서 어디에 넣을까요</label>
+      <select id="anItem">
+        <option value="">세금·공과금 (없으면 자동으로 만듭니다)</option>
+        ${spendItems().map(i=>`<option value="${i.id}" ${a.itemId===i.id?'selected':''}>${esc(i.name)}</option>`).join('')}
+      </select></div>
+    <div class="field"><label>메모</label>
+      <input id="anMemo" value="${esc(a.memo||'')}" placeholder="예: 위택스 · 7월 9월 반씩"></div>
+    <label class="row" style="margin-top:12px;font-size:12.5px;font-weight:700">
+      <input type="checkbox" id="anActive" ${a.active!==false?'checked':''} style="width:18px;height:18px"> 사용 중</label>
+    <button class="btn block" style="margin-top:13px" data-act="anSave" data-id="${a.id||''}">저장</button>
+    ${a.id? `<button class="btn ghost block sm" style="margin-top:7px;color:var(--spend)" data-act="anDelete" data-id="${a.id}">삭제</button>`:''}
+  </div>`);
+  annualDraftMonths = (a.months||[]).slice();
+}
+let annualDraftMonths = [];
+function openTaxPicker(){
+  const have = new Set((state.annuals||[]).map(a=>a.name));
+  openModal(`<div class="modal">
+    <div class="mhead"><h3>우리나라 세금 일정</h3><button class="x" data-act="close">✕</button></div>
+    <div class="note">해당되는 것만 고르세요. <b>금액은 나중에</b> 고지서 보고 채우면 됩니다.<br>
+      대상인지와 금액은 집집마다 달라요 — 위택스·홈택스 고지서가 기준입니다.</div>
+    <div class="card" style="margin-top:11px">
+      ${TAX_TEMPLATES.map((t,i)=>`<div class="fx">
+        <div class="grow"><div style="font-size:13px;font-weight:800">${esc(t.name)}</div>
+          <div class="tiny muted">${t.months.map(MONTH_LABEL).join('·')} · ${esc(t.memo)}</div></div>
+        ${have.has(t.name)? `<span class="badge ok">넣음</span>`
+          : `<button class="btn sm" data-act="taxAdd" data-i="${i}">＋</button>`}
+      </div>`).join('')}
+    </div>
+    <button class="btn block" style="margin-top:11px" data-act="taxAddAll">해당되는 것 한 번에 다 넣기</button>
+    <div class="tiny muted" style="margin-top:7px">다 넣은 뒤 필요 없는 건 지우셔도 됩니다.</div>
+  </div>`);
+}
+
 /* ---------- 5-4-1. 📋 카드·계좌 내역 붙여넣기 ---------- */
 let stmtDraft = null;
 /* 카드사·은행 파일은 한글이 EUC-KR(CP949)로 저장된 경우가 많아 둘 다 시도한다 */
@@ -2603,6 +2744,57 @@ document.addEventListener('click', async (e)=>{
     state.items.push({ id:uid(), section:b.dataset.sec, name, auto:$('#niAuto').checked });
     save(); closeModal(); render(); toast(`${name} 추가했어요`); break;
   }
+  /* ---- 📅 세금·연회비 ---- */
+  case 'editAnnual': openAnnualForm(id); break;
+  case 'anMonth': {
+    const m = +b.dataset.m;
+    const i = annualDraftMonths.indexOf(m);
+    if(i>=0) annualDraftMonths.splice(i,1); else annualDraftMonths.push(m);
+    b.classList.toggle('on'); break;
+  }
+  case 'anSave': {
+    const o = { name:$('#anName').value.trim(), amount:parseAmount($('#anAmt').value)||0,
+                months:annualDraftMonths.slice().sort((x,y)=>x-y), itemId:$('#anItem').value,
+                memo:$('#anMemo').value.trim(), active:$('#anActive').checked };
+    if(!o.name){ toast('이름을 넣어 주세요'); break; }
+    if(!o.months.length){ toast('내는 달을 골라 주세요'); break; }
+    const a = (state.annuals||[]).find(x=>x.id===id);
+    if(a) Object.assign(a,o); else (state.annuals = state.annuals||[]).push({ id:uid(), done:{}, ...o });
+    save(); closeModal(); render(); toast('저장했어요'); break;
+  }
+  case 'anDelete': state.annuals = (state.annuals||[]).filter(a=>a.id!==id);
+    save(); closeModal(); render(); break;
+  case 'annualDone': {
+    const a = (state.annuals||[]).find(x=>x.id===id); if(!a) break;
+    const m = +b.dataset.m, amount = +a.amount||0;
+    if(!amount){ openAnnualForm(a.id); toast('금액을 먼저 넣어 주세요'); break; }
+    const itemId = (a.itemId && itemById(a.itemId)) ? a.itemId : taxItemId();
+    const date = `${state.year}-${pad2(m)}-15`;
+    state.entries.push({ id:uid(), itemId, date, amount, memo:a.name });
+    (a.done = a.done||{})[`${state.year}-${m}`] = true;
+    save(); render();
+    toast(`${a.name} ${num(amount)}원 기록했어요`); break;
+  }
+  case 'taxPick': openTaxPicker(); break;
+  case 'taxAdd': {
+    const t = TAX_TEMPLATES[+b.dataset.i]; if(!t) break;
+    (state.annuals = state.annuals||[]).push({ id:uid(), name:t.name, amount:0,
+      months:t.months.slice(), memo:t.memo, itemId:'', active:true, done:{} });
+    save(); openTaxPicker(); render(); break;
+  }
+  case 'taxAddAll': {
+    const have = new Set((state.annuals||[]).map(a=>a.name));
+    let n = 0;
+    TAX_TEMPLATES.forEach(t=>{
+      if(have.has(t.name)) return;
+      (state.annuals = state.annuals||[]).push({ id:uid(), name:t.name, amount:0,
+        months:t.months.slice(), memo:t.memo, itemId:'', active:true, done:{} });
+      n++;
+    });
+    save(); closeModal(); render();
+    toast(n? `${n}개 넣었어요 · 금액은 고지서 보고 채우세요` : '이미 다 들어 있어요'); break;
+  }
+
   /* ---- 📋 내역 붙여넣기 ---- */
   case 'pasteTx': openPasteTx(); break;
   case 'stmtParse': buildStmtDraft($('#stmtBox').value); break;
@@ -3048,7 +3240,7 @@ async function fsPut(path, json, rev){
 }
 const CORE_KEYS = ['year','settings','items','cells','entries','assetRows','assetCells',
                    'fixed','loans','goal','habits','habitLog','memo',
-                   'pays','itemPay','stmt','stmtFill','payeeMap'];
+                   'pays','itemPay','stmt','stmtFill','payeeMap','annuals'];
 function corePayload(){
   const o = {}; CORE_KEYS.forEach(k=>o[k]=state[k]);
   return JSON.stringify(o);
@@ -3131,6 +3323,7 @@ state.itemPay = state.itemPay || {};
 state.stmt = state.stmt || {};
 state.stmtFill = state.stmtFill || {};
 state.payeeMap = state.payeeMap || {};
+state.annuals = state.annuals || [];
 /* 🧊 냉장고 앱 기록이 같은 브라우저에 있으면 처음 한 번 자동으로 켠다 */
 if(!state.link) state.link = blankLink();
 if(!state.link.asked && fridgeHere()){ state.link.enabled = true; state.link.asked = true; }
