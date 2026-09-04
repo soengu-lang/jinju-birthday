@@ -1123,6 +1123,30 @@ function divThisMonth(){
     return i && (i.months||[]).includes(m);
   });
 }
+/* 📅 배당 달력 — 어느 달에 얼마쯤 들어오는지
+   지난 1년 배당(yearSum)을 배당 준 달 수로 나눠 한 번치를 잡습니다.
+   회사가 배당을 바꾸면 달라지니 '예상'입니다. */
+function divCalendar(){
+  const fx = +state.fx?.v || 0;
+  const months = Array.from({length:12}, (_,i)=>({ m:i+1, items:[], total:0 }));
+  activeHoldings().filter(inOwner).forEach(h=>{
+    const i = divInfoOf(h);
+    if(!i || !(i.months||[]).length || !(+i.yearSum > 0)) return;
+    const q = +h.qty || 0; if(!(q > 0)) return;
+    const per = i.yearSum / i.months.length;            /* 한 번 줄 때 1주당 */
+    const krw = (i.ccy === 'USD' ? per * fx : per) * q;
+    if(!(krw > 0)) return;
+    i.months.forEach(m=>{
+      if(!(m >= 1 && m <= 12)) return;
+      months[m-1].items.push({ h, amt:krw });
+      months[m-1].total += krw;
+    });
+  });
+  months.forEach(x=>x.items.sort((a,b)=>b.amt-a.amt));
+  return months;
+}
+const divYearExpect = () => divCalendar().reduce((a,x)=>a+x.total, 0);
+
 /* 배당 받은 기록 — 원화로 환산한 금액 */
 function divKrw(d){
   const v = +d.amount || 0;
@@ -1240,6 +1264,39 @@ function axisOf(h, mode){
   }
   const c = CAT(h.cat); return { key:c.k, label:catLabel(c.k), color:c.color };
 }
+/* ============================================================
+   ⚖️ 리밸런싱 — 정해 둔 비중과 지금 비중을 견줍니다
+   ------------------------------------------------------------
+   자산 성격(주식·채권·금·달러…) 기준입니다. 대출은 뺀 순자산이 아니라
+   '굴리는 돈' 기준이라야 비중이 뜻이 있어서 평가액 합계를 씁니다.
+   ============================================================ */
+const targetsOf = () => state.targets || {};
+const targetSum = () => Object.values(targetsOf()).reduce((a,b)=>a+(+b||0), 0);
+function rebalance(){
+  const tg = targetsOf();
+  const keys = Object.keys(tg).filter(k=>+tg[k] > 0);
+  if(!keys.length) return null;
+  const list = activeHoldings().filter(inOwner).filter(h=>h.cat !== 'debt');
+  const groups = byAxis(list, 'kind');
+  const total = groups.reduce((a,g)=>a+g.value, 0);
+  if(total <= 0) return null;
+  const sum = keys.reduce((a,k)=>a+(+tg[k]||0), 0);
+  const rows = keys.map(k=>{
+    const g = groups.find(x=>x.key===k);
+    const now = g ? g.value : 0;
+    const want = total * (+tg[k]||0) / sum;        /* 합이 100이 아니어도 비율로 나눕니다 */
+    return { k, label:kindLabel(k), color:KIND(k).color,
+             now, nowPct: now/total, wantPct:(+tg[k]||0)/sum, want, gap: want - now };
+  });
+  /* 정해 두지 않았는데 갖고 있는 것도 보여 줘야 합계가 맞습니다 */
+  groups.forEach(g=>{
+    if(keys.includes(g.key) || g.value <= 0) return;
+    rows.push({ k:g.key, label:kindLabel(g.key), color:KIND(g.key).color, extra:true,
+                now:g.value, nowPct:g.value/total, wantPct:0, want:0, gap:-g.value });
+  });
+  return { total, rows: rows.sort((a,b)=>b.now-a.now) };
+}
+
 /* 축 하나로 묶어서 합계 내기 — 큰 것부터 */
 function byAxis(list, mode){
   list = list || activeHoldings().filter(inOwner);
@@ -2055,6 +2112,70 @@ function isNameWord(t){
   const w = nameCore(raw);
   return /[가-힣A-Za-z]{2,}/.test(w) && !NOISE.test(w);
 }
+/* ------------------------------------------------------------
+   📷 캡처에서 글자 읽기 (OCR)
+   증권사 앱은 복사가 막힌 곳이 많아 화면 캡처가 유일한 길입니다.
+   브라우저 안에서 도는 Tesseract 를 씁니다 — 사진이 밖으로 나가지 않아요.
+   ------------------------------------------------------------ */
+function loadScript(src){
+  return new Promise((res,rej)=>{ const el=document.createElement('script');
+    el.src=src; el.onload=res; el.onerror=()=>rej(new Error('불러오지 못했어요')); document.head.appendChild(el); });
+}
+/* 증권사 화면은 글씨가 작아서 냉장고 앱보다 크게 남깁니다 */
+function shrinkImage(file, max=1500, q=0.9){
+  return new Promise((res,rej)=>{
+    const fr = new FileReader();
+    fr.onload = () => { const img = new Image();
+      img.onload = () => {
+        const sc = Math.min(1, max/Math.max(img.width,img.height));
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.width*sc); c.height = Math.round(img.height*sc);
+        const g = c.getContext('2d');
+        g.drawImage(img,0,0,c.width,c.height);
+        res(c.toDataURL('image/jpeg', q));
+      };
+      img.onerror = ()=>rej(new Error('사진을 열지 못했어요')); img.src = fr.result; };
+    fr.onerror = ()=>rej(new Error('사진을 읽지 못했어요')); fr.readAsDataURL(file);
+  });
+}
+async function runOCR(dataUrl, onProgress){
+  if(!window.Tesseract)
+    await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js');
+  const { data } = await window.Tesseract.recognize(dataUrl, 'kor+eng', {
+    logger: m => { if(m.status==='recognizing text' && onProgress) onProgress(m.progress); }
+  });
+  return data.text || '';
+}
+/* OCR 은 쉼표·소수점을 자주 흘립니다. 붙여넣기 파서에 넘기기 전에 다듬습니다. */
+function tidyOcr(t){
+  return String(t||'')
+    .replace(/[|｜]/g, ' ')          /* 표 선을 칸 구분으로 */
+    .replace(/[’'`]/g, '')
+    .replace(/(\d)\s+,\s*(\d)/g, '$1,$2')   /* 1 ,234 → 1,234 */
+    .replace(/(\d),\s+(\d)/g, '$1,$2')
+    /* 숫자 칸에 섞여 든 영문 O·l·I 를 0·1 로 — 70,OOO 이 70 으로 읽히면
+       평단이 1000배 틀려 수익률이 통째로 망가집니다 */
+    .replace(/[0-9OoIl][0-9OoIl.,]*/g, t => /\d/.test(t) ? t.replace(/[Oo]/g,'0').replace(/[Il]/g,'1') : t)
+    .replace(/\u00a0/g, ' ')
+    .split(/\r?\n/).map(l=>l.trim()).filter(Boolean).join('\n');
+}
+async function ocrIntoPaste(file){
+  const box = $('#pasteBox'), msg = $('#ocrMsg');
+  const say = t => { if(msg) msg.innerHTML = t; };
+  try{
+    say('<span class="spin">↻</span> 사진 준비 중…');
+    const url = await shrinkImage(file);
+    say('<span class="spin">↻</span> 글자 읽는 중… 0%');
+    const raw = await runOCR(url, p => say(`<span class="spin">↻</span> 글자 읽는 중… ${Math.round(p*100)}%`));
+    const txt = tidyOcr(raw);
+    if(!txt){ say('글자를 못 찾았어요 — 더 크게 잘라서 다시 찍어 보세요'); return; }
+    if(box) box.value = (box.value.trim() ? box.value.trim()+'\n' : '') + txt;
+    const n = parsePaste(txt).rows.length;
+    say(n ? `읽었어요 — <b>${n}개 종목</b>을 찾았습니다. 아래 <b>읽어 보기</b> 를 누르세요.`
+          : '글자는 읽었는데 종목을 못 찾았어요 — 아래 칸에서 직접 고쳐 주세요.');
+  }catch(e){ say('못 읽었어요 — ' + esc(e.message||'다시 해 보세요')); }
+}
+
 function parsePaste(text){
   const rows = [], unknown = [];
   const lines = String(text||'').split(/\r?\n/).map(l=>l.replace(/ /g,' ').trim()).filter(Boolean);
@@ -2471,6 +2592,43 @@ function viewNote(){
       <div class="mbar">${by.map((v,i)=>
         `<div><i class="${i===m-1?'on':''}" style="height:${Math.max(2,(v/mx)*100).toFixed(0)}%"
            title="${i+1}월 ${num(v)}원"></i></div>`).join('')}</div>
+
+      ${(()=>{ const cal = divCalendar(), yr = cal.reduce((a,x)=>a+x.total,0);
+        if(!(yr > 0)) return `<div class="tiny muted" style="margin-top:10px;line-height:1.7">
+          📅 배당 달력은 <b>배당 정보를 가져온 뒤</b> 보여 드려요 —
+          미국주식·ETF를 담고 시세를 새로고침하면 채워집니다.</div>`;
+        const mxc = Math.max(...cal.map(x=>x.total), 1);
+        return `<div style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
+          <div class="between" style="margin-bottom:6px">
+            <div style="font-size:13px;font-weight:900">📅 배당 달력</div>
+            <div class="tiny muted">한 해 예상 <b class="num">${won(yr)}</b></div>
+          </div>
+          <div class="row wrap" style="gap:4px">
+            ${cal.map(x=>{
+              const on = x.m === m, has = x.total > 0;
+              return `<button class="chip ${on?'':'line'}" data-act="divMon" data-m="${x.m}"
+                style="flex:0 0 calc(25% - 3px);padding:6px 2px;text-align:center;${has?'':'opacity:.4'}">
+                <div style="font-size:11px;font-weight:800">${x.m}월</div>
+                <div class="num" style="font-size:10px">${has? shortWon(x.total) : '—'}</div>
+              </button>`;
+            }).join('')}
+          </div>
+          ${(()=>{ const sel = ui.divMon || m, x = cal[sel-1];
+            return `<div style="margin-top:9px">
+              <div class="tiny muted" style="margin-bottom:4px"><b>${sel}월</b> 들어올 배당
+                ${x.total>0? `· 예상 <b class="num">${won(x.total)}</b>` : ''}</div>
+              ${x.items.length ? x.items.map(it=>`
+                <div class="row" style="justify-content:space-between;padding:3px 0;font-size:12.5px">
+                  <div>${esc(it.h.name)} <span class="tiny muted">${esc(divFreq(divInfoOf(it.h)))}</span></div>
+                  <div class="num" style="font-weight:800">${won(it.amt)}</div>
+                </div>`).join('')
+              : '<div class="tiny muted">이 달에 들어올 배당은 없어요.</div>'}
+            </div>`; })()}
+          <div class="tiny muted" style="margin-top:8px;line-height:1.7">
+            지난 1년 배당을 나눠 잡은 <b>예상 세전 금액</b>입니다.
+            회사가 배당을 바꾸면 달라져요. (국내 15.4% · 미국 15% 원천징수)
+          </div>
+        </div>`; })()}
       <div class="mlab">${by.map((v,i)=>`<span class="${i===m-1?'on':''}">${i+1}</span>`).join('')}</div>
 
       ${soon.length? `<div class="note mt" style="margin-bottom:0">
@@ -2493,6 +2651,45 @@ function viewNote(){
       </div>` : '<div class="empty">아직 기록한 배당이 없어요</div>'}
     </div>`;
   })()}
+
+  ${(()=>{ const rb = rebalance(); if(!rb) return `
+    <div class="card">
+      <div class="sec-head"><h2 style="margin:0">⚖️ 리밸런싱</h2>
+        <button class="chip line" data-act="rbEdit">비중 정하기</button></div>
+      <div class="tiny muted" style="line-height:1.8">
+        주식 몇 %, 채권 몇 %… 이렇게 <b>목표 비중</b>을 정해 두면
+        지금 비중과 견줘서 <b>무엇을 얼마나 사고 팔면 되는지</b> 알려 드려요.
+      </div>
+    </div>`;
+    return `<div class="card">
+      <div class="sec-head"><h2 style="margin:0">⚖️ 리밸런싱</h2>
+        <button class="chip line" data-act="rbEdit">비중 고치기</button></div>
+      <div class="tiny muted" style="margin-bottom:8px">굴리는 돈 ${bigWon(rb.total)}원 기준</div>
+      ${rb.rows.map(r=>{
+        const off = Math.abs(r.gap) / rb.total;
+        const near = off < 0.01;
+        return `<div style="padding:7px 0;border-top:1px solid var(--line)">
+          <div class="row" style="justify-content:space-between;align-items:baseline">
+            <div style="font-weight:800;font-size:13px">
+              <span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:${r.color};margin-right:5px"></span>
+              ${esc(r.label)}${r.extra? ' <span class="tiny muted">정해 두지 않음</span>':''}</div>
+            <div class="tiny ${near?'muted':(r.gap>0?'down':'up')}" style="font-weight:800">
+              ${near ? '맞음' : (r.gap>0 ? `${shortWon(r.gap)}원 더 사기` : `${shortWon(-r.gap)}원 팔기`)}</div>
+          </div>
+          <div class="row" style="justify-content:space-between;align-items:center;gap:8px;margin-top:3px">
+            <div class="bar" style="flex:1;height:7px;background:#eceae4;border-radius:4px;overflow:hidden;position:relative">
+              <div style="position:absolute;left:0;top:0;bottom:0;width:${(r.nowPct*100).toFixed(1)}%;background:${r.color}"></div>
+              ${r.wantPct>0? `<div style="position:absolute;top:-2px;bottom:-2px;left:${(r.wantPct*100).toFixed(1)}%;width:2px;background:#333"></div>`:''}
+            </div>
+            <div class="tiny muted num" style="min-width:96px;text-align:right">
+              지금 ${(r.nowPct*100).toFixed(1)}%${r.wantPct>0? ` · 목표 ${(r.wantPct*100).toFixed(0)}%`:''}</div>
+          </div>
+        </div>`;
+      }).join('')}
+      <div class="tiny muted" style="margin-top:8px;line-height:1.7">
+        검은 선이 <b>목표</b>, 색 막대가 <b>지금</b>입니다. 1% 안쪽이면 <b>맞음</b>으로 봅니다.
+      </div>
+    </div>`; })()}
 
   ${al.length? `<div class="card">
     <h2>지금 봐야 할 것 <span class="sub">${al.length}건</span></h2>
@@ -2724,6 +2921,39 @@ function openPickForm(pick){
 
 /* 📋 붙여넣기 — ① 붙여넣는 창 */
 let pasteRows = [], pasteUnknown = [], lastPasteOwner = '', lastPasteAcct = '';
+/* ⚖️ 목표 비중 정하기 */
+function openRebalance(){
+  const tg = targetsOf();
+  const sum = targetSum();
+  openModal(`
+    <div class="mhead"><h3>⚖️ 목표 비중</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted" style="margin:-6px 0 10px;line-height:1.7">
+      각 성격을 몇 %로 가져갈지 적어 주세요. <b>합이 100이 아니어도</b> 비율로 나눠 계산합니다.
+      비워 두거나 0으로 두면 그 항목은 안 씁니다.
+    </div>
+    ${KINDS.map(k=>`
+      <div class="row" style="align-items:center;gap:9px;padding:5px 0">
+        <div style="flex:1;font-weight:800;font-size:13px">
+          <span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:${k.color};margin-right:5px"></span>
+          ${k.emo} ${esc(k.label)}</div>
+        <input class="rbIn" data-k="${k.k}" inputmode="numeric" style="width:76px;text-align:right"
+          value="${tg[k.k] ? esc(tg[k.k]) : ''}" placeholder="0">
+        <div class="tiny muted" style="width:14px">%</div>
+      </div>`).join('')}
+    <div class="note mt" id="rbSum">지금 합계 <b>${sum}</b>%</div>
+    <button class="btn block mt" data-act="rbSave">저장</button>
+    ${sum? `<button class="btn ghost block mt" data-act="rbClear">비중 지우기</button>`:''}
+    <div class="tiny muted mt" style="line-height:1.7">
+      흔한 예 — 주식 60 · 채권 20 · 금 10 · 현금 10
+    </div>`);
+  /* 적는 동안 합계를 보여 줍니다 */
+  setTimeout(()=>{
+    const upd = () => { const t = $$('.rbIn').reduce((a,i)=>a+(+i.value||0),0);
+      const el = $('#rbSum'); if(el) el.innerHTML = `지금 합계 <b>${t}</b>%`; };
+    $$('.rbIn').forEach(i=>i.addEventListener('input', upd));
+  }, 60);
+}
+
 function openPasteForm(){
   openModal(`
     <div class="mhead"><h3>📋 잔고 붙여넣기</h3><button class="x" data-act="close">✕</button></div>
@@ -2731,6 +2961,11 @@ function openPasteForm(){
       증권사 앱이나 거래소의 <b>잔고·보유 종목 화면을 그대로 복사</b>해서 아래에 붙여넣으세요.
       증권사마다 모양이 달라도 <b>종목 이름 · 수량 · 평균단가</b>를 찾아냅니다.
       알아들은 걸 표로 보여 드리니 거기서 고치면 됩니다.
+    </div>
+    <button class="btn ghost block" data-act="ocrPick">📷 캡처에서 읽기</button>
+    <div class="tiny muted" id="ocrMsg" style="margin:6px 2px 10px;line-height:1.7">
+      증권사 앱은 복사가 막힌 곳이 많죠. <b>잔고 화면을 캡처</b>해서 넣으면 글자를 읽어 드려요.
+      사진은 <b>이 폰 안에서만</b> 처리되고 어디로도 보내지 않습니다.
     </div>
     <div class="f"><textarea id="pasteBox" style="min-height:150px"
       placeholder="예)&#10;삼성전자  30주  평균 70,000원&#10;에코프로비엠 247540 12 185,000&#10;비트코인 BTC&#10;보유수량 0.05  매수평균가 90,000,000&#10;AAPL 10 180"></textarea></div>
@@ -3606,7 +3841,7 @@ async function fsPut(path, json, rev){
   if(!r.ok) throw new Error(await fsErr(r));
 }
 /* 가계부 앱이 이 목록을 읽어 갑니다 — 이름을 바꾸지 마세요 */
-const CORE_KEYS = ['settings','holdings','accts','diary','divs','memo','led','alert'];
+const CORE_KEYS = ['settings','holdings','accts','diary','divs','memo','led','alert','targets'];
 function corePayload(){
   const o = {}; CORE_KEYS.forEach(k=>o[k]=state[k]);
   return JSON.stringify(o);
@@ -3750,7 +3985,7 @@ function openJoinPrompt(){
    시세·코인목록 같은 캐시는 빼서 가볍게 만듭니다.
    ============================================================ */
 const BACKUP_KEYS = ['v','settings','holdings','accts','divs','diary','memo',
-                     'sync','relayUrl','sheet','fx','snap','alert'];
+                     'sync','relayUrl','sheet','fx','snap','alert','targets'];
 function backupText(){
   const o = { _app:'myAssets', _at:Date.now() };
   BACKUP_KEYS.forEach(k=>{ if(state[k] !== undefined) o[k] = state[k]; });
@@ -4313,6 +4548,22 @@ document.addEventListener('click', async ev=>{
     a.href = URL.createObjectURL(blob);
     a.download = `우리집자산-${iso(new Date())}.json`;
     a.click(); setTimeout(()=>URL.revokeObjectURL(a.href), 3000);
+    break; }
+  case 'divMon': ui.divMon = +b.dataset.m || 0; render(); break;
+  case 'rbEdit': openRebalance(); break;
+  case 'rbSave': {
+    const tg = {};
+    $$('.rbIn').forEach(i=>{ const v = +i.value || 0; if(v > 0) tg[i.dataset.k] = v; });
+    state.targets = tg; save();
+    closeModal(); render();
+    toast(Object.keys(tg).length ? '목표 비중을 저장했어요' : '비중을 비웠어요');
+    break; }
+  case 'rbClear': state.targets = {}; save(); closeModal(); render(); toast('비중을 지웠어요'); break;
+  case 'ocrPick': {
+    const inp = document.createElement('input');
+    inp.type='file'; inp.accept='image/*';
+    inp.onchange = () => { const f = inp.files?.[0]; if(f) ocrIntoPaste(f); };
+    inp.click();
     break; }
   case 'importJson': {
     const inp = document.createElement('input');
