@@ -3162,7 +3162,24 @@ function viewSet(){
         <div class="f mt"><label>5 · 여기에 붙여넣기</label>
           <textarea id="fbCfg" style="min-height:110px;font-size:11px"
             placeholder="const firebaseConfig = {&#10;  apiKey: &quot;AIza...&quot;,&#10;  projectId: &quot;my-project&quot;,&#10;  ...&#10;};"></textarea></div>
+        <div class="tiny muted" style="margin:-4px 0 8px;line-height:1.7">
+          코드 전체를 <b>통째로</b> 붙여넣어도 됩니다 — 필요한 두 줄만 알아서 찾아요.
+        </div>
         <button class="btn block" data-act="syncOn">연결하고 방 만들기</button>
+
+        <details style="margin-top:10px">
+          <summary class="tiny muted" style="cursor:pointer;font-weight:700">
+            폰에서 코드 선택이 안 되나요? 두 칸에 나눠 넣기</summary>
+          <div class="tiny muted mt" style="line-height:1.7">
+            화면에 보이는 <b>projectId</b> 와 <b>apiKey</b> 만 옮겨 적으셔도 됩니다.
+            apiKey 는 <b>AIza</b> 로 시작하는 긴 글자예요.
+          </div>
+          <div class="f mt"><label>projectId</label>
+            <input id="fbPid" placeholder="stock-34b1e" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+          <div class="f"><label>apiKey</label>
+            <input id="fbKey" placeholder="AIzaSy..." autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+          <button class="btn block" data-act="syncOn2">연결하고 방 만들기</button>
+        </details>
         <div class="tiny muted mt" style="line-height:1.7">
           안 되면 <b>🩺 연결 점검</b> 이 어디가 막혔는지 짚어 줍니다.
         </div>
@@ -3927,6 +3944,16 @@ document.addEventListener('click', async ev=>{
     state.sync = { enabled:true, ...cfg, room:randId(20), rev:0, lastAt:0, error:'', dirty:true };
     save(false); await syncPush(); render(); syncStart();
     /* 실패하면 어디가 막혔는지 바로 짚어 줍니다 */
+    if(state.sync.error){ toast(state.sync.error); runSyncDiag(); }
+    else toast('연결했어요 — 초대 링크를 다른 기기에 붙여넣으세요');
+    break; }
+  case 'syncOn2': {
+    const pid = ($('#fbPid')?.value||'').trim().replace(/["',]/g,'');
+    const key = ($('#fbKey')?.value||'').trim().replace(/["',]/g,'');
+    if(!/^[a-z0-9\-]{4,}$/i.test(pid)){ toast('projectId 를 확인해 주세요'); break; }
+    if(!/^[A-Za-z0-9_\-]{20,}$/.test(key)){ toast('apiKey 를 확인해 주세요 — AIza 로 시작하는 긴 글자예요'); break; }
+    state.sync = { enabled:true, apiKey:key, projectId:pid, room:randId(20), rev:0, lastAt:0, error:'', dirty:true };
+    save(false); await syncPush(); render(); syncStart();
     if(state.sync.error){ toast(state.sync.error); runSyncDiag(); }
     else toast('연결했어요 — 초대 링크를 다른 기기에 붙여넣으세요');
     break; }
