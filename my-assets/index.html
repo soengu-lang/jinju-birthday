@@ -554,6 +554,127 @@ const GAS_CODE = `function doGet(e) {
   return ContentService.createTextOutput(r.getContentText())
     .setMimeType(ContentService.MimeType.JSON);
 }`;
+/* 📮 메일 알림 — 폰이 꺼져 있어도 받는 유일한 길.
+   구글 앱스 스크립트가 30분마다 우리 방을 읽고 시세를 확인해 메일을 보냅니다.
+   {ROOM}·{PID}·{KEY} 는 붙여넣기 전에 실제 값으로 바뀝니다. */
+const MAIL_CODE = String.raw`// ── 우리집 자산 알림 ──────────────────────────────
+// 30분마다 목표가·손절가·큰 변동을 확인해 메일로 보냅니다.
+var ROOM = '{ROOM}';
+var PID  = '{PID}';
+var KEY  = '{KEY}';
+var MOVE = {MOVE};          // 하루 이만큼(%) 넘게 움직이면 알림
+
+function checkAssets() {
+  var core = readRoom();
+  if (!core || !core.holdings) return;
+  var seen = seenToday_();
+  var msgs = [];
+  core.holdings.forEach(function (h) {
+    if (h.hide) return;
+    if (h.cat !== 'kr' && h.cat !== 'us') return;
+    var px = price_(h);
+    if (!px || !px.p) return;
+    var tag, line;
+    if (+h.target > 0 && px.p >= +h.target) {
+      tag = 'target'; line = '🎯 ' + h.name + ' 목표가 도달 — 지금 ' + px.p + ' (목표 ' + h.target + ')';
+    } else if (+h.stop > 0 && px.p <= +h.stop) {
+      tag = 'stop'; line = '🛑 ' + h.name + ' 손절가 도달 — 지금 ' + px.p + ' (손절 ' + h.stop + ')';
+    }
+    if (tag && !seen[tag + h.id]) { msgs.push(line); seen[tag + h.id] = 1; }
+    if (px.prev > 0) {
+      var d = (px.p - px.prev) / px.prev * 100;
+      if (Math.abs(d) >= MOVE && !seen['move' + h.id]) {
+        msgs.push((d > 0 ? '📈 ' : '📉 ') + h.name + ' ' + (d > 0 ? '급등' : '급락') +
+                  ' ' + d.toFixed(1) + '% — 지금 ' + px.p);
+        seen['move' + h.id] = 1;
+      }
+    }
+  });
+  if (!msgs.length) return;
+  saveSeen_(seen);
+  MailApp.sendEmail(Session.getActiveUser().getEmail(),
+    '[자산] ' + msgs.length + '건 — ' + msgs[0],
+    msgs.join('\n') + '\n\n앱에서 보기: {APP}');
+}
+
+function readRoom() {
+  var u = 'https://firestore.googleapis.com/v1/projects/' + PID +
+          '/databases/(default)/documents/rooms/' + ROOM + '/assets/core?key=' + KEY;
+  var r = UrlFetchApp.fetch(u, { muteHttpExceptions: true });
+  if (r.getResponseCode() !== 200) return null;
+  var f = JSON.parse(r.getContentText()).fields;
+  return JSON.parse(f.json.stringValue);
+}
+
+function price_(h) {
+  try {
+    if (h.cat === 'kr') {
+      var j = JSON.parse(UrlFetchApp.fetch(
+        'https://m.stock.naver.com/api/stock/' + h.code + '/basic',
+        { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } }).getContentText());
+      var p = Number(String(j.closePrice).replace(/,/g, ''));
+      var d = Number(String(j.compareToPreviousClosePrice).replace(/,/g, ''));
+      return { p: p, prev: p - d };
+    }
+    var y = JSON.parse(UrlFetchApp.fetch(
+      'https://query1.finance.yahoo.com/v8/finance/chart/' + (h.code || h.sym),
+      { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } }).getContentText());
+    var m = y.chart.result[0].meta;
+    return { p: m.regularMarketPrice, prev: m.chartPreviousClose };
+  } catch (e) { return null; }
+}
+
+// 같은 종목이 하루에 여러 번 오지 않게
+function seenToday_() {
+  var p = PropertiesService.getScriptProperties();
+  var day = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
+  if (p.getProperty('day') !== day) { p.setProperty('day', day); p.setProperty('seen', '{}'); }
+  return JSON.parse(p.getProperty('seen') || '{}');
+}
+function saveSeen_(s) { PropertiesService.getScriptProperties().setProperty('seen', JSON.stringify(s)); }
+
+// 딱 한 번 실행하세요 — 30분마다 돌게 만듭니다
+function 알림켜기() {
+  ScriptApp.getProjectTriggers().forEach(function (t) { ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger('checkAssets').timeBased().everyMinutes(30).create();
+  checkAssets();
+}`;
+
+function mailCode(){
+  const c = state.sync || {};
+  return MAIL_CODE
+    .replace('{ROOM}', c.room || '방-이름')
+    .replace('{PID}',  c.projectId || '프로젝트-이름')
+    .replace('{KEY}',  c.apiKey || '열쇠')
+    .replace('{MOVE}', String(Math.abs(+alertCfg().move) || 5))
+    .replace('{APP}',  location.href.split('#')[0]);
+}
+function openMailAlert(){
+  const on = !!state.sync?.enabled;
+  openModal(`
+    <div class="mhead"><h3>📮 메일로 알림 받기</h3><button class="x" data-act="close">✕</button></div>
+    ${!on ? `<div class="note" style="line-height:1.8">
+        먼저 <b>💑 배우자와 함께 보기</b> 를 켜 주세요.
+        구글 스크립트가 그 방을 읽어야 어떤 종목을 지켜볼지 알 수 있습니다.</div>`
+    : `<div class="tiny muted" style="line-height:1.8;margin-bottom:10px">
+        폰이 꺼져 있어도 받는 유일한 길입니다. 구글 스크립트가 <b>30분마다</b>
+        우리 방을 읽고 시세를 확인해 <b>내 지메일로</b> 보냅니다. 무료입니다.</div>
+      <div class="note" style="line-height:1.9">
+        <b>1</b> <a href="https://script.new" target="_blank" rel="noopener">script.new</a> 로 새 스크립트 만들기<br>
+        <b>2</b> 있는 내용 <b>다 지우고</b> 아래 코드를 붙여넣기<br>
+        <b>3</b> 위쪽 함수 고르는 칸에서 <b>알림켜기</b> 를 고르고 <b>실행</b><br>
+        &nbsp;&nbsp;<span class="tiny muted">권한 확인 창이 뜨면 허용해 주세요. 한 번만 하면 됩니다.</span>
+      </div>
+      <div class="f mt"><label>붙여넣을 코드 (내 방 이름이 이미 들어 있어요)</label>
+        <textarea readonly style="min-height:150px;font-size:10px;font-family:ui-monospace,monospace"
+          onclick="this.select()">${esc(mailCode())}</textarea></div>
+      <button class="btn block" data-act="copyMailCode">📋 코드 복사</button>
+      <div class="tiny muted mt" style="line-height:1.7">
+        메일이 오면 아이폰 <b>메일 알림</b>으로 뜹니다. 그만 받으시려면
+        스크립트에서 <b>트리거</b>(⏰)를 지우면 됩니다.
+      </div>`}`);
+}
+
 /* 붙여넣은 주소를 쓸 수 있는 형태로 다듬습니다 */
 function normRelay(u){
   u = String(u||'').trim();
@@ -1149,6 +1270,64 @@ function hitOf(h){
 }
 const alertList = () => activeHoldings().map(h=>({h, hit:hitOf(h)})).filter(x=>x.hit);
 
+/* ============================================================
+   🔔 알림 — 목표가·손절가·큰 변동
+   ------------------------------------------------------------
+   아이폰 홈 화면 앱은 꺼져 있는 동안 시세를 볼 수 없습니다.
+   그래서 '앱을 열 때' 무엇이 있었는지 모아서 보여 줍니다.
+   진짜 배경 알림은 ⚙️ 의 📮 메일로 알림 받기 를 쓰세요.
+   ============================================================ */
+const ALERT_DEFAULT = { on:true, move:5, seen:{} };
+const alertCfg = () => (state.alert = { ...ALERT_DEFAULT, ...(state.alert||{}) });
+
+/* 하루에 한 번만 알립니다 — 같은 종목이 계속 조르지 않게 */
+const alertKey = a => `${a.kind}:${a.id}:${iso(new Date())}`;
+
+function buildAlerts(){
+  const cfg = alertCfg();
+  if(!cfg.on) return [];
+  const lim = Math.abs(+cfg.move) || 5;
+  const out = [];
+  activeHoldings().forEach(h=>{
+    const r = calc(h);
+    if(!r.ready || !CAT(h.cat).auto) return;
+    const hit = hitOf(h);
+    if(hit === 'target')
+      out.push({ kind:'target', id:h.id, h, emo:'🎯', tone:'up',
+                 title:`${h.name} 목표가 도달`,
+                 body:`${priceS(h.target, r.px.ccy)} 넘었어요 · 지금 ${priceS(r.px.p, r.px.ccy)}` });
+    else if(hit === 'stop')
+      out.push({ kind:'stop', id:h.id, h, emo:'🛑', tone:'down',
+                 title:`${h.name} 손절가 도달`,
+                 body:`${priceS(h.stop, r.px.ccy)} 밑으로 내려왔어요 · 지금 ${priceS(r.px.p, r.px.ccy)}` });
+    const d = (+r.dayRate || 0) * 100;      /* dayRate 는 비율(0.08) — %로 견줍니다 */
+    if(Math.abs(d) >= lim)
+      out.push({ kind:'move', id:h.id, h, emo: d>0?'📈':'📉', tone: d>0?'up':'down',
+                 title:`${h.name} ${d>0?'급등':'급락'} ${Math.abs(d).toFixed(1)}%`,
+                 body:`오늘 ${arrow(d)}${Math.abs(d).toFixed(1)}% · 지금 ${priceS(r.px.p, r.px.ccy)}` });
+  });
+  return out;
+}
+const newAlerts = () => { const seen = alertCfg().seen||{};
+  return buildAlerts().filter(a=>!seen[alertKey(a)]); };
+function markAlertsSeen(){
+  const cfg = alertCfg();
+  const seen = cfg.seen = cfg.seen || {};
+  buildAlerts().forEach(a=>{ seen[alertKey(a)] = 1; });
+  /* 오래된 것은 버립니다 */
+  const today = iso(new Date());
+  Object.keys(seen).forEach(k=>{ if(!k.endsWith(today)) delete seen[k]; });
+  save(false);
+}
+/* 앱이 열려 있을 때 폰 알림도 띄웁니다 (허락하신 경우에만) */
+function pushAlerts(list){
+  if(!list.length) return;
+  if(typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  const one = list[0];
+  const more = list.length>1 ? ` 외 ${list.length-1}건` : '';
+  try{ new Notification(one.emo + ' ' + one.title + more, { body:one.body, tag:'myAssets' }); }catch(e){}
+}
+
 /* 가져온 시세가 내 평단과 5배 넘게 차이 나면 잘못 붙었을 가능성이 큽니다.
    (증권사와 시세 서버가 서로 다른 종목·다른 단위를 보고 있는 경우) */
 function priceOdd(h){
@@ -1300,6 +1479,7 @@ async function refreshPrices(manual){
   } finally {
     refreshing = false;
     render();
+    pushAlerts(newAlerts());          /* 새로 생긴 알림은 폰 알림으로도 */
     if(manual) toast(
       relayDead ? '시세 서버에 닿지 못했어요 — 인터넷을 확인하거나 종목을 눌러 직접 넣어 주세요'
       : fail ? `${ok}건 갱신 · ${fail}건 실패 — 종목을 눌러 직접 넣을 수 있어요`
@@ -2092,7 +2272,21 @@ function viewHome(){
   const goal = +state.settings.goal || 0;
   const goalPct = goal>0 ? clamp(t.net/goal, 0, 1) : 0;
 
+  const alarms = newAlerts();
+
   return `
+  ${alarms.length? `<div class="card" style="border:1.5px solid var(--line2, #e6ddc9)">
+    <div class="sec-head"><h2 style="margin:0">🔔 알림 <span class="sub">${alarms.length}건</span></h2>
+      <button class="chip line" data-act="alertSeen">확인했어요</button></div>
+    ${alarms.slice(0,6).map(a=>`
+      <div class="hold" data-act="open" data-id="${a.id}">
+        <div class="ic" style="background:${a.tone==='up'?'#fbe9e7':'#e7eefb'};color:${a.tone==='up'?'var(--up)':'var(--down)'}">${a.emo}</div>
+        <div class="mid"><div class="nm">${esc(a.title)}</div>
+          <div class="sb">${esc(a.body)}</div></div>
+      </div>`).join('')}
+    ${alarms.length>6? `<div class="tiny muted" style="padding:6px 2px 0">외 ${alarms.length-6}건</div>`:''}
+  </div>` : ''}
+
   <div class="hero">
     <div class="lab">${ui.owner==='전체'?'우리집':esc(ui.owner)} 순자산 ${t.loan>0?'(대출 뺀 금액)':''}</div>
     <div class="big num">${bigWon(t.net)}<span style="font-size:.5em;font-weight:700"> 원</span></div>
@@ -2960,6 +3154,35 @@ function viewSet(){
   </div>`:''}
 
   <div class="card">
+    <h2>🔔 알림</h2>
+    <div class="tiny muted" style="line-height:1.8;margin-bottom:10px">
+      <b>목표가·손절가</b>에 닿거나 하루에 <b>크게 움직인</b> 종목을 알려 줍니다.
+      같은 종목은 하루 한 번만 알려요.
+    </div>
+    <label class="row" style="gap:8px;align-items:center;cursor:pointer">
+      <input type="checkbox" id="alOn" ${alertCfg().on?'checked':''} data-act="alertToggle">
+      <span style="font-weight:800;font-size:13px">알림 켜기</span>
+    </label>
+    <div class="f mt"><label>이만큼 움직이면 알려 주세요</label>
+      <div class="row wrap">
+        ${[3,5,7,10].map(v=>`<button class="chip ${alertCfg().move===v?'':'line'}"
+          data-act="alertMove" data-v="${v}">±${v}%</button>`).join('')}
+      </div></div>
+    ${typeof Notification !== 'undefined' && Notification.permission !== 'granted' ? `
+      <button class="btn ghost block mt" data-act="alertPerm">📳 폰 알림도 받기</button>
+      <div class="tiny muted mt" style="line-height:1.7">
+        허락하시면 <b>앱이 열려 있는 동안</b> 폰 알림으로도 띄웁니다.
+      </div>` : `
+      <div class="note mt">📳 폰 알림 허락됨 — 앱이 열려 있을 때 알림이 뜹니다.</div>`}
+    <div class="note mt" style="line-height:1.8">
+      ⚠️ 아이폰은 <b>앱이 꺼져 있는 동안</b>에는 시세를 볼 수 없어서, 알림은
+      <b>앱을 열 때</b> 모아서 보여 줍니다.<br>
+      꺼져 있어도 받으시려면 아래 <b>📮 메일로 알림 받기</b> 를 쓰세요.
+    </div>
+    <button class="btn ghost block mt" data-act="mailAlert">📮 메일로 알림 받기 (설정법)</button>
+  </div>
+
+  <div class="card">
     <h2>시세 상태</h2>
     <table class="tbl"><tbody>
       <tr><td>마지막 갱신</td><td>${timeAgo(state.lastRefresh)}</td></tr>
@@ -3383,7 +3606,7 @@ async function fsPut(path, json, rev){
   if(!r.ok) throw new Error(await fsErr(r));
 }
 /* 가계부 앱이 이 목록을 읽어 갑니다 — 이름을 바꾸지 마세요 */
-const CORE_KEYS = ['settings','holdings','accts','diary','divs','memo','led'];
+const CORE_KEYS = ['settings','holdings','accts','diary','divs','memo','led','alert'];
 function corePayload(){
   const o = {}; CORE_KEYS.forEach(k=>o[k]=state[k]);
   return JSON.stringify(o);
@@ -3527,7 +3750,7 @@ function openJoinPrompt(){
    시세·코인목록 같은 캐시는 빼서 가볍게 만듭니다.
    ============================================================ */
 const BACKUP_KEYS = ['v','settings','holdings','accts','divs','diary','memo',
-                     'sync','relayUrl','sheet','fx','snap'];
+                     'sync','relayUrl','sheet','fx','snap','alert'];
 function backupText(){
   const o = { _app:'myAssets', _at:Date.now() };
   BACKUP_KEYS.forEach(k=>{ if(state[k] !== undefined) o[k] = state[k]; });
@@ -4010,6 +4233,23 @@ document.addEventListener('click', async ev=>{
     save(false); await syncPush(); render(); syncStart();
     if(state.sync.error){ toast(state.sync.error); runSyncDiag(); }
     else toast('연결했어요 — 초대 링크를 다른 기기에 붙여넣으세요');
+    break; }
+  case 'alertSeen': markAlertsSeen(); render(); toast('알림을 확인 표시했어요'); break;
+  case 'alertToggle': { const c = alertCfg(); c.on = !c.on; save(false); render();
+    toast(c.on? '알림을 켰어요' : '알림을 껐어요'); break; }
+  case 'alertMove': { const c = alertCfg(); c.move = +b.dataset.v || 5; save(false); render();
+    toast(`하루 ±${c.move}% 넘게 움직이면 알려 드릴게요`); break; }
+  case 'alertPerm': {
+    if(typeof Notification === 'undefined'){ toast('이 브라우저는 폰 알림을 지원하지 않아요'); break; }
+    const r = await Notification.requestPermission();
+    render();
+    toast(r==='granted' ? '이제 폰 알림도 띄웁니다' : '허락하지 않으면 앱 안에서만 보여 드려요');
+    break; }
+  case 'mailAlert': openMailAlert(); break;
+  case 'copyMailCode': {
+    const t = mailCode();
+    try{ await navigator.clipboard.writeText(t); toast('코드를 복사했어요 — script.new 에 붙여넣으세요'); }
+    catch(e){ openCopyFallback(t); }
     break; }
   case 'syncDiag': runSyncDiag(); break;
   case 'sdiagCopy': {
