@@ -2921,6 +2921,99 @@ function openPickForm(pick){
 
 /* 📋 붙여넣기 — ① 붙여넣는 창 */
 let pasteRows = [], pasteUnknown = [], lastPasteOwner = '', lastPasteAcct = '';
+/* ============================================================
+   🧮 물타기 계산기
+   ------------------------------------------------------------
+   세 가지로 물어볼 수 있게 했습니다.
+     · 몇 주 더 살까  → 새 평단이 얼마가 되나
+     · 얼마어치 살까  → 몇 주에 새 평단이 얼마가 되나
+     · 평단을 얼마로  → 몇 주 · 얼마가 드나
+   같은 종목이 여러 계좌에 있으면 합쳐서 계산합니다.
+   ============================================================ */
+function avgDown(q0, a0, price, addQty){
+  const q = q0 + addQty;
+  if(!(q > 0)) return null;
+  return { qty:q, avg:(q0*a0 + addQty*price) / q, cost:addQty*price };
+}
+/* 평단을 목표로 맞추려면 몇 주 사야 하나 */
+function qtyForAvg(q0, a0, price, want){
+  if(!(want > price)) return null;         /* 산 가격보다 낮은 평단은 못 만듭니다 */
+  const n = q0 * (a0 - want) / (want - price);
+  return n > 0 ? n : null;
+}
+function openAvgCalc(id){
+  const h = state.holdings.find(x=>x.id===id); if(!h) return;
+  const same = sameStock(h);               /* 계좌가 나뉘어 있어도 합쳐서 봅니다 */
+  const q0 = same.reduce((a,x)=>a+(+x.qty||0), 0);
+  const cost0 = same.reduce((a,x)=>a+(+x.qty||0)*(+x.avg||0), 0);
+  const a0 = q0 > 0 ? cost0/q0 : 0;
+  const r = calc(h), cur = +r.px.p || 0;
+  const isUs = h.cat==='us';
+  ui.calc = ui.calc || {};
+  const st = ui.calc[h.id] = { mode:'qty', price:cur||a0, ...(ui.calc[h.id]||{}),
+                               res:null, err:'' };   /* 지난 결과·오류는 지우고 엽니다 */
+  openModal(`
+    <div class="mhead"><h3>🧮 물타기 계산</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted" style="margin:-6px 0 10px;line-height:1.7">
+      <b>${esc(h.name)}</b> · 지금 ${qtyS(q0, h.cat)}${CAT(h.cat).unit} ·
+      평단 ${priceS(a0, r.px.ccy)}${same.length>1? ` <span class="muted">(계좌 ${same.length}곳 합쳐서)</span>`:''}
+    </div>
+    <div class="f"><label>살 가격 ${isUs?'($)':'(원)'}</label>
+      <input id="acPrice" inputmode="decimal" value="${st.price? esc(round2(st.price)) : ''}"
+        placeholder="${cur? esc(round2(cur)) : '얼마에 살까요'}"></div>
+    <div class="seg" style="margin-bottom:10px">
+      ${[['qty','수량으로'],['cash','금액으로'],['avg','평단 목표']].map(([k,l])=>
+        `<button class="${st.mode===k?'on':''}" data-act="acMode" data-id="${h.id}" data-v="${k}">${l}</button>`).join('')}
+    </div>
+    ${st.mode==='qty' ? `<div class="f"><label>몇 ${CAT(h.cat).unit} 더 살까요</label>
+        <input id="acN" inputmode="decimal" value="${st.n? esc(st.n):''}" placeholder="예: 10"></div>`
+    : st.mode==='cash' ? `<div class="f"><label>얼마어치 살까요 (원)</label>
+        <input id="acN" inputmode="text" value="${st.n? esc(st.n):''}" placeholder="예: 300만"></div>`
+    : `<div class="f"><label>평단을 얼마로 만들까요 ${isUs?'($)':'(원)'}</label>
+        <input id="acN" inputmode="decimal" value="${st.n? esc(st.n):''}"
+          placeholder="지금 평단 ${esc(round2(a0))} 보다 낮게"></div>`}
+    <button class="btn block" data-act="acGo" data-id="${h.id}">계산하기</button>
+    <div id="acOut" style="margin-top:12px">${avgCalcOut(h, q0, a0)}</div>`);
+  setTimeout(()=>$('#acN')?.focus(), 60);
+}
+const round2 = v => Math.abs(v) >= 100 ? Math.round(v) : Math.round(v*100)/100;
+
+function avgCalcOut(h, q0, a0){
+  const st = (ui.calc||{})[h.id] || {};
+  if(st.err) return `<div class="note">${esc(st.err)}</div>`;
+  if(!st.res) return '';
+  const r = calc(h), ccy = r.px.ccy, cur = +r.px.p || 0;
+  const { qty, avg, cost, add } = st.res;
+  const fx = +state.fx?.v || 0;
+  const krw = v => h.cat==='us' ? v*fx : v;
+  /* 지금 시세로 견줬을 때 수익률이 어떻게 바뀌나 */
+  const before = (a0>0 && cur>0) ? (cur-a0)/a0 : 0;
+  const after  = (avg>0 && cur>0) ? (cur-avg)/avg : 0;
+  return `
+    <div class="card tight">
+      <div class="between">
+        <div><div class="tiny muted">새 평단</div>
+          <div style="font-size:19px;font-weight:900;letter-spacing:-.03em" class="num">${priceS(avg, ccy)}</div>
+          <div class="tiny muted">${priceS(a0, ccy)} 에서 <b class="down">${priceS(a0-avg, ccy)} 내려감</b></div></div>
+        <div class="right"><div class="tiny muted">더 사는 양</div>
+          <div style="font-size:15px;font-weight:800" class="num">${qtyS(add, h.cat)}${CAT(h.cat).unit}</div>
+          <div class="tiny muted">${won(Math.round(krw(cost)))}${h.cat==='us'? ` (${priceS(cost,'USD')})`:''}</div></div>
+      </div>
+      <div style="border-top:1px solid var(--line);margin-top:8px;padding-top:8px" class="tiny">
+        <div class="between"><span class="muted">사고 나면 총</span>
+          <span class="num" style="font-weight:800">${qtyS(qty, h.cat)}${CAT(h.cat).unit} · ${won(Math.round(krw(qty*avg)))}</span></div>
+        ${cur>0? `<div class="between" style="margin-top:3px"><span class="muted">지금 시세 ${priceS(cur, ccy)} 기준 수익률</span>
+          <span style="font-weight:800"><span class="${sgn(before)}">${pctS(before,1)}</span>
+            → <span class="${sgn(after)}">${pctS(after,1)}</span></span></div>`:''}
+      </div>
+    </div>
+    <div class="tiny muted" style="margin-top:8px;line-height:1.7">
+      수수료·세금은 넣지 않았습니다. 계산해 볼 뿐이고 <b>담은 내용은 바뀌지 않습니다</b> —
+      실제로 사셨으면 아래 버튼으로 반영하세요.
+    </div>
+    <button class="btn ghost block mt" data-act="acApply" data-id="${h.id}">이대로 샀어요 — 수량·평단 고치기</button>`;
+}
+
 /* ⚖️ 목표 비중 정하기 */
 function openRebalance(){
   const tg = targetsOf();
@@ -3100,7 +3193,9 @@ function openHold(id){
           <input id="hQty" inputmode="decimal" value="${h.qty?esc(h.qty):''}"></div>
         <div class="f"><label>평균 매수가 ${isUs?'($)':'(원)'}</label>
           <input id="hAvg" inputmode="decimal" value="${h.avg?esc(h.avg):''}"></div>
-      </div>`}
+      </div>
+      ${(+h.qty>0 && +h.avg>0)? `<button class="btn ghost sm block" style="margin:-4px 0 12px"
+        data-act="avgCalc" data-id="${h.id}">🧮 물타기 계산 — 더 사면 평단이 얼마가 될까</button>`:''}`}
       ${isUs? `<div class="f"><label>살 때 환율 <span class="muted">선택</span></label>
         <input id="hAvgFx" inputmode="decimal" value="${h.avgFx?esc(h.avgFx):''}" placeholder="비우면 달러 기준"></div>`:''}
       <div class="f"><label>시세 직접 입력 ${isUs?'($)':'(원)'} <span class="muted">선택</span></label>
@@ -4548,6 +4643,67 @@ document.addEventListener('click', async ev=>{
     a.href = URL.createObjectURL(blob);
     a.download = `우리집자산-${iso(new Date())}.json`;
     a.click(); setTimeout(()=>URL.revokeObjectURL(a.href), 3000);
+    break; }
+  case 'avgCalc': openAvgCalc(b.dataset.id); break;
+  case 'acMode': {
+    const hid = b.dataset.id;
+    ui.calc = ui.calc || {}; ui.calc[hid] = { ...(ui.calc[hid]||{}), mode:b.dataset.v, res:null, err:'' };
+    /* 적어 둔 가격은 살립니다 */
+    const pv = parseQty($('#acPrice')?.value); if(isFinite(pv)) ui.calc[hid].price = pv;
+    ui.calc[hid].n = '';
+    openAvgCalc(hid); break; }
+  case 'acGo': {
+    const hid = b.dataset.id;
+    const h = state.holdings.find(x=>x.id===hid); if(!h) break;
+    const same = sameStock(h);
+    const q0 = same.reduce((a,x)=>a+(+x.qty||0), 0);
+    const a0 = q0>0 ? same.reduce((a,x)=>a+(+x.qty||0)*(+x.avg||0),0)/q0 : 0;
+    const st = ui.calc[hid] = ui.calc[hid] || { mode:'qty' };
+    const price = parseQty($('#acPrice')?.value);
+    const raw = ($('#acN')?.value||'').trim();
+    st.price = isFinite(price)? price : 0;
+    st.n = raw; st.res = null; st.err = '';
+    const fail = m => { st.err = m; $('#acOut').innerHTML = avgCalcOut(h, q0, a0); };
+    if(!(st.price > 0)) return fail('살 가격을 적어 주세요.');
+    if(!(q0 > 0) || !(a0 > 0)) return fail('지금 수량과 평단이 있어야 계산할 수 있어요.');
+    let add = 0;
+    if(st.mode === 'qty'){
+      const n = parseQty(raw);
+      if(!isFinite(n) || n <= 0) return fail('몇 주 살지 적어 주세요.');
+      add = n;
+    } else if(st.mode === 'cash'){
+      const c = parseAmount(raw);
+      if(!isFinite(c) || c <= 0) return fail('얼마어치 살지 적어 주세요.');
+      /* 미국주식은 달러로 셈해야 해서 원화 예산을 환율로 되돌립니다 */
+      const inCcy = h.cat==='us' ? c / (+state.fx?.v || 1) : c;
+      add = inCcy / st.price;
+    } else {
+      const want = parseQty(raw);
+      if(!isFinite(want) || want <= 0) return fail('만들고 싶은 평단을 적어 주세요.');
+      if(want >= a0) return fail(`지금 평단 ${priceS(a0, calc(h).px.ccy)} 보다 낮게 적어 주세요.`);
+      if(want <= st.price) return fail(`살 가격 ${priceS(st.price, calc(h).px.ccy)} 보다는 높아야 만들 수 있어요.`);
+      const n = qtyForAvg(q0, a0, st.price, want);
+      if(!n) return fail('그 평단은 만들 수 없어요.');
+      add = n;
+    }
+    const out = avgDown(q0, a0, st.price, add);
+    if(!out) return fail('계산이 안 돼요 — 숫자를 다시 봐 주세요.');
+    st.res = { ...out, add };
+    $('#acOut').innerHTML = avgCalcOut(h, q0, a0);
+    break; }
+  case 'acApply': {
+    const hid = b.dataset.id;
+    const h = state.holdings.find(x=>x.id===hid); if(!h) break;
+    const st = (ui.calc||{})[hid]; if(!st?.res) break;
+    const same = sameStock(h);
+    if(same.length > 1 && !confirm(
+      `이 종목은 계좌 ${same.length}곳에 나뉘어 있어요.\n"${h.acct||'계좌 안 적음'}" 한 곳에만 반영할까요?`)) break;
+    /* 누른 종목 한 줄에만 더합니다 — 어느 계좌에서 샀는지는 사람만 알아요 */
+    const q0 = +h.qty || 0, a0 = +h.avg || 0;
+    const one = avgDown(q0, a0, st.price, st.res.add);
+    h.qty = round2(one.qty); h.avg = Math.round(one.avg*100)/100;
+    save(); closeModal(); render();
+    toast(`${h.name} ${qtyS(st.res.add, h.cat)}${CAT(h.cat).unit} 더 산 것으로 고쳤어요`);
     break; }
   case 'divMon': ui.divMon = +b.dataset.m || 0; render(); break;
   case 'rbEdit': openRebalance(); break;
