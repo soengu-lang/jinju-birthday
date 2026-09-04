@@ -3399,8 +3399,10 @@ function fbErrKo(msg, status){
     return 'Firestore 를 아직 안 만드셨어요 — 빌드 → Firestore Database → 데이터베이스 만들기';
   if(/database.*does not exist|NOT_FOUND.*database/i.test(m))
     return 'Firestore 데이터베이스가 없어요 — 빌드 → Firestore Database → 데이터베이스 만들기';
-  if(/project.*(not found|does not exist)|PROJECT_NOT_FOUND/i.test(m))
+  /* 'Document ... not found' 는 그 문서가 없다는 뜻일 뿐, 프로젝트 문제가 아닙니다 */
+  if(!/^\s*Document/i.test(m) && (/project.*(not found|does not exist)|PROJECT_NOT_FOUND/i.test(m)))
     return '프로젝트 이름(projectId)이 맞지 않아요 — 설정값을 다시 붙여넣어 주세요';
+  if(/^\s*Document/i.test(m)) return '';   /* 문서가 아직 없을 뿐 — 오류가 아닙니다 */
   if(/blocked|referer|referrer/i.test(m))
     return 'API 키에 사이트 제한이 걸려 있어요 — 제한을 풀거나 이 주소를 허용해 주세요';
   if(/Missing or insufficient permissions|PERMISSION_DENIED/i.test(m) || status===403)
@@ -3436,7 +3438,7 @@ async function runSyncDiag(){
     let bad = '';
     if(!r.ok){
       let m=''; try{ m=(await r.clone().json())?.error?.message||''; }catch(e){}
-      if(r.status!==404 || /project|database|does not exist|not found/i.test(m)) bad = fbErrKo(m, r.status);
+      bad = fbErrKo(m, r.status);   /* '문서 없음'이면 빈 문자열이 옵니다 */
     }
     if(!bad){ reach = true; step('프로젝트·DB','✅ 닿음'); }
     else step('프로젝트·DB','❌ '+bad);
