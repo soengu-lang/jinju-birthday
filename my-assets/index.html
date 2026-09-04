@@ -3111,6 +3111,13 @@ function viewSet(){
         이 링크를 <b>다른 기기·사파리·홈 화면 앱·가계부 앱</b> 어디에든 붙여넣으면 같은 방을 봅니다.
         (자산 앱은 <b>초대 링크 붙여넣어 참여하기</b>, 가계부는 <b>🔗 초대 링크로 연결</b>)
       </div>
+      <div class="note mt" style="line-height:1.8">
+        ⚠️ 다른 기기에서 <b>연결하고 방 만들기</b>를 누르면 <b>다른 방</b>이 새로 생겨 서로 안 보입니다.
+        두 기기의 <b>방 이름이 같은지</b> 꼭 견줘 보세요 — <b>🩺 연결 점검</b>의
+        <b>함께 쓰는 기기</b> 줄로도 확인할 수 있습니다.
+      </div>
+      <button class="btn ghost block mt" data-act="joinPaste">🔗 다른 방 초대 링크로 옮기기</button>
+      <div class="tiny muted mt">방이 갈렸을 때 — 자산이 많은 쪽 링크를 복사해 반대쪽에 넣으세요.</div>
       <div class="row mt" style="gap:6px">
         <button class="btn ghost sm" style="flex:1" data-act="syncDiag">🩺 연결 점검</button>
         <button class="btn ghost sm" style="flex:1" data-act="syncOff">연결 끊기</button>
@@ -3301,13 +3308,24 @@ async function runSyncDiag(){
   if(!wrote){ sdiag.running=false; sdiag.done=true; openSyncDiag(); return; }
 
   /* ⑤ 실제 자산 문서 */
-  if(room.length>=16){
-    try{
-      const g = await fsGet(`rooms/${room}/assets/core`);
-      step('자산 문서', g ? '✅ 있음' : '⚠️ 아직 안 올라감',
-           g ? '' : '자산 앱에서 한 번 바뀌면 올라갑니다.');
-    }catch(e){ step('자산 문서', '❌ ' + e.message); }
-  }
+  try{
+    const g = await fsGet(`rooms/${room}/assets/core`);
+    step('자산 문서', g ? '✅ 있음' : '⚠️ 아직 안 올라감',
+         g ? '' : '자산 앱에서 한 번 바뀌면 올라갑니다.');
+  }catch(e){ step('자산 문서', '❌ ' + e.message); }
+
+  /* ⑥ 이 방을 함께 쓰는 기기 — 여기가 1대면 방이 갈린 것입니다 */
+  await markDevice();
+  try{
+    const devs = await roomDevices();
+    if(devs.length >= 2){
+      step('함께 쓰는 기기', `✅ ${devs.length}대`, devs.map(d=>d.name).join(' / '));
+    }else{
+      step('함께 쓰는 기기', '⚠️ 이 기기뿐',
+           '다른 기기도 이 방에 넣으려면 🔗 초대 링크 복사 → 그 기기에서 붙여넣어 참여하기. '
+         + '거기서 따로 \'연결하고 방 만들기\'를 누르면 다른 방이 만들어져 서로 안 보입니다.');
+    }
+  }catch(e){ step('함께 쓰는 기기', '⚠️ 확인 못 함', e.message); }
   sdiag.running=false; sdiag.done=true; openSyncDiag();
 }
 function syncDiagText(){
@@ -3380,6 +3398,32 @@ function schedulePush(){
   clearTimeout(pushTimer);
   pushTimer = setTimeout(syncPush, 1200);
 }
+/* 이 기기가 이 방에 있다는 표시를 남깁니다.
+   방마다 따로 연결해 놓고 '연결됨'만 보고 같은 방인 줄 아는 일을 막아 줍니다. */
+async function markDevice(){
+  const c = state.sync;
+  if(!c?.enabled || !c.room) return;
+  try{ await fsPut(`rooms/${c.room}/devs/${DEVICE}`, deviceName(), Date.now()); }catch(e){}
+}
+function deviceName(){
+  const ua = navigator.userAgent || '';
+  const pwa = window.matchMedia?.('(display-mode: standalone)')?.matches
+           || navigator.standalone === true;
+  const kind = /iPhone|iPad|iPod/.test(ua) ? '아이폰' : /Android/.test(ua) ? '안드로이드' : '컴퓨터';
+  return kind + ' · ' + (pwa ? '홈 화면 앱' : '브라우저');
+}
+async function roomDevices(){
+  const c = state.sync;
+  if(!c?.enabled || !c.room) return [];
+  const u = fsUrl(`rooms/${c.room}/devs`);
+  const r = await fetch(u);
+  if(!r.ok) return [];
+  const d = await r.json();
+  return (d.documents||[]).map(x=>({
+    id: (x.name||'').split('/').pop(),
+    name: x.fields?.json?.stringValue || '기기',
+    at: +(x.fields?.rev?.integerValue || 0) }));
+}
 async function syncPush(){
   const c = state.sync;
   if(!c?.enabled || syncBusy) return;
@@ -3390,6 +3434,7 @@ async function syncPush(){
     c.rev = rev; c.lastAt = rev; c.error = ''; c.dirty = false;
   }catch(e){ c.error = e.message; }
   finally{ syncBusy=false; writeLocal(); renderHeadMeta(); }
+  markDevice();
 }
 async function syncPull(){
   const c = state.sync;
