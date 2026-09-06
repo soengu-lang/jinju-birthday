@@ -113,13 +113,6 @@ nav.tabs{position:sticky;top:0;z-index:30;background:var(--bg);padding:10px 0 8p
 .badge.err{background:#f7e7e5;color:var(--up)}
 .badge.man{background:var(--soft);color:var(--brand)}
 .badge.tgt{background:#e4f1ec;color:#2e7d6b}
-.mbar{display:flex;align-items:flex-end;gap:3px;height:64px;margin:8px 0 4px}
-.mbar > div{flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%}
-.mbar i{display:block;background:var(--gold);border-radius:4px 4px 0 0;min-height:2px}
-.mbar i.on{background:var(--brand)}
-.mlab{display:flex;gap:3px;font-size:9px;color:var(--muted);text-align:center}
-.mlab > span{flex:1}
-.mlab > span.on{color:var(--brand);font-weight:800}
 .diary{border-left:3px solid var(--soft-d);padding:2px 0 2px 11px;margin-bottom:14px}
 .diary .d1{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
 .diary .dt{font-size:11.5px;font-weight:800;color:var(--brand)}
@@ -146,12 +139,26 @@ nav.tabs{position:sticky;top:0;z-index:30;background:var(--bg);padding:10px 0 8p
 .dcal .m{font-size:11px;font-weight:800;color:var(--muted);line-height:1.2}
 .dcal .v{font-size:11.5px;font-weight:900;letter-spacing:-.02em;line-height:1.3;margin-top:2px}
 .dcal .b{position:absolute;left:0;bottom:0;height:3px;background:var(--gold);border-radius:0 2px 0 0}
-.dcal button.now{border-color:var(--soft-d);background:var(--soft)}
-.dcal button.on{border-color:var(--brand);background:var(--brand)}
+/* 받은 것 = 금색 채움 · 예상 = 점선 테두리 · 기록 없음 = 흐림 */
+.dcal button.k-got{background:var(--gold-s);border-color:#e8d4ae}
+.dcal button.k-got .b{background:var(--gold)}
+.dcal button.k-exp{border-style:dashed;border-color:#cfd6d3}
+.dcal button.k-exp .v{color:var(--muted)}
+.dcal button.k-exp .b{background:#cfd6d3}
+.dcal button.k-miss{border-style:dashed;border-color:#e2c9c6;background:#fdf6f5}
+.dcal button.k-miss .v{color:var(--up);font-weight:800}
+.dcal button.k-miss .b{background:#e7bdb8}
+.dcal button.k-none{opacity:.5}
+.dcal button.now{box-shadow:inset 0 0 0 1.5px var(--soft-d)}
+.dcal button.on{border-color:var(--brand);background:var(--brand);border-style:solid}
 .dcal button.on .m{color:rgba(255,255,255,.72)}
 .dcal button.on .v{color:#fff}
-.dcal button.on .b{background:var(--gold-s);opacity:.9}
-.dcal button.zero .v{color:var(--muted);font-weight:700}
+.dcal button.on .b{background:rgba(255,255,255,.55)}
+/* 범례 점 */
+.lg{display:inline-block;width:9px;height:9px;border-radius:3px;vertical-align:-1px;margin-right:3px}
+.lg.got{background:var(--gold)}
+.lg.exp{background:#fff;border:1.5px dashed #b9c2be}
+.lg.miss{background:#f6e2df;border:1.5px dashed #e0b6b1}
 .chips.scroll{flex-wrap:nowrap;overflow-x:auto;padding-bottom:2px;-webkit-overflow-scrolling:touch}
 .chips.scroll::-webkit-scrollbar{display:none}
 .btn{background:var(--brand);color:#fff;border-radius:12px;padding:11px 16px;font-size:13.5px;font-weight:800;
@@ -1128,37 +1135,108 @@ function divFreq(info){
   const n = info?.months?.length || 0;
   return n >= 10 ? '월배당' : n >= 4 ? '분기 배당' : n >= 2 ? '반기 배당' : n === 1 ? '연 1회' : '';
 }
-/* 이번 달에 배당 기준일이 있는 종목 */
-function divThisMonth(){
-  const m = new Date().getMonth() + 1;
-  return activeHoldings().filter(h=>{
-    const i = divInfoOf(h);
-    return i && (i.months||[]).includes(m);
+/* 📅 배당 달력 — '돈이 들어오는 달' 하나의 축으로
+   ------------------------------------------------------------
+   전에는 예상은 '기준월', 기록은 '입금일'이라 축이 달라 헷갈렸습니다.
+   이제 둘 다 입금월로 맞춥니다. 입금월은
+     ① 내가 실제로 받아 적어 둔 달 (가장 정확)
+     ② 없으면 야후 기준월 + 대략의 지연 (국내 2개월 · 미국 1개월)
+   순으로 잡습니다. */
+const shiftM = (m, lag) => ((m - 1 + lag) % 12) + 1;
+/* 내가 받아 적은 달들로 '기준월 → 입금월' 지연이 몇 달인지 배웁니다 */
+function learnLag(ex, mine){
+  const tally = {};
+  mine.forEach(p=>{
+    let best = 99;
+    ex.forEach(e=>{ const d = (p - e + 12) % 12; if(d < best) best = d; });
+    if(best < 99) tally[best] = (tally[best] || 0) + 1;
   });
+  const ks = Object.keys(tally);
+  if(!ks.length) return null;
+  return +ks.sort((a,b)=> tally[b] - tally[a] || a - b)[0];
 }
-/* 📅 배당 달력 — 어느 달에 얼마쯤 들어오는지
-   지난 1년 배당(yearSum)을 배당 준 달 수로 나눠 한 번치를 잡습니다.
-   회사가 배당을 바꾸면 달라지니 '예상'입니다. */
-function divCalendar(){
+function payMonthsOf(h){
+  const info = divInfoOf(h);
+  const ex = (info?.months) || [];
+  const mine = [...new Set((state.divs||[])
+    .filter(d => d.cat === h.cat && d.code && d.code === h.code)
+    .map(d => +String(d.date||'').slice(5,7))
+    .filter(m => m >= 1 && m <= 12))].sort((a,b)=>a-b);
+  /* 배당 정보가 있으면 '몇 번 주는지'는 거기서 옵니다 —
+     내가 몇 달치를 적었는지로 나누면 월배당이 4배로 부풀어요. */
+  if(ex.length){
+    const lag = mine.length ? learnLag(ex, mine) : null;
+    const use = lag === null ? (h.cat === 'kr' ? 2 : 1) : lag;
+    return { months:[...new Set(ex.map(m => shiftM(m, use)))].sort((a,b)=>a-b),
+             freq: ex.length, from: lag === null ? 'guess' : 'mine' };
+  }
+  /* 배당 정보가 아예 없으면 내 기록만으로 */
+  if(mine.length) return { months:mine, freq:mine.length, from:'mine' };
+  return { months:[], freq:0, from:'' };
+}
+/* 한 해 달력 — 달마다 '받은 것'과 '예상'을 따로 담습니다 */
+function divCalendar(year){
+  const now = new Date();
+  year = year || now.getFullYear();
+  const curM = year === now.getFullYear() ? now.getMonth()+1 : 13;
+  const months = Array.from({length:12}, (_,i)=>({
+    m:i+1, got:0, gotItems:[], exp:0, expItems:[], past:(i+1) < curM, cur:(i+1) === curM }));
+
+  /* ① 실제로 받아 적은 것 */
+  (state.divs||[]).forEach(d=>{
+    if(String(d.date||'').slice(0,4) !== String(year)) return;
+    const mm = +String(d.date).slice(5,7);
+    if(!(mm >= 1 && mm <= 12)) return;
+    const v = divKrw(d);
+    months[mm-1].got += v;
+    months[mm-1].gotItems.push({ id:d.id, name:d.name || '배당', amt:v, date:d.date });
+  });
+
+  /* ② 앞으로 들어올 예상 */
   const fx = +state.fx?.v || 0;
-  const months = Array.from({length:12}, (_,i)=>({ m:i+1, items:[], total:0 }));
   activeHoldings().filter(inOwner).forEach(h=>{
-    const i = divInfoOf(h);
-    if(!i || !(i.months||[]).length || !(+i.yearSum > 0)) return;
+    const info = divInfoOf(h);
+    const { months:pm, freq, from } = payMonthsOf(h);
+    if(!pm.length) return;
     const q = +h.qty || 0; if(!(q > 0)) return;
-    const per = i.yearSum / i.months.length;            /* 한 번 줄 때 1주당 */
-    const krw = (i.ccy === 'USD' ? per * fx : per) * q;
-    if(!(krw > 0)) return;
-    i.months.forEach(m=>{
-      if(!(m >= 1 && m <= 12)) return;
-      months[m-1].items.push({ h, amt:krw });
-      months[m-1].total += krw;
+    let per = 0;
+    if(info && +info.yearSum > 0 && freq > 0){
+      /* 한 해 배당 ÷ 한 해에 주는 횟수 — 내가 적은 달 수로 나누면 안 됩니다 */
+      per = (info.ccy === 'USD' ? info.yearSum * fx : info.yearSum) * q / freq;
+    } else {
+      /* 배당 정보가 없으면 내가 받은 금액의 평균으로 */
+      const mine = (state.divs||[]).filter(d=>d.cat===h.cat && d.code===h.code);
+      if(mine.length) per = mine.reduce((a,d)=>a+divKrw(d),0) / mine.length;
+    }
+    if(!(per > 0)) return;
+    pm.forEach(mm=>{
+      months[mm-1].exp += per;
+      months[mm-1].expItems.push({ h, amt:per, guess: from === 'guess' });
     });
   });
-  months.forEach(x=>x.items.sort((a,b)=>b.amt-a.amt));
+
+  /* 적기 시작한 달보다 앞선 과거는 '기록 없음'으로 몰면 안 됩니다 —
+     그때는 안 갖고 있었을 수도 있으니까요. */
+  const firstRec = months.findIndex(x=>x.got > 0);
+  months.forEach(x=>{
+    x.gotItems.sort((a,b)=>b.amt-a.amt);
+    x.expItems.sort((a,b)=>b.amt-a.amt);
+    /* 그 달에 실제로 받은 게 있으면 그 값이 진짜입니다 */
+    const missed = x.past && x.exp > 0 && firstRec >= 0 && x.m > firstRec + 1;
+    x.kind  = x.got > 0 ? 'got'
+            : x.past   ? (missed ? 'miss' : 'none')
+            : x.exp > 0 ? 'exp' : 'none';
+    x.shown = x.kind === 'got' ? x.got : x.kind === 'none' ? 0 : x.exp;
+  });
   return months;
 }
-const divYearExpect = () => divCalendar().reduce((a,x)=>a+x.total, 0);
+/* 올해 받은 것 + 앞으로 들어올 예상 */
+function divYearSplit(year){
+  const cal = divCalendar(year);
+  const got = cal.reduce((a,x)=>a+x.got, 0);
+  const left = cal.reduce((a,x)=> a + (x.got > 0 || x.past ? 0 : x.exp), 0);
+  return { got, left, all:got+left, cal };
+}
 
 /* 배당 받은 기록 — 원화로 환산한 금액 */
 function divKrw(d){
@@ -1169,15 +1247,6 @@ const divsOf = h => (state.divs||[]).filter(d=>d.code && d.code===h.code && d.ca
 function divYearTotal(year){
   return (state.divs||[]).filter(d=>String(d.date||'').slice(0,4) === String(year))
     .reduce((s,d)=>s+divKrw(d), 0);
-}
-function divByMonth(year){
-  const out = new Array(12).fill(0);
-  (state.divs||[]).forEach(d=>{
-    if(String(d.date||'').slice(0,4) !== String(year)) return;
-    const m = +String(d.date).slice(5,7);
-    if(m>=1 && m<=12) out[m-1] += divKrw(d);
-  });
-  return out;
 }
 
 /* 시세는 '종목' 기준으로 담습니다.
@@ -2591,68 +2660,79 @@ function viewNote(){
 
   ${(()=>{
     const y = new Date().getFullYear(), m = new Date().getMonth()+1;
-    const by = divByMonth(y), tot = by.reduce((a,b)=>a+b,0), mx = Math.max(...by, 1);
-    const soon = divThisMonth();
     const list = (state.divs||[]).slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))).slice(0,12);
     return `<div class="card">
       <h2>💰 배당 <span class="sub">${y}년</span></h2>
-      <div class="between" style="margin-bottom:2px">
-        <div><div class="tiny muted">올해 받은 배당</div>
-          <div style="font-size:19px;font-weight:900;letter-spacing:-.03em" class="num">${won(tot)}</div></div>
-        <div class="right"><div class="tiny muted">${m}월</div>
-          <div style="font-size:15px;font-weight:800" class="num">${won(by[m-1])}</div></div>
-      </div>
-      <div class="mbar">${by.map((v,i)=>
-        `<div><i class="${i===m-1?'on':''}" style="height:${Math.max(2,(v/mx)*100).toFixed(0)}%"
-           title="${i+1}월 ${num(v)}원"></i></div>`).join('')}</div>
-
-      <div class="mlab">${by.map((v,i)=>`<span class="${i===m-1?'on':''}">${i+1}</span>`).join('')}</div>
-
       ${(()=>{
-        const cal = divCalendar(), yr = cal.reduce((a,x)=>a+x.total, 0);
-        if(!(yr > 0)) return `<div class="tiny muted" style="margin-top:12px;line-height:1.7;
-            border-top:1px solid var(--line);padding-top:10px">
-          📅 <b>배당 달력</b>은 배당 정보를 가져온 뒤 보여 드려요 —
-          주식·ETF를 담고 시세를 새로고침하면 채워집니다.</div>`;
-        const mx2 = Math.max(...cal.map(x=>x.total), 1);
+        const sp = divYearSplit(y), cal = sp.cal;
         const sel = Math.min(12, Math.max(1, +ui.divMon || m));
         const x = cal[sel-1];
-        return `<div style="margin-top:14px;border-top:1px solid var(--line);padding-top:11px">
-          <div class="between">
-            <div style="font-size:13px;font-weight:900">📅 배당 달력</div>
-            <div class="tiny muted">한 해 예상 <b class="num">${won(yr)}</b></div>
-          </div>
-          <div class="dcal">
-            ${cal.map(c=>`
-              <button data-act="divMon" data-m="${c.m}"
-                class="${c.m===sel?'on':(c.m===m?'now':'')} ${c.total>0?'':'zero'}">
-                <div class="m">${c.m}월</div>
-                <div class="v">${c.total>0? shortWon(c.total) : '–'}</div>
-                ${c.total>0? `<div class="b" style="width:${Math.max(8,(c.total/mx2)*100).toFixed(0)}%"></div>`:''}
-              </button>`).join('')}
+        const mx2 = Math.max(...cal.map(c=>c.shown), 1);
+        return `
+        <div class="between" style="margin-bottom:2px">
+          <div><div class="tiny muted">올해 받은 배당</div>
+            <div style="font-size:19px;font-weight:900;letter-spacing:-.03em" class="num">${won(sp.got)}</div></div>
+          <div class="right"><div class="tiny muted">앞으로 들어올 예상</div>
+            <div style="font-size:15px;font-weight:800" class="num muted">${won(sp.left)}</div></div>
+        </div>
+        <div class="tiny muted" style="margin-bottom:2px">한 해 합계 예상 <b class="num">${won(sp.all)}</b></div>
+
+        <div class="dcal">
+          ${cal.map(c=>`
+            <button data-act="divMon" data-m="${c.m}"
+              class="k-${c.kind} ${c.m===sel?'on':(c.cur?'now':'')}">
+              <div class="m">${c.m}월</div>
+              <div class="v">${c.shown>0? shortWon(c.shown) : '–'}</div>
+              ${c.shown>0? `<div class="b" style="width:${Math.max(8,(c.shown/mx2)*100).toFixed(0)}%"></div>`:''}
+            </button>`).join('')}
+        </div>
+        <div class="tiny muted" style="margin-top:7px;display:flex;gap:11px;flex-wrap:wrap;align-items:center">
+          <span><i class="lg got"></i> 받은 것</span>
+          <span><i class="lg exp"></i> 예상</span>
+          <span><i class="lg miss"></i> 기록 없음</span>
+        </div>
+
+        <div style="margin-top:11px;border-top:1px solid var(--line);padding-top:9px">
+          <div class="between" style="margin-bottom:5px">
+            <div style="font-size:12.5px;font-weight:800">${sel}월
+              ${x.got>0? '받은 배당' : x.past? '예상했던 배당' : '들어올 배당'}</div>
+            ${x.shown>0? `<div class="num" style="font-size:13px;font-weight:900">${won(x.shown)}</div>`:''}
           </div>
 
-          <div style="margin-top:11px">
-            <div class="between" style="margin-bottom:5px">
-              <div style="font-size:12.5px;font-weight:800">${sel}월에 들어올 배당</div>
-              ${x.total>0? `<div class="num" style="font-size:13px;font-weight:900">${won(x.total)}</div>`:''}
-            </div>
-            ${x.items.length ? x.items.map(it=>`
-              <div class="between" style="padding:4px 0;font-size:12.5px;border-top:1px solid var(--line)">
-                <div style="min-width:0;padding-right:8px">
-                  <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(it.h.name)}</div>
-                  <div class="tiny muted">${esc(divFreq(divInfoOf(it.h)))}</div>
-                </div>
-                <div class="num" style="font-weight:800;white-space:nowrap">${won(it.amt)}</div>
-              </div>`).join('')
-            : '<div class="tiny muted" style="padding:3px 0">이 달에 들어올 배당은 없어요.</div>'}
-          </div>
+          ${x.gotItems.length ? x.gotItems.map(it=>`
+            <div class="between" data-act="divEdit" data-id="${it.id}"
+                 style="padding:4px 0;font-size:12.5px;border-top:1px solid var(--line);cursor:pointer">
+              <div style="min-width:0;padding-right:8px">
+                <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(it.name)}</div>
+                <div class="tiny muted">${esc(String(it.date).replace(/-/g,'.'))} 받음</div>
+              </div>
+              <div class="num" style="font-weight:800;white-space:nowrap">${won(it.amt)}</div>
+            </div>`).join('') : ''}
 
-          <div class="tiny muted" style="margin-top:9px;line-height:1.7">
-            지난 1년 배당을 나눠 잡은 <b>예상 세전 금액</b>이고, 달은 <b>기준월</b>입니다.
-            실제 입금은 국내 2~3개월 · 미국 2~4주 뒤예요.
-            (원천징수 국내 15.4% · 미국 15%)
-          </div>
+          ${!x.gotItems.length && x.expItems.length ? x.expItems.map(it=>`
+            <div class="between" style="padding:4px 0;font-size:12.5px;border-top:1px solid var(--line)">
+              <div style="min-width:0;padding-right:8px">
+                <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)">${esc(it.h.name)}</div>
+                <div class="tiny muted">${esc(divFreq(divInfoOf(it.h)) || '예상')}${it.guess? ' · 입금 시기는 어림잡음':''}</div>
+              </div>
+              <div class="num muted" style="font-weight:800;white-space:nowrap">${won(it.amt)}</div>
+            </div>`).join('') : ''}
+
+          ${!x.gotItems.length && !x.expItems.length
+            ? '<div class="tiny muted" style="padding:3px 0">이 달에는 배당이 없어요.</div>' : ''}
+
+          ${x.kind==='miss' ? `<div class="note mt" style="margin-bottom:0">
+            ${sel}월에 <b>${won(x.exp)}</b> 쯤 들어올 것으로 봤는데 기록이 없어요.
+            받으셨다면 아래 <b>＋ 배당 받은 것 기록하기</b> 로 적어 주세요 —
+            적을수록 다음 예상이 정확해집니다.</div>` : ''}
+          ${x.got>0 && x.expItems.length ? `<div class="tiny muted" style="margin-top:6px;line-height:1.6">
+            받은 기록이 있어서 <b>실제 금액</b>을 보여 드립니다.</div>` : ''}
+        </div>
+
+        <div class="tiny muted" style="margin-top:9px;line-height:1.7">
+          <b>돈이 들어오는 달</b> 기준입니다. 받아 적으신 달이 있으면 그 달을 쓰고,
+          없으면 기준월에 국내 2개월 · 미국 1개월을 더해 어림잡습니다.
+          예상은 지난 1년 배당 기준 <b>세전</b>이에요. (원천징수 국내 15.4% · 미국 15%)
         </div>`; })()}
 
       <button class="btn block mt" data-act="divAdd">＋ 배당 받은 것 기록하기</button>
