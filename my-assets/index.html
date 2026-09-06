@@ -574,6 +574,40 @@ const GAS_CODE = `function doGet(e) {
   return ContentService.createTextOutput(r.getContentText())
     .setMimeType(ContentService.MimeType.JSON);
 }`;
+/* ============================================================
+   🧾 가계부 한 줄 — 가계부 방을 '읽기만' 합니다
+   ------------------------------------------------------------
+   가계부가 자산 방을 읽는 것과 똑같이, 자산 앱도 가계부 방을 읽습니다.
+   서로 상대 방에는 아무것도 쓰지 않습니다.
+   ============================================================ */
+async function fetchBudget(){
+  const c = state.bud;
+  if(!c?.apiKey || !c?.projectId || !c?.room) return;
+  try{
+    const u = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(c.projectId)}`
+            + `/databases/(default)/documents/rooms/${c.room}/state/core?key=${encodeURIComponent(c.apiKey)}`;
+    const r = await fetch(u);
+    if(r.status === 404) throw new Error('가계부 방이 아직 비어 있어요');
+    if(!r.ok) throw new Error(await fsErr(r));
+    const core = JSON.parse((await r.json()).fields?.json?.stringValue || '{}');
+    c.sum = budgetSum(core);
+    c.at = Date.now(); c.error = '';
+  }catch(e){ c.error = e.message; }
+  writeLocal();
+}
+/* 가계부 원본에서 이번 달 한 줄만 뽑습니다 */
+function budgetSum(core){
+  const items = core.items || [], cells = core.cells || {};
+  const now = new Date();
+  const key = `${core.year || now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  const sec = k => items.filter(i=>i.section===k)
+    .reduce((a,i)=> a + (+cells[`${i.id}|${key}`] || 0), 0);
+  const income = sec('income'), fixed = sec('fixed'), save = sec('save'), living = sec('living');
+  const spend = fixed + living;
+  return { key, income, spend, save, net: income - spend,
+           rate: income > 0 ? (income - spend) / income : 0 };
+}
+
 /* 📮 메일 알림 — 폰이 꺼져 있어도 받는 유일한 길.
    구글 앱스 스크립트가 30분마다 우리 방을 읽고 시세를 확인해 메일을 보냅니다.
    {ROOM}·{PID}·{KEY} 는 붙여넣기 전에 실제 값으로 바뀝니다. */
@@ -1659,7 +1693,8 @@ function ledRows(){
     const r = calc(h);
     return { owner:h.owner||'공동', cat:h.cat, name:h.name,
              acct:h.acct||'', atype:acctTypeOf(h), kind:kindOf(h),
-             value:Math.round(r.value), loan:Math.round(r.loan) };
+             value:Math.round(r.value), loan:Math.round(r.loan),
+             rate: h.cat==='debt' ? (+h.rate || 0) : 0 };   /* 가계부가 월 이자를 셈합니다 */
   }).filter(r=>r.value>0 || r.loan>0);
 }
 /* 달마다 금액표를 한 장씩 남겨 둡니다.
@@ -2494,6 +2529,7 @@ function viewHome(){
   const goalPct = goal>0 ? clamp(t.net/goal, 0, 1) : 0;
 
   const alarms = newAlerts();
+  const bs = state.bud?.sum;
 
   return `
   ${alarms.length? `<div class="card" style="border:1.5px solid var(--line2, #e6ddc9)">
@@ -2506,6 +2542,16 @@ function viewHome(){
           <div class="sb">${esc(a.body)}</div></div>
       </div>`).join('')}
     ${alarms.length>6? `<div class="tiny muted" style="padding:6px 2px 0">외 ${alarms.length-6}건</div>`:''}
+  </div>` : ''}
+
+  ${bs && bs.income > 0 ? `<div class="card tight" data-act="tab" data-tab="set" style="cursor:pointer">
+    <div class="between">
+      <div><div class="tiny muted">🧾 가계부 ${+bs.key.slice(5)}월</div>
+        <div style="font-size:13px;font-weight:800">
+          이번 달 <b class="num">${shortWon(bs.net)}원</b> 남았어요
+          <span class="tiny muted">· 저축률 ${(bs.rate*100).toFixed(0)}%</span></div></div>
+      <div class="right tiny muted">수입 ${shortWon(bs.income)}<br>지출 ${shortWon(bs.spend)}</div>
+    </div>
   </div>` : ''}
 
   <div class="hero">
@@ -3873,6 +3919,18 @@ function viewSet(){
         아래 <b>요약 복사</b> 를 눌러 가계부에 붙여넣으세요.
     </div>
     <button class="btn block mt" data-act="copyLed">📋 가계부에 붙여넣을 요약 복사</button>
+    ${(()=>{ const c = state.bud || {};
+      return c.room ? `<div class="note mt" style="line-height:1.8">
+          🧾 가계부 방을 <b>읽는 중</b>입니다 — 한눈에 화면에 이번 달 한 줄이 뜹니다.
+          ${c.error? `<br><span class="up">⚠️ ${esc(c.error)}</span>` : c.at? `<br><span class="tiny">마지막 확인 ${timeAgo(c.at)}</span>`:''}
+          <div class="row mt" style="gap:6px">
+            <button class="btn ghost sm" style="flex:1" data-act="budRefresh">🔄 다시 읽기</button>
+            <button class="btn ghost sm" style="flex:1" data-act="budOff">끊기</button>
+          </div></div>`
+        : `<button class="btn ghost block mt" data-act="budLink">🔗 가계부 초대 링크로 연결</button>
+           <div class="tiny muted mt" style="line-height:1.7">
+             연결하면 <b>한눈에</b> 화면에 이번 달 수입·지출·저축률이 한 줄로 뜹니다.
+             자산 앱도 가계부 방을 <b>읽기만</b> 합니다.</div>`; })()}
     <div class="tiny muted mt" style="line-height:1.7">
       복사한 뒤 <b>홈 화면 가계부 앱</b> → 💎 자산 탭 → <b>📋 붙여넣어 가져오기</b> 에 넣으면 됩니다.
       ${state.sync?.enabled ? '' : '금액이 바뀔 때마다 다시 복사해 주세요 — 위에서 <b>배우자와 함께 보기</b>를 켜면 저절로 맞춰집니다.'}
@@ -4197,7 +4255,7 @@ function openJoinPrompt(){
    시세·코인목록 같은 캐시는 빼서 가볍게 만듭니다.
    ============================================================ */
 const BACKUP_KEYS = ['v','settings','holdings','accts','divs','diary','memo',
-                     'sync','relayUrl','sheet','fx','snap','alert','targets','msnap'];
+                     'sync','relayUrl','sheet','fx','snap','alert','targets','msnap','bud'];
 function backupText(){
   const o = { _app:'myAssets', _at:Date.now() };
   BACKUP_KEYS.forEach(k=>{ if(state[k] !== undefined) o[k] = state[k]; });
@@ -4692,6 +4750,31 @@ document.addEventListener('click', async ev=>{
     render();
     toast(r==='granted' ? '이제 폰 알림도 띄웁니다' : '허락하지 않으면 앱 안에서만 보여 드려요');
     break; }
+  case 'budLink': openModal(`
+    <div class="mhead"><h3>🧾 가계부와 연결</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted" style="margin:-6px 0 10px;line-height:1.8">
+      가계부 앱 ⚙️ → <b>부부가 함께 쓰기</b> → <b>🔗 초대 링크 복사</b> 한 것을 붙여넣으세요.
+      가계부에서 아직 공유를 안 켰다면 거기서 먼저 켜 주셔야 합니다.
+    </div>
+    <div class="f"><textarea id="budText" style="min-height:90px;font-size:11px"
+      placeholder="https://soengu-lang.github.io/jinju-birthday/household-budget/#join=..."></textarea></div>
+    <button class="btn block" data-act="budGo">연결하기</button>
+    <div class="tiny muted mt" style="line-height:1.7">자산 앱은 가계부 방을 <b>읽기만</b> 합니다.</div>`);
+    break;
+  case 'budGo': {
+    const t = ($('#budText')?.value||'').trim();
+    const mm = t.match(/join=([A-Za-z0-9_\-]+)/);
+    let v = null;
+    if(mm){ try{ v = JSON.parse(b64d(mm[1])); }catch(e){} }
+    if(!v?.k || !v?.p || !v?.r){ toast('초대 링크를 읽지 못했어요 — 잘리지 않았는지 봐 주세요'); break; }
+    state.bud = { apiKey:v.k, projectId:v.p, room:v.r, at:0, sum:null, error:'' };
+    save(false); closeModal();
+    await fetchBudget(); render();
+    toast(state.bud.error ? state.bud.error : '가계부를 읽어왔어요');
+    break; }
+  case 'budRefresh': await fetchBudget(); render();
+    toast(state.bud?.error || '가계부를 다시 읽었어요'); break;
+  case 'budOff': state.bud = null; save(false); render(); toast('가계부 연결을 끊었어요'); break;
   case 'mailAlert': openMailAlert(); break;
   case 'copyMailCode': {
     const t = mailCode();
@@ -4921,6 +5004,7 @@ function startPriceTimer(){
   }, m*60000);
 }
 if(state.holdings.length) refreshPrices();
+if(state.bud?.room) fetchBudget().then(render);
 startPriceTimer();
 document.addEventListener('visibilitychange', ()=>{
   if(document.hidden) return;

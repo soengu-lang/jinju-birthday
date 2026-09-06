@@ -1082,6 +1082,120 @@ function invPlanOf(rows){
   }).sort((a,b)=>b.sum-a.sum);
 }
 
+/* ============================================================
+   🏦 연금·ISA 한도 — 연말정산에서 실제로 돈이 되는 자리
+   ------------------------------------------------------------
+   세법은 바뀌니 한도는 ⚙️ 에서 고칠 수 있게 해 두었습니다.
+   ============================================================ */
+const LIMIT_DEFAULT = { pension:6000000, pensionIrp:9000000, isa:20000000 };
+const limitsOf = () => ({ ...LIMIT_DEFAULT, ...(state.limits || {}) });
+/* 항목 이름으로 골라 올해 납입액을 셈합니다 */
+function yearSumOf(re){
+  return itemsOf('save').filter(i=>re.test(i.name))
+    .reduce((s,i)=>s + yearTotal(i.id), 0);
+}
+function limitStatus(){
+  const L = limitsOf();
+  const irp     = yearSumOf(/연금|IRP|퇴직/i);
+  const isa     = yearSumOf(/ISA/i);
+  const rows = [
+    { k:'pensionIrp', label:'연금저축 + IRP', now:irp, cap:L.pensionIrp,
+      why:'합쳐서 세액공제를 받는 한도예요' },
+    { k:'isa', label:'ISA', now:isa, cap:L.isa,
+      why:'납입 한도(세액공제가 아니라 비과세 혜택)' },
+  ].filter(r=>r.cap > 0);
+  rows.forEach(r=>{ r.left = Math.max(0, r.cap - r.now); r.pct = r.cap? Math.min(1, r.now/r.cap) : 0; });
+  return rows;
+}
+
+function openLimits(){
+  const L = limitsOf();
+  openModal(`<div class="modal">
+    <div class="mhead"><h3>🏦 한도 고치기</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted" style="line-height:1.8;margin-bottom:10px">
+      세법이 바뀌면 여기서 고쳐 주세요. 비워 두면 그대로 둡니다.
+    </div>
+    <div class="field"><label>연금저축 + IRP 세액공제 한도</label>
+      <input id="limPen" inputmode="text" value="${num(L.pensionIrp)}" placeholder="예: 900만"></div>
+    <div class="field"><label>ISA 연 납입 한도</label>
+      <input id="limIsa" inputmode="text" value="${num(L.isa)}" placeholder="예: 2000만"></div>
+    <button class="btn block" data-act="limitSave">저장</button>
+    <button class="btn ghost block" style="margin-top:8px" data-act="limitReset">기본값으로</button>
+    <div class="tiny muted" style="margin-top:8px;line-height:1.7">
+      기본값은 연금저축+IRP <b>900만원</b>(연금저축만은 600만원까지),
+      ISA 연 <b>2,000만원</b> 입니다.
+    </div>
+  </div>`);
+}
+
+/* ============================================================
+   🔎 넣은 돈 vs 자산 증가 — 두 앱이 서로를 검산합니다
+   ------------------------------------------------------------
+   가계부에 '주식 매수 30만'을 적었는데 자산이 그만큼 안 늘었다면
+   기록이 빠졌거나 시세가 빠진 것입니다. 갈라서 보여 줍니다.
+   ============================================================ */
+function saveVsAssets(key){
+  const M = (state.inv && state.inv.months) || {};
+  const keys = assetKeys();
+  const i = keys.indexOf(key);
+  if(i < 1) return null;                       /* 'init' 이나 첫 달은 견줄 지난 달이 없습니다 */
+  const prevKey = keys[i-1];
+  if(!M[key]?.rows || !M[prevKey]?.rows) return null;
+  const sum = rows => rows.reduce((a,r)=>
+    a + (r.cat === 'debt' ? -(+r.loan||0) : (+r.value||0)), 0);
+  const now = sum(M[key].rows), was = sum(M[prevKey].rows);
+  const grew = now - was;                      /* 순자산이 얼마나 늘었나 */
+  const put  = sectionTotal('save', key);      /* 내가 넣은 돈 */
+  return { key, prevKey, now, was, grew, put, market: grew - put };
+}
+
+/* ============================================================
+   💳 대출을 한 곳에서 — 자산 앱의 대출을 그대로 비춰 줍니다
+   ------------------------------------------------------------
+   전에는 잔액을 자산 앱과 가계부 두 곳에 따로 적어야 해서
+   쉽게 어긋났습니다. 이제 자산 앱 것을 받아 맞출 수 있습니다.
+   ============================================================ */
+const invDebts = () => ((state.inv?.enabled && state.inv.rows) || [])
+  .filter(r => r.cat === 'debt' && +r.loan > 0);
+/* 이름이 비슷한 가계부 대출을 찾습니다.
+   '주택대출' 과 '미래에셋 주택' 처럼 한쪽이 다른 쪽을 통째로 품지 않아도
+   사람 눈에는 같은 대출입니다. 가장 길게 겹치는 토막으로 견줍니다. */
+const LOAN_GENERIC = ['대출','상환','원리금','신용','담보','은행','뱅크'];
+function overlapLen(a, b){
+  let best = 0;
+  for(let i=0;i<a.length;i++){
+    for(let j=i+best+1;j<=a.length;j++){
+      const piece = a.slice(i,j);
+      if(!b.includes(piece)) break;
+      if(piece.length > best && !LOAN_GENERIC.includes(piece)) best = piece.length;
+    }
+  }
+  return best;
+}
+function loanMatch(r){
+  const n = String(r.name||'').replace(/\s/g,'');
+  if(!n) return null;
+  let best = null, score = 0;
+  (state.loans||[]).forEach(l=>{
+    const m = String(l.name||'').replace(/\s/g,'');
+    const bank = String(l.bank||'').replace(/\s/g,'');
+    const sc = Math.max(overlapLen(n, m), bank ? overlapLen(n, bank) : 0);
+    if(sc > score){ score = sc; best = l; }
+  });
+  return score >= 2 ? best : null;      /* 두 글자 넘게 겹쳐야 같은 대출로 봅니다 */
+}
+/* 자산 앱 대출 → 가계부 대출 맞추기 계획 */
+function loanPlan(){
+  return invDebts().map(r=>{
+    const l = loanMatch(r);
+    const rate = +r.rate || (l ? (+l.rate||0)*100 : 0);      /* 자산 앱은 %, 가계부는 소수 */
+    return { r, l, bal:Math.round(+r.loan||0), rate,
+             interest: Math.round((+r.loan||0) * rate / 100 / 12),
+             same: l && Math.round(+l.balance||0) === Math.round(+r.loan||0) };
+  });
+}
+const loanPlanInterest = () => loanPlan().reduce((a,x)=>a+x.interest, 0);
+
 /* 📅 달마다 받아 둔 금액표로 '빈 달'을 채웁니다.
    이미 적어 두신 칸은 절대 건드리지 않습니다 — 빈 칸만 채워요. */
 function invMonthFill(dry){
@@ -1160,6 +1274,34 @@ function invCard(key){
               : ''}
       </div>`;
     }).join('')}
+    ${(()=>{ const sv = saveVsAssets(key); if(!sv) return '';
+      const cls = v => v > 0 ? 'income' : v < 0 ? 'spend' : '';
+      const gap = sv.put - sv.grew;
+      return `<div class="pad" style="padding-top:0">
+        <div class="box">
+          <div style="font-size:12.5px;font-weight:800;color:var(--navy)">🔎 넣은 돈과 자산 증가</div>
+          <div class="tiny" style="margin-top:5px;line-height:1.9">
+            <div class="row" style="justify-content:space-between">
+              <span class="muted">가계부에 적은 <b>저축·투자</b></span>
+              <b class="num">${num(sv.put)}원</b></div>
+            <div class="row" style="justify-content:space-between">
+              <span class="muted">자산 앱 순자산 늘어난 만큼</span>
+              <b class="num" style="color:var(--${cls(sv.grew)||'navy'})">${sv.grew>=0?'+':''}${num(sv.grew)}원</b></div>
+            <div class="row" style="justify-content:space-between;border-top:1px solid var(--line);margin-top:4px;padding-top:4px">
+              <span class="muted">차이 — 시세로 ${sv.market>=0?'번':'잃은'} 돈</span>
+              <b class="num" style="color:var(--${cls(sv.market)||'navy'})">${sv.market>=0?'+':''}${num(sv.market)}원</b></div>
+          </div>
+          <div class="tiny muted" style="margin-top:6px;line-height:1.7">
+            ${Math.abs(gap) < 10000
+              ? '넣은 돈과 자산 증가가 얼추 맞아요.'
+              : sv.market < 0
+                ? `${num(sv.put)}원을 넣었는데 순자산은 ${num(sv.grew)}원 늘었어요 —
+                   차이는 <b>시세가 빠진 만큼</b>입니다.`
+                : `넣은 돈보다 <b>${num(sv.market)}원</b> 더 늘었어요 —
+                   시세가 올랐거나, 넣은 돈을 덜 적으셨을 수 있어요.`}
+          </div>
+        </div></div>`; })()}
+
     ${(()=>{ const f = invMonthFill(true); if(!f.months) return '';
       return `<div class="pad" style="padding-top:0">
         <div class="box">
@@ -1637,6 +1779,36 @@ function viewAsset(){
 
     ${invCard(cur)}
 
+    ${(()=>{ const rows = limitStatus(); if(!rows.some(r=>r.now > 0)) return '';
+      const m = new Date().getMonth()+1;
+      return `<div class="card" style="margin-top:12px">
+        <div class="sec-head"><div class="t">🏦 연금·ISA 한도 <span class="tiny muted" style="font-weight:600">${state.year}년</span></div>
+          <button class="chip line" data-act="limitEdit">한도 고치기</button></div>
+        <div class="pad" style="padding-top:2px">
+          ${rows.map(r=>`
+            <div style="padding:7px 0;border-top:1px solid var(--line)">
+              <div class="row" style="justify-content:space-between;align-items:baseline">
+                <div style="font-weight:800;font-size:13px">${esc(r.label)}</div>
+                <div class="tiny ${r.left? 'muted':''}" style="font-weight:800">
+                  ${r.left? `${num(r.left)}원 남음` : '한도 다 채웠어요 👍'}</div>
+              </div>
+              <div style="height:7px;background:#eceae4;border-radius:4px;overflow:hidden;margin-top:4px">
+                <div style="height:100%;width:${(r.pct*100).toFixed(1)}%;background:${r.left? 'var(--navy)':'var(--income)'}"></div>
+              </div>
+              <div class="tiny muted" style="margin-top:3px">
+                올해 ${num(r.now)}원 / ${num(r.cap)}원 · ${esc(r.why)}</div>
+            </div>`).join('')}
+          ${m >= 10 && rows.some(r=>r.left > 0) ? `<div class="note" style="margin-top:9px">
+            📅 <b>연말까지 ${13-m}달</b> 남았어요. 한도를 채우시려면
+            달마다 ${rows.filter(r=>r.left>0).map(r=>`${esc(r.label)} ${num(Math.ceil(r.left/(13-m)))}원`).join(' · ')}
+            씩 넣으면 됩니다.</div>`:''}
+          <div class="tiny muted" style="margin-top:8px;line-height:1.7">
+            💎 저축·투자 항목 중 이름에 <b>연금·IRP·퇴직</b> / <b>ISA</b> 가 든 것을 더했습니다.
+            세법이 바뀌면 <b>한도 고치기</b> 로 바꿔 주세요.
+          </div>
+        </div>
+      </div>`; })()}
+
     ${owners.map(o=>{
       const rows = ownerRows(o);
       if(!rows.length && o==='부채') return '';
@@ -1766,6 +1938,35 @@ function viewFixed(){
         <b>${bigWon(loanBalance())}원 · 월 ${num(loanMonthly())}원</b></div>`:''}
     </div>
     <button class="btn ghost block sm" style="margin-top:10px" data-act="editLoan">＋ 대출 추가</button>
+
+    ${(()=>{ const lp = loanPlan(); if(!lp.length) return '';
+      const diff = lp.filter(x=>!x.same);
+      const iv = loanPlanInterest();
+      return `<div class="card" style="margin-top:12px">
+        <div class="sec-head"><div class="t">📊 자산 앱 대출 <span class="tiny muted" style="font-weight:600">${lp.length}건</span></div></div>
+        ${lp.map(x=>`<div class="line-item" style="cursor:default">
+          <div class="grow"><div class="nm">${esc(x.r.name)}</div>
+            <div class="sub">${x.l ? `가계부 <b>${esc(x.l.name)}</b> 와 짝` : '가계부에 짝이 없어요'}
+              ${x.rate? ` · 연 ${x.rate.toFixed(2)}%` : ' · 금리 안 적음'}</div></div>
+          <div style="text-align:right">
+            <div class="val">${bigWon(x.bal)}</div>
+            <div class="tiny muted">${x.l && !x.same ? `가계부 ${bigWon(+x.l.balance||0)}` 
+              : x.interest ? `월 이자 ${num(x.interest)}원` : ''}</div></div>
+        </div>`).join('')}
+        <div class="sec-foot" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          ${diff.length
+            ? `<button class="chip" data-act="loanSync">${
+                diff.every(x=>x.l) ? `잔액 ${diff.length}건 맞추기`
+                : `${diff.length}건 맞추기 (짝 없는 ${diff.filter(x=>!x.l).length}건은 새로 만듭니다)`}</button>`
+            : '<span class="tiny muted">잔액이 다 맞아요</span>'}
+          ${iv? `<span class="tiny muted">자산 앱 기준 월 이자 <b>${num(iv)}원</b></span>`:''}
+        </div>
+        <div class="pad tiny muted" style="padding-top:0;line-height:1.7">
+          잔액·금리는 <b>자산 앱의 💳 대출·부채</b> 에 적은 값입니다. 거기서 한 번만 고치면
+          여기로 따라옵니다. 짝이 없으면 <b>가계부 대출을 새로 만들어</b> 드려요.
+          월 이자는 <b>잔액 × 연 금리 ÷ 12</b> 로 어림한 값이라 실제 청구액과 다를 수 있어요.
+        </div>
+      </div>`; })()}
 
     ${viewAnnuals()}
   </section>`;
@@ -3139,6 +3340,31 @@ document.addEventListener('click', async (e)=>{
     save(); render(); toast(`${assetKeyLabel(ui.aKey)} 값을 ${num(v)}원으로 맞췄어요`);
     break;
   }
+  case 'limitEdit': openLimits(); break;
+  case 'limitSave': {
+    const g = id => { const v = parseAmount($(id)?.value); return isFinite(v) && v >= 0 ? v : undefined; };
+    const L = { ...limitsOf() };
+    const a = g('#limPen'), c = g('#limIsa');
+    if(a !== undefined) L.pensionIrp = a;
+    if(c !== undefined) L.isa = c;
+    state.limits = L; save(); closeModal(); render(); toast('한도를 바꿨어요');
+    break; }
+  case 'limitReset': state.limits = null; save(); closeModal(); render(); toast('기본 한도로 되돌렸어요'); break;
+  case 'loanSync': {
+    let upd = 0, add = 0;
+    loanPlan().forEach(x=>{
+      if(x.same) return;
+      if(x.l){ x.l.balance = x.bal; if(!x.l.rate && x.rate) x.l.rate = x.rate/100; upd++; }
+      else {
+        (state.loans = state.loans || []).push({ id:uid(), name:x.r.name, bank:'', kind:'',
+          balance:x.bal, rate: x.rate? x.rate/100 : 0, monthly:0, priority:0,
+          memo:'자산 앱에서 가져옴', owner: x.r.owner==='부채'? '' : (x.r.owner||'') });
+        add++;
+      }
+    });
+    save(); render();
+    toast(`${upd? `${upd}건 잔액을 맞췄어요`:''}${upd&&add?' · ':''}${add? `${add}건을 새로 만들었어요`:''}` || '바꿀 게 없었어요');
+    break; }
   case 'invFillMonths': {
     const r = invMonthFill(false);
     if(!r.filled){ toast('채울 빈 칸이 없어요'); break; }
@@ -3519,7 +3745,7 @@ async function fsPut(path, json, rev){
     body: JSON.stringify({ fields:{ json:{stringValue:json}, rev:{integerValue:String(rev)}, by:{stringValue:DEVICE} } }) });
   if(!r.ok) throw new Error(await fsErr(r));
 }
-const CORE_KEYS = ['year','settings','items','cells','entries','assetRows','assetCells',
+const CORE_KEYS = ['year','settings','items','cells','entries','assetRows','assetCells','limits',
                    'fixed','loans','goal','habits','habitLog','memo',
                    'pays','itemPay','stmt','stmtFill','payeeMap','annuals'];
 function corePayload(){
