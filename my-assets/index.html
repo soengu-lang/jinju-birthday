@@ -1653,6 +1653,31 @@ const symOf = h => h.sym || (h.cat==='kr' ? h.code+'.KS' : h.code);
    가계부 앱이 읽어 갈 '계산이 끝난 금액표'를 만들어 둡니다.
    가계부에는 시세가 없으니, 원화로 환산된 값을 여기서 미리 적어 둡니다.
    ------------------------------------------------------------ */
+const MSNAP_KEEP = 13;                       /* 이번 달 + 지난 12달 */
+function ledRows(){
+  return activeHoldings().map(h=>{
+    const r = calc(h);
+    return { owner:h.owner||'공동', cat:h.cat, name:h.name,
+             acct:h.acct||'', atype:acctTypeOf(h), kind:kindOf(h),
+             value:Math.round(r.value), loan:Math.round(r.loan) };
+  }).filter(r=>r.value>0 || r.loan>0);
+}
+/* 달마다 금액표를 한 장씩 남겨 둡니다.
+   이번 달 것은 계속 새로 덮고, 달이 바뀌면 그대로 굳습니다.
+   가계부가 이걸 받아 '지난 달 칸'까지 채울 수 있습니다. */
+function takeMonthSnap(rows){
+  if(!rows.length) return;
+  const t = totals(activeHoldings());
+  if(t.missing) return;                      /* 시세가 덜 붙었으면 남기지 않습니다 */
+  const mk = iso(new Date()).slice(0,7);
+  state.msnap = state.msnap || {};
+  state.msnap[mk] = { at:Date.now(),
+    rows: rows.map(r=>({ owner:r.owner, cat:r.cat, name:r.name,
+                         atype:r.atype, value:r.value, loan:r.loan })) };
+  const keys = Object.keys(state.msnap).sort();
+  if(keys.length > MSNAP_KEEP)
+    keys.slice(0, keys.length - MSNAP_KEEP).forEach(k=>delete state.msnap[k]);
+}
 function buildLedger(){
   /* 배당은 수입이라 가계부의 '부수입'으로 갑니다 — 달마다 합쳐서 넘겨 둡니다 */
   const divs = {};
@@ -1661,16 +1686,9 @@ function buildLedger(){
     if(!/^\d{4}-\d{2}$/.test(m)) return;
     divs[m] = (divs[m]||0) + Math.round(divKrw(d));
   });
-  state.led = {
-    at: Date.now(),
-    divs,
-    rows: activeHoldings().map(h=>{
-      const r = calc(h);
-      return { owner:h.owner||'공동', cat:h.cat, name:h.name,
-               acct:h.acct||'', atype:acctTypeOf(h), kind:kindOf(h),
-               value:Math.round(r.value), loan:Math.round(r.loan) };
-    }).filter(r=>r.value>0 || r.loan>0)
-  };
+  const rows = ledRows();
+  takeMonthSnap(rows);
+  state.led = { at:Date.now(), divs, rows, months: state.msnap || {} };
 }
 /* 예전 버전에서 계좌마다 따로 저장돼 어긋난 시세를 한 번 정리합니다 */
 function healPrices(){
@@ -4035,7 +4053,7 @@ async function fsPut(path, json, rev){
   if(!r.ok) throw new Error(await fsErr(r));
 }
 /* 가계부 앱이 이 목록을 읽어 갑니다 — 이름을 바꾸지 마세요 */
-const CORE_KEYS = ['settings','holdings','accts','diary','divs','memo','led','alert','targets'];
+const CORE_KEYS = ['settings','holdings','accts','diary','divs','memo','led','alert','targets','msnap'];
 function corePayload(){
   const o = {}; CORE_KEYS.forEach(k=>o[k]=state[k]);
   return JSON.stringify(o);
@@ -4179,7 +4197,7 @@ function openJoinPrompt(){
    시세·코인목록 같은 캐시는 빼서 가볍게 만듭니다.
    ============================================================ */
 const BACKUP_KEYS = ['v','settings','holdings','accts','divs','diary','memo',
-                     'sync','relayUrl','sheet','fx','snap','alert','targets'];
+                     'sync','relayUrl','sheet','fx','snap','alert','targets','msnap'];
 function backupText(){
   const o = { _app:'myAssets', _at:Date.now() };
   BACKUP_KEYS.forEach(k=>{ if(state[k] !== undefined) o[k] = state[k]; });
@@ -4879,6 +4897,7 @@ state.settings.owners = state.settings.owners || ['진주','성우'];
 state.px = state.px || {};
 state.fx = state.fx || { v:0, at:0, src:'' };
 state.snap = state.snap || {};
+state.msnap = state.msnap || {};
 state.coins = state.coins || { list:[], at:0 };
 state.accts = state.accts || {};
 state.sheet = state.sheet || { url:'', at:0, error:'' };

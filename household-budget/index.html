@@ -964,7 +964,7 @@ const INV_CATS = [
 ];
 const invCat = k => INV_CATS.find(c=>c.k===k) || INV_CATS[7];
 /* divItem 은 일부러 넣지 않습니다 — 키가 있으면 '직접 고른 적 있음'으로 봅니다 */
-function blankInv(){ return { enabled:false, asked:false, mode:'local', room:'', rows:[], divs:{}, map:{}, at:0, error:'' }; }
+function blankInv(){ return { enabled:false, asked:false, mode:'local', room:'', rows:[], divs:{}, months:{}, map:{}, autoFill:false, at:0, error:'' }; }
 /* 배당을 받을 수입 항목 — 직접 고른 적이 있으면 그대로, 없으면 이름으로 찾습니다 */
 function invDivItem(){
   const V = state.inv || {};
@@ -1022,7 +1022,9 @@ async function refreshInvest(){
       led = readInvestLocal();
       if(!led) throw new Error('이 브라우저에는 자산 앱 기록이 없어요');
     }
-    V.rows = led.rows || []; V.divs = led.divs || {}; V.at = led.at || Date.now(); V.error = '';
+    V.rows = led.rows || []; V.divs = led.divs || {}; V.months = led.months || {};
+    V.at = led.at || Date.now(); V.error = '';
+    if(V.autoFill) invMonthFill(false);          /* 켜 두셨으면 빈 달을 저절로 */
   }catch(e){ V.error = e.message; }
   writeLocal();
   if(JSON.stringify(V.rows||[]) !== before) render();
@@ -1060,11 +1062,12 @@ function invRowTarget(r){
   return hit ? hit.id : '';
 }
 /* 반영할 것들을 항목별로 묶기 → [{ rowId, name, owner, sum, from:[] }] */
-function invPlan(){
-  const V = state.inv;
-  if(!V?.enabled || !V.rows?.length) return [];
+const invPlan = () => invPlanOf(state.inv?.enabled ? state.inv.rows : null);
+/* 달마다 받아 둔 금액표로도 같은 계산을 할 수 있게 rows 를 받습니다 */
+function invPlanOf(rows){
+  if(!rows?.length) return [];
   const g = {};
-  V.rows.forEach(r=>{
+  rows.forEach(r=>{
     /* 대출은 남은 금액이 그대로 부채 칸으로 갑니다 */
     const amt = r.cat === 'debt' ? (+r.loan || 0) : (+r.value || 0);
     if(!(amt > 0)) return;
@@ -1077,6 +1080,29 @@ function invPlan(){
     const row = state.assetRows.find(y=>y.id===x.rowId);
     return { ...x, name: row? row.name : '', owner: row? row.owner : '', ok: !!row };
   }).sort((a,b)=>b.sum-a.sum);
+}
+
+/* 📅 달마다 받아 둔 금액표로 '빈 달'을 채웁니다.
+   이미 적어 두신 칸은 절대 건드리지 않습니다 — 빈 칸만 채워요. */
+function invMonthFill(dry){
+  const M = (state.inv && state.inv.months) || {};
+  const keys = assetKeys();
+  const done = [];
+  let filled = 0;
+  Object.keys(M).sort().forEach(mk=>{
+    if(!keys.includes(mk)) return;                 /* 올해 표에 없는 달은 건너뜁니다 */
+    const rows = M[mk]?.rows;
+    if(!rows?.length) return;
+    let n = 0;
+    invPlanOf(rows).forEach(p=>{
+      if(!p.ok) return;
+      if(assetRaw(p.rowId, mk) !== undefined) return;   /* 적어 두신 값은 그대로 */
+      if(!dry) state.assetCells[`${p.rowId}|${mk}`] = Math.round(p.sum);
+      n++;
+    });
+    if(n){ filled += n; done.push({ mk, n }); }
+  });
+  return { filled, done, months: Object.keys(M).filter(k=>keys.includes(k)).length };
 }
 
 /* 💎 자산 탭 맨 위에 뜨는 '자산 앱' 카드 */
@@ -1134,6 +1160,23 @@ function invCard(key){
               : ''}
       </div>`;
     }).join('')}
+    ${(()=>{ const f = invMonthFill(true); if(!f.months) return '';
+      return `<div class="pad" style="padding-top:0">
+        <div class="box">
+          <div style="font-size:12.5px;font-weight:800;color:var(--navy)">📅 달마다 남겨 둔 금액표 ${f.months}개월치</div>
+          <div class="tiny muted" style="margin-top:4px;line-height:1.7">
+            ${f.filled
+              ? `아직 비어 있는 <b>${f.filled}개 칸</b>(${f.done.map(d=>+d.mk.slice(5)+'월').join('·')})을 채울 수 있어요.
+                 <b>이미 적어 두신 값은 건드리지 않습니다.</b>`
+              : '빈 칸이 없어요 — 지난 달들이 다 채워져 있습니다.'}
+          </div>
+          <div class="row wrap" style="margin-top:8px">
+            ${f.filled? `<button class="chip" data-act="invFillMonths">빈 달 ${f.filled}칸 채우기</button>`:''}
+            <button class="chip ${V.autoFill?'':'line'}" data-act="invAutoFill">
+              ${V.autoFill?'✓ ':''}달 바뀌면 저절로</button>
+          </div>
+        </div></div>`; })()}
+
     <div class="sec-foot" style="padding:10px 12px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
       ${diffs.length? `<button class="chip" data-act="invApplyAll" data-key="${esc(key)}">${assetKeyLabel(key)}에 모두 반영 (${diffs.length})</button>`
                     : '<span class="tiny muted">모두 반영되어 있어요</span>'}
@@ -3065,7 +3108,8 @@ document.addEventListener('click', async (e)=>{
     if(!Array.isArray(led?.rows)){ toast('요약을 읽지 못했어요 — 잘리지 않았는지 봐 주세요'); break; }
     const V = state.inv = state.inv || blankInv();
     V.enabled = true; V.asked = true; V.mode = 'paste';
-    V.rows = led.rows; V.divs = led.divs || {}; V.at = led.at || Date.now(); V.error = '';
+    V.rows = led.rows; V.divs = led.divs || {}; V.months = led.months || {};
+    V.at = led.at || Date.now(); V.error = '';
     save(); closeModal(); render();
     toast(`자산 ${led.rows.length}줄을 가져왔어요`);
     break; }
@@ -3095,6 +3139,19 @@ document.addEventListener('click', async (e)=>{
     save(); render(); toast(`${assetKeyLabel(ui.aKey)} 값을 ${num(v)}원으로 맞췄어요`);
     break;
   }
+  case 'invFillMonths': {
+    const r = invMonthFill(false);
+    if(!r.filled){ toast('채울 빈 칸이 없어요'); break; }
+    save(); render();
+    toast(`${r.done.length}개 달 · ${r.filled}개 칸을 채웠어요`);
+    break; }
+  case 'invAutoFill': {
+    const V = state.inv = state.inv || blankInv();
+    V.autoFill = !V.autoFill;
+    if(V.autoFill) invMonthFill(false);
+    save(); render();
+    toast(V.autoFill ? '달이 바뀌면 빈 칸을 저절로 채울게요' : '자동 채우기를 껐어요');
+    break; }
   case 'invApplyAll': {
     const key = b.dataset.key || ui.aKey;
     let n = 0;
