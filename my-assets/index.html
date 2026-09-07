@@ -55,7 +55,8 @@ h1{font-size:clamp(17px,4.6vw,22px);font-weight:900;letter-spacing:-.03em;margin
 @keyframes sp{to{transform:rotate(360deg)}}
 
 /* ---------- tabs ---------- */
-nav.tabs{position:sticky;top:0;z-index:30;background:var(--bg);padding:10px 0 8px;
+/* 홈 화면 앱은 시계·배터리 줄이 화면 위를 덮습니다 — 그 아래로 내립니다 */
+nav.tabs{position:sticky;top:0;z-index:30;background:var(--bg);padding:calc(10px + env(safe-area-inset-top)) 0 8px;
   box-shadow:0 6px 14px -12px rgba(0,0,0,.4)}
 .tabbar{display:flex;gap:4px;background:var(--soft);border-radius:14px;padding:4px}
 .tabbar button{flex:1;padding:9px 4px;border-radius:11px;font-size:12.5px;font-weight:700;color:var(--brand-d);
@@ -273,7 +274,7 @@ nav.tabs{position:sticky;top:0;z-index:30;background:var(--bg);padding:10px 0 8p
 
 <main class="wrap"><div id="view"></div></main>
 
-<button class="btn fab" id="fab" data-act="tab" data-tab="add">＋ 담기</button>
+
 <div id="modalRoot"></div>
 <div id="toast"></div>
 
@@ -446,6 +447,10 @@ function shortWon(n){
   return (neg?'-':'')+s;
 }
 const pctS = (v,d=2) => (v>0?'+':'')+(v*100).toFixed(d).replace(/\.?0+$/,'')+'%';
+/* 화살표 뒤에는 부호 없이 — '▼+0.64%' 처럼 방향과 부호가 싸우지 않게 */
+const pctA = (v,d=2) => Math.abs(v*100).toFixed(d).replace(/\.?0+$/,'')+'%';
+/* 비중이 작다고 0% 로 보이면 없는 것처럼 읽힙니다 */
+const shareS = pct => pct <= 0 ? '0%' : pct < 1 ? '1% 미만' : pct.toFixed(0)+'%';
 const sgn = v => v>0 ? 'up' : (v<0 ? 'down' : 'flat');
 const arrow = v => v>0 ? '▲' : (v<0 ? '▼' : '–');
 
@@ -2600,7 +2605,7 @@ function holdRow(h){
     sub = (h.acct? `<b>${esc(h.acct)}</b> · ` : '') +
           (h.cat==='gold' ? goldQtyS(h.qty) : `${qtyS(h.qty,h.cat)}${c.unit}`) +
           ` · ${priceS(px.p, px.ccy)}` +
-          (r.dayRate ? ` <span class="${cls}">${arrow(r.dayRate)}${pctS(Math.abs(r.dayRate))}</span>` : '');
+          (r.dayRate ? ` <span class="${cls}">오늘 ${arrow(r.dayRate)}${pctA(r.dayRate)}</span>` : '');
   }
   const plCls = sgn(r.pl);
   if(h.cat === 'debt'){
@@ -2642,7 +2647,7 @@ function holdGroupRow(list){
   const sub = g.ready
     ? (h0.cat==='gold' ? goldQtyS(g.qty) : `${qtyS(g.qty,h0.cat)}${c.unit}`)
       + ` · ${priceS(g.px.p, g.px.ccy)}` +
-      (g.dayRate ? ` <span class="${cls}">${arrow(g.dayRate)}${pctS(Math.abs(g.dayRate))}</span>` : '')
+      (g.dayRate ? ` <span class="${cls}">오늘 ${arrow(g.dayRate)}${pctA(g.dayRate)}</span>` : '')
     : '시세 기다리는 중…';
   return `<div class="hold" data-act="openGroup" data-ids="${list.map(h=>h.id).join(',')}">
     <div class="ic" style="background:${c.color}1f;color:${c.color}">${c.emo}</div>
@@ -2671,7 +2676,8 @@ function ownerChips(){
    5. 🏠 한눈에
    ============================================================ */
 function viewHome(){
-  const list = activeHoldings().filter(inOwner);
+  /* 부동산이 90% 라 나머지가 안 보일 때 — 금융자산만 떼어 봅니다 */
+  const list = activeHoldings().filter(inOwner).filter(h => !ui.fin || h.cat !== 'real');
   if(!list.length) return emptyHome();
   const t = totals(list);
   const parts = byAxis(list, ui.slice).filter(g=>g.value>0)
@@ -2710,13 +2716,18 @@ function viewHome(){
     </div>
   </div>` : ''}
 
+  <div class="chips" style="margin-bottom:8px">
+    <button class="chip ${ui.fin?'line':''}" data-act="finView" data-v="0">전체 자산</button>
+    <button class="chip ${ui.fin?'':'line'}" data-act="finView" data-v="1">금융자산만</button>
+    ${ui.fin? '<span class="tiny muted" style="align-self:center">부동산 뺀 금액</span>':''}
+  </div>
   <div class="hero">
-    <div class="lab">${ui.owner==='전체'?'우리집':esc(ui.owner)} 순자산 ${t.loan>0?'(대출 뺀 금액)':''}</div>
+    <div class="lab">${ui.owner==='전체'?'우리집':esc(ui.owner)} ${ui.fin?'금융자산':'순자산'} ${t.loan>0?'(대출 뺀 금액)':''}</div>
     <div class="big num">${bigWon(t.net)}<span style="font-size:.5em;font-weight:700"> 원</span></div>
     <div class="sub2">
       <span class="pill ${dayCls==='up'?'u':(dayCls==='down'?'d':'')}">${arrow(t.day)} 오늘 ${shortWon(Math.abs(t.day))}원</span>
       ${t.cost>0 ? `<span class="pill ${plCls==='up'?'u':(plCls==='down'?'d':'')}" style="margin-left:5px">
-        총수익 ${arrow(t.pl)} ${shortWon(Math.abs(t.pl))}원 (${pctS(t.plRate,1)})</span>`:''}
+        평가손익 ${arrow(t.pl)} ${shortWon(Math.abs(t.pl))}원 (${pctS(t.plRate,1)})</span>`:''}
     </div>
     <div class="hero-grid">
       <div><div class="k">총자산</div><div class="v num">${shortWon(t.value)}</div></div>
@@ -2755,6 +2766,26 @@ function viewHome(){
     </div>
   </div>
 
+  ${(()=>{ const w = whyChanged(); if(!w) return '';
+    const row = (k, v, hint) => `<div class="between" style="padding:4px 0;font-size:12.5px">
+      <span class="muted">${k}${hint? ` <span class="tiny">${hint}</span>`:''}</span>
+      <b class="num ${sgn(v)}">${v>=0?'+':'−'}${shortWon(Math.abs(v))}</b></div>`;
+    return `<div class="card">
+      <h2>이번 달 순자산이 왜 변했나 <span class="sub">${w.startK.slice(5)} → ${w.endK.slice(5)}</span></h2>
+      <div style="font-size:19px;font-weight:900;letter-spacing:-.03em" class="num ${sgn(w.total)}">
+        ${w.total>=0?'+':'−'}${shortWon(Math.abs(w.total))}원</div>
+      <div style="margin-top:6px;border-top:1px solid var(--line);padding-top:4px">
+        ${w.added? row('새로 담은 자산', w.added, w.bigAdds.length? `(${esc(w.bigAdds.slice(0,2).join(', '))}${w.bigAdds.length>2?' 등':''})`:'') : ''}
+        ${row('시세·환율로', w.market)}
+        ${w.edited? row('수량·금액 고친 만큼', w.edited) : ''}
+        ${w.removed? row('지운 자산', w.removed) : ''}
+        ${w.divs? `<div class="between tiny muted" style="padding:4px 0">
+          <span>받은 배당 (참고 · 위 합계엔 안 들어감)</span><b class="num">${shortWon(w.divs)}원</b></div>`:''}
+      </div>
+      ${Math.abs(w.added) > Math.abs(w.market) && w.added ? `<div class="tiny muted" style="margin-top:6px;line-height:1.7">
+        늘어난 것의 대부분은 <b>새로 담은 자산</b>입니다 — 번 게 아니라 <b>적어 넣은</b> 거예요.</div>`:''}
+    </div>`; })()}
+
   ${snaps.length>2 ? `<div class="card">
     <h2>순자산 추이 <span class="sub">최근 ${snaps.length}일 기록</span></h2>
     ${spark(snaps)}
@@ -2790,7 +2821,7 @@ function viewHome(){
       <span><b class="num">${state.fx?.v ? num(state.fx.v)+'원' : '—'}</b>
         ${(()=>{ const r = fxRate(); if(!r) return '';
           const d = state.fx.v - state.fx.prev;
-          return ` <span class="num ${sgn(r)}">${arrow(r)} ${num(Math.abs(d))} (${pctS(Math.abs(r))})</span>`;
+          return ` <span class="num ${sgn(r)}">${arrow(r)} ${num(Math.abs(d))} (${pctA(r)})</span>`;
         })()}
         <span class="muted"> ${esc(state.fx?.src||'')} ${timeAgo(state.fx?.at)}</span></span>
     </div>
@@ -2846,7 +2877,7 @@ function viewList(){
           <span class="muted" style="font-weight:600">${g.n}</span></div>
         <div class="gr num">${g.value===0 && g.loan>0
           ? `<span class="up">-${num(g.loan)}원</span>`
-          : `${won(g.value)} <span class="muted" style="font-weight:600">${pct.toFixed(0)}%</span>
+          : `${won(g.value)} <span class="muted" style="font-weight:600">${shareS(pct)}</span>
              ${g.cost>0? `<span class="${sgn(gc)}"> ${pctS(gc,1)}</span>`:''}`}</div>
       </div>
       ${g.value>0? `<div class="bar" style="margin-bottom:6px"><i style="width:${pct.toFixed(1)}%;background:${g.color}"></i></div>`:''}
@@ -2949,11 +2980,13 @@ function viewNote(){
             받은 기록이 있어서 <b>실제 금액</b>을 보여 드립니다.</div>` : ''}
         </div>
 
-        <div class="tiny muted" style="margin-top:9px;line-height:1.7">
+        <details style="margin-top:9px"><summary class="tiny muted" style="cursor:pointer;font-weight:700">계산 기준 보기</summary>
+        <div class="tiny muted" style="margin-top:6px;line-height:1.7">
+          받은 것은 <b>적어 두신 실제 입금액</b>, 예상은 <b>세전</b>입니다.
           <b>돈이 들어오는 달</b> 기준입니다. 받아 적으신 달이 있으면 그 달을 쓰고,
           없으면 기준월에 국내 2개월 · 미국 1개월을 더해 어림잡습니다.
           예상은 지난 1년 배당 기준 <b>세전</b>이에요. (원천징수 국내 15.4% · 미국 15%)
-        </div>`; })()}
+        </div></details>`; })()}
 
       <button class="btn block mt" data-act="divAdd">＋ 배당 받은 것 기록하기</button>
 
@@ -3395,6 +3428,17 @@ function openPasteForm(){
 }
 /* 📋 붙여넣기 — ② 알아들은 결과 고치기 */
 function openPastePreview(owner, working){
+  /* 다시 넣은 캡처인지 — 신규 / 바뀜 / 같음 으로 갈라 줍니다.
+     값이 그대로인 것은 기본으로 꺼서 같은 게 두 번 담기지 않게 합니다. */
+  const tally = { add:0, chg:0, same:0 };
+  pasteRows.forEach(r=>{
+    const dup = dupOf(r, lastPasteOwner, lastPasteAcct);
+    r.same = !!(dup && Math.abs((+dup.qty||0)-(+r.qty||0)) < 1e-9 && Math.abs((+dup.avg||0)-(+r.avg||0)) < 1e-6);
+    if(r.same && r.sameSeen === undefined){ r.use = false; r.sameSeen = true; }
+    if(!r.use) return;
+    if(!dup) tally.add++; else if(r.same) tally.same++; else tally.chg++;
+  });
+  const sameOff = pasteRows.filter(r=>r.same && !r.use).length;
   const catOpts = r => CATS.map(c=>
     `<option value="${c.k}" ${c.k===r.cat?'selected':''}>${c.emo} ${c.label}</option>`).join('');
   openModal(`
@@ -3403,7 +3447,14 @@ function openPastePreview(owner, working){
       ${esc(owner)} 명의${lastPasteAcct? ' · <b>'+esc(lastPasteAcct)+'</b> 계좌':''} · ${pasteRows.length}개를 찾았어요.
       ${working? '<span class="spin">↻</span> 모르는 종목을 찾아보는 중…' : '틀린 곳은 바로 고쳐 주세요.'}
     </div>
+    ${pasteRows.length ? `<div class="chips" style="margin:-4px 0 10px">
+      ${tally.add? `<span class="chip">신규 ${tally.add}</span>`:''}
+      ${tally.chg? `<span class="chip" style="background:var(--gold-s);color:#7a5a12">수량·평단 바뀜 ${tally.chg}</span>`:''}
+      ${sameOff? `<span class="chip line">이미 같은 값 ${sameOff} · 건너뜀</span>`:''}
+    </div>`:''}
     ${(()=>{ const on = pasteRows.filter(r=>r.use).length;
+      if(pasteRows.length && on === 0 && sameOff === pasteRows.length) return `<div class="note" style="margin-bottom:10px;line-height:1.8">
+        ✅ <b>전부 이미 같은 값으로 담겨 있어요.</b> 바뀐 게 없어 담을 것이 없습니다.</div>`;
       if(pasteRows.length && on === 0) return `<div class="note" style="margin-bottom:10px;line-height:1.8">
         ⚠️ <b>믿을 만한 줄이 없어요.</b> 이름을 못 읽고 숫자만 잡힌 것뿐이라
         체크를 모두 꺼 두었습니다 — 맞는 게 있으면 켜고 고쳐서 담아 주세요.<br>
@@ -3425,6 +3476,7 @@ function openPastePreview(owner, working){
             <label>평균단가<input class="pa" data-i="${i}" inputmode="decimal" value="${isFinite(r.avg)?r.avg:''}"></label>
             <label>코드·티커<input class="pk" data-i="${i}" value="${esc(r.code||'')}" placeholder="${r.cat==='kr'?'005930':'AAPL'}"></label>
           </div>
+          ${r.same ? `<div class="hint" style="margin-top:4px">이미 <b>같은 수량·평단</b>으로 담겨 있어요 — 그대로 두려면 꺼진 채로, 다시 담으려면 켜 주세요</div>`:''}
           ${r.ocrName && r.ocrName !== r.name ? `<div class="hint" style="margin-top:4px">
               📷 캡처에는 <b>${esc(r.ocrName)}</b> 로 찍혔는데 <b>${esc(r.name)}</b> 으로 알아봤어요${r.sure?'':' — 확실치 않으니 봐 주세요'}${r.check===true?' · 평가금액이 수량×현재가와 맞아 진짜 종목입니다':''}</div>`:''}
           ${r.check===false? '<div class="warn">⚠️ 평가금액이 수량×현재가와 안 맞아요 — 숫자가 잘못 짝지어진 듯해 꺼 두었습니다</div>'
@@ -3489,7 +3541,7 @@ function openHold(id){
       ${!amt? `<div class="between tiny mt" style="border-top:1px solid var(--line);padding-top:8px">
         <span class="muted">현재가</span>
         <span><b class="num">${r.ready? priceS(px.p,px.ccy) : '—'}</b>
-        ${r.dayRate? `<span class="num ${sgn(r.dayRate)}"> ${arrow(r.dayRate)}${pctS(Math.abs(r.dayRate))}</span>`:''}
+        ${r.dayRate? `<span class="num ${sgn(r.dayRate)}"> ${arrow(r.dayRate)}${pctA(r.dayRate)}</span>`:''}
         ${px.manual? '<span class="badge man">직접 입력</span>':''}</span></div>`:''}
       ${px.err? `<div class="tiny up mt">⚠️ ${esc(px.err)}</div>`:''}
       ${priceOdd(h)? `<div class="note mt" style="margin-bottom:0">
@@ -3675,7 +3727,7 @@ function openGroupModal(ids){
       <div class="between tiny" style="margin-top:4px">
         <span class="muted">현재가</span>
         <span><b class="num">${g.ready? priceS(g.px.p, g.px.ccy) : '—'}</b>
-          ${g.dayRate? `<span class="num ${sgn(g.dayRate)}"> ${arrow(g.dayRate)}${pctS(Math.abs(g.dayRate))}</span>`:''}</span>
+          ${g.dayRate? `<span class="num ${sgn(g.dayRate)}"> ${arrow(g.dayRate)}${pctA(g.dayRate)}</span>`:''}</span>
       </div>
     </div>
 
@@ -3848,7 +3900,7 @@ function viewSet(){
       <tr><td>마지막 갱신</td><td>${timeAgo(state.lastRefresh)}</td></tr>
       <tr><td>못 가져온 종목</td><td class="${state.lastFail?'up':''}">${state.lastFail||0}건</td></tr>
       <tr><td>원/달러</td><td>${state.fx?.v? num(state.fx.v)+'원 ('+esc(state.fx.src||'')+')' : '—'}
-        ${(()=>{ const r=fxRate(); return r? `<span class="${sgn(r)}"> ${arrow(r)}${pctS(Math.abs(r))}</span>`:''; })()}</td></tr>
+        ${(()=>{ const r=fxRate(); return r? `<span class="${sgn(r)}"> ${arrow(r)}${pctA(r)}</span>`:''; })()}</td></tr>
       <tr><td>직접 넣은 시세</td><td>${manualPriced().length? manualPriced().length+'개' : '없음'}</td></tr>
       <tr><td>연결 경로</td><td>${esc(RELAYS[state.relay|0]?.n || '직접')}</td></tr>
       <tr><td>담은 자산</td><td>${t.n}개</td></tr>
@@ -4278,7 +4330,7 @@ async function fsPut(path, json, rev){
   if(!r.ok) throw new Error(await fsErr(r));
 }
 /* 가계부 앱이 이 목록을 읽어 갑니다 — 이름을 바꾸지 마세요 */
-const CORE_KEYS = ['settings','holdings','accts','diary','divs','memo','led','alert','targets','msnap'];
+const CORE_KEYS = ['settings','holdings','accts','diary','divs','memo','led','alert','targets','msnap','changes'];
 function corePayload(){
   const o = {}; CORE_KEYS.forEach(k=>o[k]=state[k]);
   return JSON.stringify(o);
@@ -4422,7 +4474,7 @@ function openJoinPrompt(){
    시세·코인목록 같은 캐시는 빼서 가볍게 만듭니다.
    ============================================================ */
 const BACKUP_KEYS = ['v','settings','holdings','accts','divs','diary','memo',
-                     'sync','relayUrl','sheet','fx','snap','alert','targets','msnap','bud'];
+                     'sync','relayUrl','sheet','fx','snap','alert','targets','msnap','bud','changes'];
 function backupText(){
   const o = { _app:'myAssets', _at:Date.now() };
   BACKUP_KEYS.forEach(k=>{ if(state[k] !== undefined) o[k] = state[k]; });
@@ -4470,7 +4522,6 @@ function render(){
           : ui.tab==='add'  ? viewAdd()
           : viewSet();
   $('#view').innerHTML = v;
-  $('#fab').classList.toggle('hidden', ui.tab==='add' || ui.tab==='set' || ui.tab==='note');
   renderHeadMeta();
   const q = $('#q');
   if(q){ q.oninput = e => { ui.q = e.target.value; clearTimeout(doSearch._t);
@@ -4485,6 +4536,34 @@ const segPick = (wrapId, def) => {
 function addHolding(o){
   state.holdings.push({ id:uid(), at:Date.now(), ...o });
   save();
+}
+/* 자산이 왜 변했는지 — 수정·삭제는 여기 남기고, 새로 담은 것은 h.at 으로 압니다 */
+function logChange(t, h, dv){
+  if(!(Math.abs(dv) >= 1)) return;
+  state.changes = state.changes || [];
+  state.changes.push({ at:Date.now(), t, name:h.name||'', dv:Math.round(dv) });
+  if(state.changes.length > 500) state.changes = state.changes.slice(-500);
+}
+/* 이번 달 순자산 변화를 원인별로 가릅니다 */
+function whyChanged(){
+  const now = new Date(), ms = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const mk = iso(now).slice(0,7);
+  const keys = Object.keys(state.snap||{}).sort();
+  const inMonth = keys.filter(k=>k.slice(0,7)===mk);
+  const before = keys.filter(k=>k.slice(0,7) < mk).pop();
+  const startK = before || inMonth[0], endK = keys[keys.length-1];
+  if(!startK || !endK || startK === endK) return null;
+  const total = (state.snap[endK].net||0) - (state.snap[startK].net||0);
+  const added = activeHoldings().filter(h=>(+h.at||0) >= ms)
+    .reduce((a,h)=>{ const r = calc(h); return a + (r.value||0) - (r.loan||0); }, 0);
+  const ch = (state.changes||[]).filter(c=>c.at >= ms);
+  const edited = ch.filter(c=>c.t==='edit').reduce((a,c)=>a+c.dv, 0);
+  const removed = ch.filter(c=>c.t==='del').reduce((a,c)=>a+c.dv, 0);
+  const divs = (state.divs||[]).filter(d=>String(d.date||'').slice(0,7)===mk).reduce((a,d)=>a+divKrw(d), 0);
+  const market = total - added - edited - removed;
+  const bigAdds = activeHoldings().filter(h=>(+h.at||0) >= ms && Math.abs(calc(h).value||0) >= Math.abs(total)*0.2)
+    .map(h=>h.name);
+  return { startK, endK, total, added, edited, removed, market, divs, bigAdds };
 }
 
 document.addEventListener('click', async ev=>{
@@ -4622,6 +4701,7 @@ document.addEventListener('click', async ev=>{
         ? ((r.sym && r.sym.indexOf(r.code)===0) ? r.sym : r.code+'.KS')
         : (r.cat==='gold' ? (r.sym||'GC=F') : r.code);
       const dup = dupOf(r, owner, acct);
+      const dupBefore = dup ? (calc(dup).value||0) : 0;
       if(dup && r.mode==='merge'){
         /* 수량은 더하고, 평단은 수량으로 가중평균 */
         const q1 = +dup.qty||0, a1 = +dup.avg||0, q2 = r.qty, a2 = +r.avg||0;
@@ -4631,6 +4711,7 @@ document.addEventListener('click', async ev=>{
       }
       else if(dup){ dup.qty = r.qty; dup.avg = +r.avg||0; dup.sym = sym;
                     dup.name = r.name || dup.name; updated++; }
+      if(dup) logChange('edit', dup, (calc(dup).value||0) - dupBefore);
       else { addHolding({ cat:r.cat, code:r.code, sym, name:r.name||r.code, owner, acct,
                           qty:r.qty, avg:+r.avg||0 }); added++; }
     });
@@ -4685,6 +4766,7 @@ document.addEventListener('click', async ev=>{
   case 'saveHold': {
     const h = state.holdings.find(x=>x.id===id); if(!h) break;
     const amt = isAmountCat(h.cat);
+    const before = (calc(h).value||0) - (calc(h).loan||0);
     if(h.cat === 'debt'){
       const l = parseAmount($('#hLoan')?.value); h.loan = isFinite(l)? Math.abs(l) : 0;
       const rt = parseQty($('#hRate')?.value);   h.rate = isFinite(rt)? rt : 0;
@@ -4725,11 +4807,13 @@ document.addEventListener('click', async ev=>{
       h.notes.push({ date: iso(new Date()), text: note });
       addDiary(note, h.id);
     }
+    logChange('edit', h, ((calc(h).value||0) - (calc(h).loan||0)) - before);
     save(); closeModal(); render(); toast(note? '저장하고 기록에 남겼어요' : '저장했어요');
     break; }
   case 'delHold': {
     const h = state.holdings.find(x=>x.id===id); if(!h) break;
     if(!confirm(`'${h.name}' 을(를) 지울까요?`)) break;
+    logChange('del', h, -((calc(h).value||0) - (calc(h).loan||0)));
     state.holdings = state.holdings.filter(x=>x.id!==id);
     save(); closeModal(); render(); toast('지웠어요');
     break; }
@@ -4906,6 +4990,7 @@ document.addEventListener('click', async ev=>{
     if(state.sync.error){ toast(state.sync.error); runSyncDiag(); }
     else toast('연결했어요 — 초대 링크를 다른 기기에 붙여넣으세요');
     break; }
+  case 'finView': ui.fin = b.dataset.v === '1'; render(); break;
   case 'alertSeen': markAlertsSeen(); render(); toast('알림을 확인 표시했어요'); break;
   case 'alertToggle': { const c = alertCfg(); c.on = !c.on; save(false); render();
     toast(c.on? '알림을 켰어요' : '알림을 껐어요'); break; }
