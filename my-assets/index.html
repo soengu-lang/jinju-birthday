@@ -2237,7 +2237,18 @@ function applyNums(row, line, nums){
     else if(!isFinite(row.avg)) row.avg = v;
   });
 }
-const NOISE = /^(종목|종목명|종목코드|단축코드|코드|보유|잔고|수량|평균|평단|매입|매수|매도|현재가|현재가격|평가|손익|손익률|수익률|등락률|비중|계좌|합계|총계|주문|체결|가능|증거금|예수금|보유수량|보유량|보유주식|잔고수량|매수평균가|매입평균가|매입가|평균단가|평가금액|매입금액|평가손익|미실현손익|주문가능|전체|더보기|정렬|원화|KRW|USD|총자산|총평가금액)$/;
+const NOISE = /^(종목|종목명|종목코드|단축코드|코드|보유|잔고|수량|평균|평단|매입|매수|매도|현재가|현재가격|평가|손익|손익률|수익률|등락률|비중|계좌|합계|총계|주문|체결|가능|증거금|예수금|보유수량|보유량|보유주식|잔고수량|매수평균가|매입평균가|매입가|평균단가|평가금액|매입금액|평가손익|미실현손익|주문가능|전체|더보기|정렬|원화|KRW|USD|총자산|총평가금액|순자산|국가|구분|국내|해외|현금|통합|미국|외화|주식잔고|매매손익|일괄매도|비용포함|전체잔고|당일|실현손익|배당금|비고|자산|투자원금|손익금액|수익금)$/;
+/* 화면 위쪽 요약 줄 — 계좌 전체 금액이라 종목이 아닙니다.
+   '순자산 7,175,687' 같은 줄을 종목으로 담으면 수량이 717만 주가 됩니다. */
+const SUMMARY_LINE = /(매입금액|평가금액|순자산|총자산|투자원금|평가손익|실현손익|총평가|예수금|출금가능|주문가능|자산총액|수익률|손익률)/;
+/* 계좌번호 — 202-03-158259 처럼 생긴 것 */
+const ACCT_NO = /\d{2,4}\s*-\s*\d{2}\s*-\s*\d{4,8}/;
+/* 표 머리글 줄 (종목명 · 평가손익 · 잔고수량 …) */
+const HEADER_LINE = /^(?=.*(종목|국가|구분))(?=.*(수량|평가|손익|수익|현재가|매입)).{0,60}$/;
+/* 폰 위쪽 상태 표시줄 (10:22 · 배터리 · 통신사) */
+const STATUS_LINE = /^\s*\d{1,2}\s*[:：]\s*\d{2}\b/;
+/* 이름이랍시고 남은 게 글자 두 자도 안 되면 종목이 아닙니다 */
+const junkName = n => (String(n||'').replace(/[^가-힣A-Za-z]/g,'').length < 2);
 /* 낱말에서 숫자·기호를 뺀 알맹이 ('보유수량 0.05' → '보유수량') */
 const nameCore = t => String(t||'').replace(/[\d,.\s%+\-원$()]/g,'');
 /* '이건 종목 이름 같다' — 알맹이가 두 자 이상이고, 수량·평균 같은 말이 아닌 것 */
@@ -2316,8 +2327,15 @@ function parsePaste(text){
   const lines = String(text||'').split(/\r?\n/).map(l=>l.replace(/ /g,' ').trim()).filter(Boolean);
   let cur = null;
   const flush = () => { if(cur){ rows.push(cur); cur = null; } };
-  for(const line of lines){
+  for(const rawLine of lines){
+    /* ── 종목이 아닌 줄은 아예 들이지 않습니다 ──
+       캡처를 읽으면 계좌번호·요약·표 머리글이 섞여 들어오는데,
+       이걸 종목으로 담으면 '순자산 717만 주' 같은 게 만들어집니다. */
+    const line = rawLine.replace(ACCT_NO, ' ');       /* 계좌번호는 지웁니다 */
     if(NOISE.test(line)) continue;
+    if(STATUS_LINE.test(rawLine)) continue;           /* 10:22 … 시계·배터리 줄 */
+    if(SUMMARY_LINE.test(line)) continue;             /* 매입금액·평가금액·순자산 … */
+    if(HEADER_LINE.test(line)) continue;              /* 종목명 · 잔고수량 · 매입가 … */
     const cells = line.split(/\t+|\s{2,}|\|/).map(c=>c.trim()).filter(Boolean);
     const toks = cells.length>1 ? cells : line.split(/\s+/);
     /* 표 머리글처럼 전부 '수량·평균·현재가' 같은 말뿐이면 건너뜁니다 */
@@ -2331,7 +2349,11 @@ function parsePaste(text){
       /* 같은 종목이 이름·코드로 두 줄에 걸쳐 있으면 한 줄로 봅니다 */
       if(cur && cur.cat===hit.cat && cur.code===hit.code){ applyNums(cur, line, nums); cur.raw += ' / ' + line; continue; }
       flush();
-      cur = { ...hit, qty:NaN, avg:NaN, use:true, raw:line };
+      /* 이름은 못 읽고 6자리 숫자만 잡힌 줄은 '아마 아닐 것' 으로 봅니다.
+         캡처에서는 계좌번호·수수료·주문번호가 코드처럼 보이기 쉬워요. */
+      const named = toks.some(t => isNameWord(t) && !/^\d/.test(t));
+      const weak = hit.name === hit.code && !named;
+      cur = { ...hit, qty:NaN, avg:NaN, use:!weak, weak, raw:line };
       applyNums(cur, line, nums);
       continue;
     }
@@ -2339,7 +2361,9 @@ function parsePaste(text){
     const word = toks.filter(isNameWord).sort((a,b)=>b.length-a.length)[0];
     if(word && nums.filter(n=>n.unit!=='%').length >= 2){
       flush();
-      cur = { cat:'kr', code:'', sym:'', name:word.replace(/[\d,.%+\-$]/g,'').trim() || word,
+      const nm = word.replace(/[\d,.%+\-$]/g,'').trim() || word;
+      if(junkName(nm)) continue;                      /* '이 수 ]' 같은 건 이름이 아닙니다 */
+      cur = { cat:'kr', code:'', sym:'', name:nm,
               qty:NaN, avg:NaN, use:true, raw:line, guess:true };
       applyNums(cur, line, nums);
       continue;
@@ -2352,7 +2376,19 @@ function parsePaste(text){
     if(word) unknown.push(line);
   }
   flush();
-  return { rows: rows.filter(r=>isFinite(r.qty) && r.qty>0), unknown };
+  return { rows: rows.filter(r=>isFinite(r.qty) && r.qty>0 && sane(r)), unknown };
+}
+/* 말이 되는 줄인지 — 캡처를 읽으면 금액이 수량 자리로 들어오곤 합니다.
+   주식 700만 주에 평단 0원 같은 건 사람이 적을 리 없는 값입니다. */
+function sane(r){
+  const q = +r.qty || 0, a = +r.avg || 0;
+  if(r.cat === 'coin') return true;                     /* 코인은 소수점 수량이 정상 */
+  if(!isFinite(a) || a <= 0) return !!r.code;           /* 평단이 없으면 코드라도 있어야 */
+  if(r.cat === 'kr' || r.cat === 'us'){
+    if(q > 200000) return false;                        /* 주식 20만 주 넘게는 금액을 잘못 읽은 것 */
+    if(Number.isInteger(q) && q > 5000 && a > 100000) return false;  /* 수량·평단 둘 다 큰 건 금액 두 개 */
+  }
+  return true;
 }
 /* 이름만 알고 코드를 모르는 줄은 인터넷 검색으로 채워 봅니다 */
 async function resolvePasteRows(rows){
@@ -3247,7 +3283,14 @@ function openPastePreview(owner, working){
       ${esc(owner)} 명의${lastPasteAcct? ' · <b>'+esc(lastPasteAcct)+'</b> 계좌':''} · ${pasteRows.length}개를 찾았어요.
       ${working? '<span class="spin">↻</span> 모르는 종목을 찾아보는 중…' : '틀린 곳은 바로 고쳐 주세요.'}
     </div>
-    ${pasteRows.length ? `<div style="max-height:46vh;overflow-y:auto;margin-bottom:10px">
+    ${(()=>{ const on = pasteRows.filter(r=>r.use).length;
+      if(pasteRows.length && on === 0) return `<div class="note" style="margin-bottom:10px;line-height:1.8">
+        ⚠️ <b>믿을 만한 줄이 없어요.</b> 이름을 못 읽고 숫자만 잡힌 것뿐이라
+        체크를 모두 꺼 두었습니다 — 맞는 게 있으면 켜고 고쳐서 담아 주세요.<br>
+        <span class="tiny">증권사 잔고표는 한 종목이 두 줄로 나뉘어 있어 캡처로는 잘 안 읽힙니다.
+        <b>종목을 눌러 상세 화면</b>을 캡처하거나, 종목 이름·수량·평단만 직접 적으시는 게 빠릅니다.</span></div>`;
+      return ''; })()}
+    ${pasteRows.length ? `<div style="max-height:42vh;overflow-y:auto;margin-bottom:10px">
       ${pasteRows.map((r,i)=>{
         const dup = dupOf(r, lastPasteOwner, lastPasteAcct);
         const needCode = (r.cat==='kr'||r.cat==='us'||r.cat==='coin') && !r.code;
@@ -3262,7 +3305,8 @@ function openPastePreview(owner, working){
             <label>평균단가<input class="pa" data-i="${i}" inputmode="decimal" value="${isFinite(r.avg)?r.avg:''}"></label>
             <label>코드·티커<input class="pk" data-i="${i}" value="${esc(r.code||'')}" placeholder="${r.cat==='kr'?'005930':'AAPL'}"></label>
           </div>
-          ${needCode? '<div class="warn">⚠️ 코드를 몰라서 시세가 안 붙어요 — 적어 주거나 체크를 빼 주세요</div>':''}
+          ${r.weak? '<div class="warn">⚠️ 이름을 못 읽고 6자리 숫자만 잡혔어요 — 계좌번호일 수 있어 꺼 두었습니다</div>'
+            : needCode? '<div class="warn">⚠️ 코드를 몰라서 시세가 안 붙어요 — 적어 주거나 체크를 빼 주세요</div>':''}
           ${dup? `<div class="dup">
               <span>이미 있어요 (${esc(dup.acct||dup.owner||'')} ${qtyS(dup.qty,dup.cat)}${CAT(dup.cat).unit})</span>
               <button class="chip ${(r.mode||'over')==='over'?'on':'line'}" data-act="pMode" data-i="${i}" data-m="over">덮어쓰기</button>
@@ -3275,7 +3319,7 @@ function openPastePreview(owner, working){
       <summary class="tiny muted" style="cursor:pointer">못 알아들은 줄 ${pasteUnknown.length}개 보기</summary>
       <div class="praw" style="margin-top:6px">${esc(pasteUnknown.join('\n'))}</div>
     </details>`:''}
-    ${pasteRows.length? `<button class="btn block" data-act="pasteSave" data-owner="${esc(owner)}">
+    ${pasteRows.filter(r=>r.use).length? `<button class="btn block" data-act="pasteSave" data-owner="${esc(owner)}">
       ${pasteRows.filter(r=>r.use).length}개 담기</button>`:''}
     <button class="btn ghost block mt" data-act="pasteOpen">다시 붙여넣기</button>`);
 }
