@@ -505,9 +505,24 @@ const entriesOf = (itemId, key) => state.entries.filter(e=>e.itemId===itemId && 
 /* 🧊 냉장고 식단표에서 자동으로 넘어온 금액 (이 폰에서 계산, 직접 고칠 수 없음) */
 const linkVal = (itemId, key) =>
   (state.link?.enabled ? +((state.link.cells||{})[`${itemId}|${key}`]) || 0 : 0);
+/* 🔁 고정비·대출에 적어 둔 금액을 가계부 항목에 자동으로 넣는다.
+   · 그 달에 직접 적은 금액이나 상세 기록이 있으면 그쪽이 이긴다 (이중 계산 방지)
+   · 아직 오지 않은 달에는 넣지 않는다
+   · 고정비 금액을 고치면 아직 안 적은 달들은 바로 새 금액으로 바뀐다 */
+function fixedAutoVal(itemId, key){
+  if(state.autoFixed === false) return 0;
+  if(key > mk(nowMonthIdx())) return 0;
+  if(+state.cells[`${itemId}|${key}`]) return 0;
+  if(entriesOf(itemId, key).length) return 0;
+  let sum = 0;
+  (state.fixed||[]).forEach(f=>{ if(f.active!==false && f.itemId===itemId) sum += +f.amount||0; });
+  (state.loans||[]).forEach(l=>{ if(l.itemId===itemId) sum += +l.monthly||0; });
+  return sum;
+}
 function cellVal(itemId, key){
   const base = +state.cells[`${itemId}|${key}`] || 0;
-  return base + entriesOf(itemId,key).reduce((s,e)=>s+(+e.amount||0),0) + linkVal(itemId,key);
+  return base + entriesOf(itemId,key).reduce((s,e)=>s+(+e.amount||0),0)
+       + linkVal(itemId,key) + fixedAutoVal(itemId,key);
 }
 const sectionTotal = (sec, key) => itemsOf(sec).reduce((s,i)=>s+cellVal(i.id,key),0);
 function monthSummary(key){
@@ -739,6 +754,57 @@ function guessItemFor(memo, type, raw){
   return '';
 }
 
+/* 고정비·대출 이름 → 가계부 항목 자동 연결 */
+const FIXED_ITEM_HINTS = [
+  [/월세|임대/, '월세'], [/관리비|가스|삼천리|전기|수도/, '관리비'],
+  [/인터넷|IPTV|TV/, '인터넷'], [/핸드폰|휴대폰|통신/, '핸드폰'],
+  [/보험|실비|암보험|종신|운전자|어린이|자녀|건강|종합/, '보험'],
+  [/이자|원리금|대출|신용/, '대출이자'],
+  [/구독|넷플|유튜브|쿠팡|컬리|네이버|와이즐리|멜론|OTT/i, '구독'],
+  [/유류|주유|차량|자동차/, '차량'], [/청약/, '청약'], [/적금|저축/, '적금']
+];
+const CAT_ITEM_HINTS = { '주거':'관리비', '통신':'핸드폰', '보험':'보험', '이자':'대출이자',
+                         '구독':'구독', '청약':'청약', '차량':'차량' };
+function matchItemFor(name, who, cat){
+  const spend = spendItems();
+  const exact = spend.find(i=>i.name === name);
+  if(exact) return exact.id;
+  const pick = frag => {
+    const cands = spend.filter(i=>i.name.includes(frag));
+    if(!cands.length) return '';
+    const owners = state.settings.owners || [];
+    const person = owners.find(o=>o && (name.includes(o) || who===o)) || '';
+    return ((person && cands.find(i=>i.name.includes(person))) || cands[0]).id;
+  };
+  for(const [re, frag] of FIXED_ITEM_HINTS){
+    if(!re.test(name)) continue;
+    const id = pick(frag);
+    if(id) return id;
+  }
+  /* 이름으로 못 찾으면 분류(주거·통신·보험…)로 찾는다 */
+  const byCat = CAT_ITEM_HINTS[cat];
+  return byCat ? pick(byCat) : '';
+}
+/* 아직 연결 안 된 고정비·대출을 한 번에 이어 준다 */
+/* 고정비만 자동으로 잇는다. 대출은 고정비 '이자' 항목과 겹치는 경우가 많아
+   두 번 세지 않도록 직접 고르게 둔다. */
+function autoMatchAll(){
+  let n = 0;
+  (state.fixed||[]).forEach(f=>{
+    if(f.itemId && itemById(f.itemId)) return;
+    const id = matchItemFor(f.name, f.who, f.cat);
+    if(id){ f.itemId = id; n++; }
+  });
+  return n;
+}
+/* 고정비와 대출이 같은 가계부 항목을 보고 있으면 두 번 세질 수 있다 */
+function autoDupItems(){
+  const fx = new Set((state.fixed||[]).filter(f=>f.active!==false && f.itemId).map(f=>f.itemId));
+  return [...new Set((state.loans||[]).filter(l=>l.itemId && fx.has(l.itemId)).map(l=>l.itemId))];
+}
+const fixedLinkedCount = () => (state.fixed||[]).filter(f=>f.itemId && itemById(f.itemId)).length
+                             + (state.loans||[]).filter(l=>l.itemId && itemById(l.itemId)).length;
+
 /* ---------- 📅 1년에 한두 번 나가는 돈 (세금·연회비) ---------- */
 /* 우리나라에서 흔한 납부 일정입니다. 대상·금액은 집집마다 달라서
    고지서(위택스·홈택스)를 보고 금액만 채워 쓰시면 됩니다. */
@@ -785,6 +851,44 @@ const paySum = (payId, key) => spendItems().filter(i=>payOf(i.id)===payId)
 const stmtOf = (payId, key) => +((state.stmt||{})[`${payId}|${key}`]) || 0;
 const fillOf = (payId, key) => (state.stmtFill||{})[`${payId}|${key}`];
 const unassignedCount = () => spendItems().filter(i=>!payOf(i.id)).length;
+/* 카드는 쓴 날과 빠져나가는 날이 다르다.
+   결제일(billDay)과 사용 기간(term)을 알려주면 "그 명세서는 몇 월 사용분"인지 맞춰 계산한다.
+   term 'prev'   = 전월 1일~말일 (결제일 10~15일 카드에서 흔함)
+   term 'custom' = 전월 fromDay ~ 당월 toDay (결제일 25일 카드 등)
+   billDay 가 없으면 예전처럼 '그 달 사용분'으로 본다. */
+function payPeriod(pay, billM){
+  const y = state.year;
+  const monthKey = m => `${y}-${pad2(m)}`;
+  const lastDay = m => new Date(y, m, 0).getDate();
+  if(!pay || !pay.billDay){
+    return { label:`${billM}월 사용분`, cellMonths:[monthKey(billM)], exact:true,
+             from:`${monthKey(billM)}-01`, to:`${monthKey(billM)}-${pad2(lastDay(billM))}` };
+  }
+  const pm = billM - 1;                                   /* 전월 */
+  if(pm < 1) return { label:'지난해 사용분', cellMonths:[], exact:true, from:'0000-00-00', to:'0000-00-00' };
+  if((pay.term||'prev') === 'prev'){
+    return { label:`${pm}월 사용분`, cellMonths:[monthKey(pm)], exact:true,
+             from:`${monthKey(pm)}-01`, to:`${monthKey(pm)}-${pad2(lastDay(pm))}` };
+  }
+  const f = Math.min(Math.max(+pay.fromDay||1, 1), 28), t2 = Math.min(Math.max(+pay.toDay||1, 1), 28);
+  return { label:`${pm}월 ${f}일 ~ ${billM}월 ${t2}일 사용분`, cellMonths:[monthKey(pm)], exact:false,
+           from:`${monthKey(pm)}-${pad2(f)}`, to:`${monthKey(billM)}-${pad2(t2)}` };
+}
+/* 그 명세서 기간에 우리가 적어 둔 금액 합계
+   (월 단위로 적은 값은 그 달 전체로, 상세 기록은 날짜로 정확히 센다) */
+function paySumPeriod(payId, billM){
+  const pay = payById(payId); if(!pay) return 0;
+  const P = payPeriod(pay, billM);
+  const items = spendItems().filter(i=>payOf(i.id)===payId);
+  let sum = 0;
+  items.forEach(i=>{
+    P.cellMonths.forEach(k=>{ sum += (+state.cells[`${i.id}|${k}`] || 0) + linkVal(i.id, k); });
+    state.entries.forEach(e=>{
+      if(e.itemId===i.id && e.date >= P.from && e.date <= P.to) sum += +e.amount || 0;
+    });
+  });
+  return sum;
+}
 /* 차액을 넣을 항목: 결제수단에 지정한 것 → 없으면 "기타 생활비" → 없으면 생활비 마지막 */
 function fillTarget(pay){
   if(pay?.fillItem && itemById(pay.fillItem)) return pay.fillItem;
@@ -1563,6 +1667,28 @@ function viewHome(){
         </div>`;
     })()}
 
+    ${(()=>{
+      const m = nowMonthIdx(), key = mk(m);
+      const cards = payList().filter(p=>p.kind==='card' && p.billDay);
+      if(!cards.length) return '';
+      const rows = cards.map(p=>({ p, st: stmtOf(p.id,key), sum: paySumPeriod(p.id, m) }))
+                        .sort((a,b)=>a.p.billDay-b.p.billDay);
+      const total = rows.reduce((s,r)=>s+(r.st || r.sum), 0);
+      if(!total) return '';
+      return `<div class="sec-title"><h2>📆 ${m}월 카드 결제 예정</h2>
+          <button class="chip" data-act="tab" data-tab="ledger">대조 ›</button></div>
+        <div class="card">
+          ${rows.map(r=>`<div class="fx">
+            <div class="ic" style="background:var(--soft)">${r.p.billDay}일</div>
+            <div class="grow"><div class="nm" style="font-size:13px;font-weight:800">${esc(r.p.name)}</div>
+              <div class="tiny muted">${esc(payPeriod(r.p, m).label)}${r.st? '' : ' · 명세서 금액 미입력(적어 둔 합계로 계산)'}</div></div>
+            <div class="val">${num(r.st || r.sum)}</div>
+          </div>`).join('')}
+          <div class="sec-foot"><span>이 달 빠져나갈 카드값</span>
+            <b style="font-size:14px">${num(total)}원</b></div>
+        </div>`;
+    })()}
+
     <div class="card">
       <div class="sec-head"><div class="t">🔁 고정비</div>
         <button class="chip" data-act="tab" data-tab="fixed">점검하기 ›</button></div>
@@ -1655,7 +1781,9 @@ function viewLedger(){
           <div class="v" style="color:${sec.color}">${num(tot)}원</div></div>
         ${list.map(i=>{
           const v = cellVal(i.id,cur), n = entriesOf(i.id,cur).length, lk = linkVal(i.id,cur);
-          const sub = [ lk? `🧊 냉장고에서 ${num(lk)}원` : '', n? `상세 기록 ${n}건` : '' ].filter(Boolean).join(' · ');
+          const fa = fixedAutoVal(i.id, cur);
+          const sub = [ fa? `🔁 고정비에서 ${num(fa)}원` : '', lk? `🧊 냉장고에서 ${num(lk)}원` : '',
+                        n? `상세 기록 ${n}건` : '' ].filter(Boolean).join(' · ');
           return `<button class="line-item" data-act="cell" data-id="${i.id}">
             <div class="grow"><div class="nm">${esc(i.name)}
               ${i.auto?'<span class="badge auto">자동이체</span>':''}</div>
@@ -1683,13 +1811,18 @@ function payReconcile(cur){
   return `<div class="sec-title"><h2>💳 카드·계좌 대조</h2><p>빠진 소비 찾기</p></div>
     <div class="card">
       ${pays.length? pays.map(p=>{
-        const sum = paySum(p.id,cur), st = stmtOf(p.id,cur), diff = st - sum;
+        const P = payPeriod(p, ui.m);
+        const sum = paySumPeriod(p.id, ui.m), st = stmtOf(p.id,cur), diff = st - sum;
         const k = PAY_KINDS[p.kind] || PAY_KINDS.card;
         const tgt = itemById(fillTarget(p));
         return `<div class="bline">
           <div class="t">
             <div class="n">${k.emoji} ${esc(p.name)}</div>
             <div class="v">적어 둔 합계 <b>${num(sum)}</b>원</div>
+          </div>
+          <div class="tiny muted" style="margin-top:3px">
+            ${p.billDay? `${ui.m}월 ${p.billDay}일 결제 · <b>${esc(P.label)}</b>` : esc(P.label)}
+            ${p.billDay? '' : ' · <span style="color:var(--gold)">결제일을 넣으면 사용 기간에 맞춰 비교해요</span>'}
           </div>
           <div class="row" style="margin-top:7px">
             <input class="grow" data-stmt="${p.id}" data-money inputmode="numeric"
@@ -1706,6 +1839,9 @@ function payReconcile(cur){
               data-act="fillDiff" data-id="${p.id}">＋ ${num(diff)}원을 ${esc(tgt.name)}에 넣기</button>`:''}
           ${fillOf(p.id,cur)? `<div class="tiny muted" style="margin-top:5px">
               지난번에 ${num(fillOf(p.id,cur).amount)}원을 넣어 뒀어요 · 다시 누르면 새 금액으로 맞춥니다</div>`:''}
+          ${!P.exact? `<div class="tiny muted" style="margin-top:5px">
+              월 단위로 적은 금액은 <b>${P.cellMonths[0]? +P.cellMonths[0].slice(5)+'월' : ''} 전체</b>로 계산했어요 ·
+              📋 내역 붙여넣기로 채우면 날짜까지 정확해집니다</div>`:''}
         </div>`;
       }).join('') : `<div class="empty">결제수단이 없어요</div>`}
       <div class="sec-foot">
@@ -1915,7 +2051,8 @@ function viewFixed(){
           return `<button class="line-item" data-act="editFixed" data-id="${f.id}">
             <div class="grow">
               <div class="nm">${esc(f.name)} ${st? `<span class="badge ${st.cls}">${esc(st.label)}</span>`:''}</div>
-              <div class="sub">${esc(f.who||'')}${f.day? ` · 매달 ${f.day}일`:''}${f.memo? ` · ${esc(f.memo)}`:''}</div>
+              <div class="sub">${esc(f.who||'')}${f.day? ` · 매달 ${f.day}일`:''}${f.memo? ` · ${esc(f.memo)}`:''}
+                ${f.itemId && itemById(f.itemId)? `<br>🔁 가계부 ${esc(itemById(f.itemId).name)}` : '<br><span style="color:var(--gold)">가계부 연결 안 됨</span>'}</div>
             </div>
             <div style="text-align:right">
               <div class="val">${num(f.amount)}</div>
@@ -1923,13 +2060,34 @@ function viewFixed(){
             </div></button>`;
         }).join('')}
       </div>`).join('')}
+    <div class="card pad" style="margin-top:12px">
+      <div class="row">
+        <div class="grow">
+          <div style="font-size:13px;font-weight:900">🔁 가계부에 자동 반영 ${state.autoFixed===false? '<span class="badge">꺼짐</span>':'<span class="badge ok">켜짐</span>'}</div>
+          <div class="tiny muted" style="margin-top:4px;line-height:1.7">
+            연결된 항목 <b>${fixedLinkedCount()}개</b> · 금액을 고치면 가계부의 <b>아직 안 적은 달</b>이 같이 바뀝니다.
+            그 달에 직접 적었거나 내역을 붙여넣은 항목은 그대로 둡니다.<br>
+            ${(()=>{ const k = mk(nowMonthIdx());
+              const sum = spendItems().reduce((a,i)=>a+fixedAutoVal(i.id,k), 0);
+              return sum? `${nowMonthIdx()}월에 자동으로 들어간 금액 <b>${num(sum)}원</b>` : '';
+            })()}</div>
+        </div>
+        <button class="btn ghost sm" data-act="autoFixedToggle">${state.autoFixed===false? '켜기':'끄기'}</button>
+      </div>
+      <button class="btn sm block" style="margin-top:9px" data-act="autoMatch">🔗 가계부 항목과 자동으로 연결하기</button>
+      ${autoDupItems().length? `<div class="note" style="margin-top:9px">⚠️ 고정비와 대출이 <b>${
+        autoDupItems().map(id=>esc(itemById(id)?.name||'')).join(', ')}</b> 항목을 같이 보고 있어요.
+        같은 돈을 두 번 셀 수 있으니 <b>한쪽만</b> 연결해 두세요.</div>`:''}
+    </div>
+
     <button class="btn ghost block sm" style="margin-top:12px" data-act="editFixed">＋ 고정비 추가</button>
 
     <div class="sec-title"><h2>💳 대출</h2><p>월 상환 ${num(loanMonthly())}원</p></div>
     <div class="card">
       ${loans.length? loans.map(l=>`<button class="line-item" data-act="editLoan" data-id="${l.id}">
         <div class="grow"><div class="nm">${esc(l.name)} ${/🚨/.test(l.memo||'')? '<span class="badge alert">우선상환</span>':''}</div>
-          <div class="sub">${esc(l.bank||'')}${l.rate? ` · 연 ${(l.rate*100).toFixed(2)}%`:''}${l.owner? ` · ${esc(l.owner)}`:''}${l.memo? ` · ${esc(l.memo.replace('🚨 ',''))}`:''}</div></div>
+          <div class="sub">${esc(l.bank||'')}${l.rate? ` · 연 ${(l.rate*100).toFixed(2)}%`:''}${l.owner? ` · ${esc(l.owner)}`:''}${l.memo? ` · ${esc(l.memo.replace('🚨 ',''))}`:''}
+            ${l.itemId && itemById(l.itemId)? `<br>🔁 가계부 ${esc(itemById(l.itemId).name)}`:''}</div></div>
         <div style="text-align:right">
           <div class="val">${l.balance? bigWon(l.balance):'—'}</div>
           <div class="tiny muted">월 ${num(l.monthly)}원</div></div></button>`).join('')
@@ -1937,6 +2095,20 @@ function viewFixed(){
       ${loans.length? `<div class="sec-foot"><span>잔액 합계</span>
         <b>${bigWon(loanBalance())}원 · 월 ${num(loanMonthly())}원</b></div>`:''}
     </div>
+    ${loans.length? `<div class="card pad" style="margin-top:10px">
+      ${(()=>{ const linked = loans.filter(l=>l.itemId && itemById(l.itemId));
+        const sum = loans.reduce((a,l)=>a+(+l.monthly||0),0);
+        return linked.length===loans.length && loans.length
+          ? `<div class="tiny" style="font-weight:800;color:var(--income)">🔁 대출 ${loans.length}건이
+               가계부 <b>${esc(itemById(linked[0].itemId)?.name||'')}</b>에 연결돼 있어요 · 월 ${num(sum)}원</div>`
+          : `<div class="tiny muted" style="line-height:1.7">
+               대출 ${loans.length}건 중 <b>${linked.length}건</b>만 가계부와 연결돼 있어요.
+               연결하면 <b>월 상환액을 고칠 때 가계부도 같이 바뀝니다.</b></div>`;
+      })()}
+      <button class="btn sm block" style="margin-top:9px" data-act="loanLinkAll">
+        🔗 대출 ${loans.length}건을 가계부 항목에 연결하기</button>
+    </div>`:''}
+
     <button class="btn ghost block sm" style="margin-top:10px" data-act="editLoan">＋ 대출 추가</button>
 
     ${(()=>{ const lp = loanPlan(); if(!lp.length) return '';
@@ -2123,6 +2295,9 @@ function openCell(itemId){
     <div class="keypad">
       ${[10000,50000,100000,300000,500000,1000000].map(n=>`<button class="act" data-act="cPlus" data-n="${n}">+${shortWon(n)}</button>`).join('')}
     </div>
+    ${fixedAutoVal(itemId,key)? `<div class="note" style="margin-top:10px">🔁 고정비·대출에서
+      <b>${num(fixedAutoVal(itemId,key))}원</b>이 자동으로 들어와 있어요.
+      이 달 실제 금액이 다르면 아래에 직접 넣으세요 — <b>직접 넣은 값이 우선</b>합니다.</div>`:''}
     ${lk? `<div class="note" style="margin-top:10px">🧊 냉장고 식단표에서 <b>${num(lk)}원</b>이 자동으로 더해져 있어요.
       이 금액은 냉장고 앱에서 고치면 여기도 따라 바뀝니다.</div>`:''}
     ${list.length? `<div class="field"><label>상세 기록 ${list.length}건 (합계 ${num(extra)}원)</label>
@@ -2256,9 +2431,50 @@ function openFixedForm(id){
       <div class="field"><label>줄일 수 있는 금액</label>
         <input id="fxSave" data-money inputmode="numeric" value="${f.save? num(f.save):''}"></div>
     </div>
+    <div class="field"><label>가계부에서 이 항목으로 (자동 반영)</label>
+      <select id="fxItem">
+        <option value="">— 연결 안 함 —</option>
+        ${spendItems().map(i=>`<option value="${i.id}" ${f.itemId===i.id?'selected':''}>${esc(i.name)}</option>`).join('')}
+      </select>
+      <div class="tiny muted" style="margin-top:5px">연결해 두면 <b>금액을 고칠 때 가계부도 같이 바뀝니다.</b>
+        그 달에 직접 적은 금액이 있으면 그쪽이 우선해요.</div></div>
     <div class="field"><label>메모</label><input id="fxMemo" value="${esc(f.memo||'')}" placeholder="예: 약정 재협상"></div>
     <button class="btn block" style="margin-top:12px" data-act="saveFixed" data-id="${f.id||''}">저장</button>
     ${f.id? `<button class="btn ghost block sm" style="margin-top:7px;color:var(--spend)" data-act="delFixed" data-id="${f.id}">삭제</button>`:''}
+  </div>`);
+}
+/* 대출 전체를 한 항목에 잇고, 겹치는 고정비 연결은 풀어 준다 */
+function openLoanLinkAll(){
+  const loans = state.loans||[];
+  const sum = loans.reduce((a,l)=>a+(+l.monthly||0),0);
+  const guess = spendItems().find(i=>/대출|이자/.test(i.name))?.id || '';
+  const cur = loans.find(l=>l.itemId && itemById(l.itemId))?.itemId || guess;
+  const dupFixed = (state.fixed||[]).filter(f=>f.active!==false && f.itemId===cur);
+  openModal(`<div class="modal">
+    <div class="mhead"><h3>대출을 가계부에 연결</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted" style="line-height:1.8">
+      대출 <b>${loans.length}건 · 월 ${num(sum)}원</b>을 가계부 한 항목에 넣습니다.
+      연결해 두면 <b>상환액을 고칠 때 가계부도 같이 바뀝니다.</b>
+      그 달에 실제 금액을 직접 넣으면 그 값이 우선해요.</div>
+    <div class="field"><label>가계부 항목</label>
+      <select id="llItem">
+        ${spendItems().map(i=>`<option value="${i.id}" ${cur===i.id?'selected':''}>${esc(i.name)}</option>`).join('')}
+      </select></div>
+    <div class="card" style="margin-top:11px">
+      ${loans.map(l=>`<div class="fx">
+        <div class="grow"><div style="font-size:12.5px;font-weight:800">${esc(l.name)}</div>
+          <div class="tiny muted">${esc(l.bank||'')}${l.owner? ' · '+esc(l.owner):''}</div></div>
+        <div class="val" style="font-size:13px">월 ${num(l.monthly)}</div>
+      </div>`).join('')}
+      <div class="sec-foot"><span>합계</span><b>${num(sum)}원</b></div>
+    </div>
+    ${dupFixed.length? `<div class="note" style="margin-top:11px">⚠️ 같은 항목에 고정비
+      <b>${dupFixed.length}건</b>(${esc(dupFixed.slice(0,3).map(f=>f.name).join(', '))}${dupFixed.length>3?' 등':''})도
+      연결돼 있어요. 그대로 두면 <b>두 번 세집니다.</b></div>
+      <label class="row" style="margin-top:9px;font-size:12.5px;font-weight:700">
+        <input type="checkbox" id="llUnfix" checked style="width:18px;height:18px">
+        겹치는 고정비 연결은 풀기 (권장)</label>`:''}
+    <button class="btn block" style="margin-top:13px" data-act="loanLinkRun">연결하기</button>
   </div>`);
 }
 function openLoanForm(id){
@@ -2280,6 +2496,13 @@ function openLoanForm(id){
       <div class="field"><label>월 상환액</label><input id="lnMon" data-money inputmode="numeric" value="${l.monthly? num(l.monthly):''}"></div>
       <div class="field"><label>상환 우선순위</label><input id="lnPri" type="number" min="0" value="${l.priority||0}"></div>
     </div>
+    <div class="field"><label>가계부에서 이 항목으로 (월 상환액 자동 반영)</label>
+      <select id="lnItem">
+        <option value="">— 연결 안 함 —</option>
+        ${spendItems().map(i=>`<option value="${i.id}" ${l.itemId===i.id?'selected':''}>${esc(i.name)}</option>`).join('')}
+      </select>
+      <div class="tiny muted" style="margin-top:5px">달마다 상환액이 조금씩 다르면, 그 달 가계부에 실제 금액을
+        직접 넣으면 됩니다(직접 넣은 값이 우선).</div></div>
     <div class="field"><label>메모</label><input id="lnMemo" value="${esc(l.memo||'')}"></div>
     <button class="btn block" style="margin-top:12px" data-act="saveLoan" data-id="${l.id||''}">저장</button>
     ${l.id? `<button class="btn ghost block sm" style="margin-top:7px;color:var(--spend)" data-act="delLoan" data-id="${l.id}">삭제</button>`:''}
@@ -2912,7 +3135,30 @@ function openPayManage(){
         </select>
         <button class="x" data-act="delPay" data-id="${p.id}">✕</button>
       </div>
-      <div class="tiny muted" style="margin:7px 0 4px;font-weight:800">차액을 넣을 항목</div>
+      ${p.kind==='card'? `
+        <div class="tiny muted" style="margin:9px 0 4px;font-weight:800">결제일과 사용 기간</div>
+        <div class="row">
+          <div style="width:96px">
+            <input data-pay-billday="${p.id}" type="number" min="0" max="31"
+              value="${p.billDay||''}" placeholder="결제일" style="text-align:center">
+          </div>
+          <select class="grow" data-pay-term="${p.id}">
+            <option value="prev" ${(p.term||'prev')==='prev'?'selected':''}>전월 1일 ~ 말일 사용분</option>
+            <option value="custom" ${p.term==='custom'?'selected':''}>직접 지정 (월을 걸치는 카드)</option>
+          </select>
+        </div>
+        ${p.term==='custom'? `<div class="row" style="margin-top:6px">
+          <span class="tiny muted">전월</span>
+          <input data-pay-from="${p.id}" type="number" min="1" max="28" value="${p.fromDay||1}" style="width:64px;text-align:center">
+          <span class="tiny muted">일 ~ 당월</span>
+          <input data-pay-to="${p.id}" type="number" min="1" max="28" value="${p.toDay||1}" style="width:64px;text-align:center">
+          <span class="tiny muted">일</span>
+        </div>`:''}
+        <div class="tiny muted" style="margin-top:5px">
+          ${p.billDay? `${esc(p.name)} 명세서는 <b>${esc(payPeriod(p, nowMonthIdx()).label)}</b>과 비교합니다`
+            : '결제일을 넣으면 사용 기간에 맞춰 비교합니다 (카드 앱 명세서의 이용기간 참고)'}</div>
+      `:''}
+      <div class="tiny muted" style="margin:9px 0 4px;font-weight:800">차액을 넣을 항목</div>
       <select data-pay-fill="${p.id}">
         ${living.map(i=>`<option value="${i.id}" ${fillTarget(p)===i.id?'selected':''}>${esc(i.name)}</option>`).join('')}
       </select>
@@ -3189,24 +3435,27 @@ document.addEventListener('click', async (e)=>{
     save(); openPayManage(); render(); break;
   }
   case 'fillDiff': {
-    const key = mk(ui.m), pay = payById(id); if(!pay) break;
+    const pay = payById(id); if(!pay) break;
+    const P = payPeriod(pay, ui.m);
+    const key = P.cellMonths[0] || mk(ui.m);        /* 차액은 '쓴 달'에 넣는다 */
+    const stKey = mk(ui.m);                          /* 명세서는 '결제한 달' 기준으로 저장돼 있다 */
     /* 지난번에 넣어 둔 금액이 있으면 먼저 빼고 다시 계산한다 (여러 번 눌러도 안 쌓임) */
-    const prev = fillOf(pay.id, key);
+    const prev = fillOf(pay.id, stKey);
     if(prev){
-      const pk = `${prev.itemId}|${key}`;
+      const pk = `${prev.itemId}|${prev.month || key}`;
       const left = (+state.cells[pk]||0) - prev.amount;
       if(left > 0) state.cells[pk] = left; else delete state.cells[pk];
-      delete state.stmtFill[`${pay.id}|${key}`];
+      delete state.stmtFill[`${pay.id}|${stKey}`];
     }
-    const diff = stmtOf(pay.id,key) - paySum(pay.id,key);
+    const diff = stmtOf(pay.id, stKey) - paySumPeriod(pay.id, ui.m);
     if(diff <= 0){ save(); render(); toast('넣을 차액이 없어요'); break; }
     const tid = fillTarget(pay);
     if(!tid){ toast('넣을 항목이 없어요'); break; }
     const tk = `${tid}|${key}`;
     state.cells[tk] = (+state.cells[tk]||0) + diff;
-    (state.stmtFill = state.stmtFill||{})[`${pay.id}|${key}`] = { itemId:tid, amount:diff };
+    (state.stmtFill = state.stmtFill||{})[`${pay.id}|${stKey}`] = { itemId:tid, amount:diff, month:key };
     save(); render();
-    toast(`${num(diff)}원을 ${itemById(tid).name}에 넣었어요`); break;
+    toast(`${num(diff)}원을 ${+key.slice(5)}월 ${itemById(tid).name}에 넣었어요`); break;
   }
 
   case 'pickMonth': openMonthPicker(); break;
@@ -3412,23 +3661,46 @@ document.addEventListener('click', async (e)=>{
   }
 
   /* ---- 고정비 · 대출 ---- */
+  case 'autoFixedToggle':
+    state.autoFixed = (state.autoFixed === false);
+    save(); render();
+    toast(state.autoFixed? '가계부에 자동으로 반영해요' : '자동 반영을 껐어요'); break;
+  case 'autoMatch': {
+    const n = autoMatchAll();
+    save(); render();
+    toast(n? `${n}개를 가계부 항목과 연결했어요` : '연결할 것이 없어요 (이미 다 되어 있거나 이름이 달라요)'); break;
+  }
   case 'editFixed': openFixedForm(id); break;
   case 'saveFixed': {
     const o = { cat:$('#fxCat').value, name:$('#fxName').value.trim(), amount:parseAmount($('#fxAmt').value)||0,
                 who:$('#fxWho').value, day:+$('#fxDay').value||0, status:$('#fxStatus').value,
-                save:parseAmount($('#fxSave').value)||0, memo:$('#fxMemo').value.trim() };
+                save:parseAmount($('#fxSave').value)||0, memo:$('#fxMemo').value.trim(),
+                itemId:$('#fxItem').value };
     if(!o.name){ toast('항목 이름을 넣어 주세요'); break; }
     const f = (state.fixed||[]).find(x=>x.id===id);
     if(f) Object.assign(f,o); else (state.fixed=state.fixed||[]).push({ id:uid(), ...o });
     save(); closeModal(); render(); toast('저장했어요'); break;
   }
   case 'delFixed': state.fixed = state.fixed.filter(f=>f.id!==id); save(); closeModal(); render(); break;
+  case 'loanLinkAll': openLoanLinkAll(); break;
+  case 'loanLinkRun': {
+    const itemId = $('#llItem').value; if(!itemId){ toast('항목을 골라 주세요'); break; }
+    (state.loans||[]).forEach(l=>{ l.itemId = itemId; });
+    let un = 0;
+    if($('#llUnfix')?.checked){
+      (state.fixed||[]).forEach(f=>{ if(f.itemId===itemId){ f.itemId=''; un++; } });
+    }
+    save(); closeModal(); render();
+    const sum = (state.loans||[]).reduce((a,l)=>a+(+l.monthly||0),0);
+    toast(`대출 ${(state.loans||[]).length}건(월 ${num(sum)}원)을 ${itemById(itemId).name}에 연결했어요`
+          + (un? ` · 겹치던 고정비 ${un}건은 풀었어요` : '')); break;
+  }
   case 'editLoan': openLoanForm(id); break;
   case 'saveLoan': {
     const o = { name:$('#lnName').value.trim(), bank:$('#lnBank').value.trim(), owner:$('#lnOwner').value,
                 balance:parseAmount($('#lnBal').value)||0, rate:(parseFloat($('#lnRate').value)||0)/100,
                 monthly:parseAmount($('#lnMon').value)||0, priority:+$('#lnPri').value||0,
-                memo:$('#lnMemo').value.trim() };
+                memo:$('#lnMemo').value.trim(), itemId:$('#lnItem').value };
     if(!o.name){ toast('대출명을 넣어 주세요'); break; }
     const l = (state.loans||[]).find(x=>x.id===id);
     if(l) Object.assign(l,o); else (state.loans=state.loans||[]).push({ id:uid(), kind:'', ...o });
@@ -3630,6 +3902,27 @@ document.addEventListener('change', e=>{
   if(t.dataset.payKind !== undefined){
     const p = payById(t.dataset.payKind); if(p){ p.kind = t.value; save(); render(); } return;
   }
+  if(t.dataset.payBillday !== undefined){
+    const p2 = payById(t.dataset.payBillday);
+    if(p2){ p2.billDay = Math.min(31, Math.max(0, +t.value||0)); save(); openPayManage(); render(); }
+    return;
+  }
+  if(t.dataset.payTerm !== undefined){
+    const p2 = payById(t.dataset.payTerm);
+    if(p2){ p2.term = t.value; if(t.value==='custom'){ p2.fromDay = p2.fromDay||1; p2.toDay = p2.toDay||1; }
+      save(); openPayManage(); render(); }
+    return;
+  }
+  if(t.dataset.payFrom !== undefined){
+    const p2 = payById(t.dataset.payFrom);
+    if(p2){ p2.fromDay = Math.min(28, Math.max(1, +t.value||1)); save(); openPayManage(); render(); }
+    return;
+  }
+  if(t.dataset.payTo !== undefined){
+    const p2 = payById(t.dataset.payTo);
+    if(p2){ p2.toDay = Math.min(28, Math.max(1, +t.value||1)); save(); openPayManage(); render(); }
+    return;
+  }
   if(t.dataset.payFill !== undefined){
     const p = payById(t.dataset.payFill); if(p){ p.fillItem = t.value; save(); } return;
   }
@@ -3747,7 +4040,7 @@ async function fsPut(path, json, rev){
 }
 const CORE_KEYS = ['year','settings','items','cells','entries','assetRows','assetCells','limits',
                    'fixed','loans','goal','habits','habitLog','memo',
-                   'pays','itemPay','stmt','stmtFill','payeeMap','annuals'];
+                   'pays','itemPay','stmt','stmtFill','payeeMap','annuals','autoFixed'];
 function corePayload(){
   const o = {}; CORE_KEYS.forEach(k=>o[k]=state[k]);
   return JSON.stringify(o);
@@ -3831,6 +4124,7 @@ state.stmt = state.stmt || {};
 state.stmtFill = state.stmtFill || {};
 state.payeeMap = state.payeeMap || {};
 state.annuals = state.annuals || [];
+if(state.autoFixed === undefined) state.autoFixed = true;
 /* 🧊 냉장고 앱 기록이 같은 브라우저에 있으면 처음 한 번 자동으로 켠다 */
 if(!state.link) state.link = blankLink();
 if(!state.link.asked && fridgeHere()){ state.link.enabled = true; state.link.asked = true; }
