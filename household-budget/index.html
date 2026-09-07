@@ -505,9 +505,24 @@ const entriesOf = (itemId, key) => state.entries.filter(e=>e.itemId===itemId && 
 /* 🧊 냉장고 식단표에서 자동으로 넘어온 금액 (이 폰에서 계산, 직접 고칠 수 없음) */
 const linkVal = (itemId, key) =>
   (state.link?.enabled ? +((state.link.cells||{})[`${itemId}|${key}`]) || 0 : 0);
+/* 🔁 고정비·대출에 적어 둔 금액을 가계부 항목에 자동으로 넣는다.
+   · 그 달에 직접 적은 금액이나 상세 기록이 있으면 그쪽이 이긴다 (이중 계산 방지)
+   · 아직 오지 않은 달에는 넣지 않는다
+   · 고정비 금액을 고치면 아직 안 적은 달들은 바로 새 금액으로 바뀐다 */
+function fixedAutoVal(itemId, key){
+  if(state.autoFixed === false) return 0;
+  if(key > mk(nowMonthIdx())) return 0;
+  if(+state.cells[`${itemId}|${key}`]) return 0;
+  if(entriesOf(itemId, key).length) return 0;
+  let sum = 0;
+  (state.fixed||[]).forEach(f=>{ if(f.active!==false && f.itemId===itemId) sum += +f.amount||0; });
+  (state.loans||[]).forEach(l=>{ if(l.itemId===itemId) sum += +l.monthly||0; });
+  return sum;
+}
 function cellVal(itemId, key){
   const base = +state.cells[`${itemId}|${key}`] || 0;
-  return base + entriesOf(itemId,key).reduce((s,e)=>s+(+e.amount||0),0) + linkVal(itemId,key);
+  return base + entriesOf(itemId,key).reduce((s,e)=>s+(+e.amount||0),0)
+       + linkVal(itemId,key) + fixedAutoVal(itemId,key);
 }
 const sectionTotal = (sec, key) => itemsOf(sec).reduce((s,i)=>s+cellVal(i.id,key),0);
 function monthSummary(key){
@@ -738,6 +753,57 @@ function guessItemFor(memo, type, raw){
   }
   return '';
 }
+
+/* 고정비·대출 이름 → 가계부 항목 자동 연결 */
+const FIXED_ITEM_HINTS = [
+  [/월세|임대/, '월세'], [/관리비|가스|삼천리|전기|수도/, '관리비'],
+  [/인터넷|IPTV|TV/, '인터넷'], [/핸드폰|휴대폰|통신/, '핸드폰'],
+  [/보험|실비|암보험|종신|운전자|어린이|자녀|건강|종합/, '보험'],
+  [/이자|원리금|대출|신용/, '대출이자'],
+  [/구독|넷플|유튜브|쿠팡|컬리|네이버|와이즐리|멜론|OTT/i, '구독'],
+  [/유류|주유|차량|자동차/, '차량'], [/청약/, '청약'], [/적금|저축/, '적금']
+];
+const CAT_ITEM_HINTS = { '주거':'관리비', '통신':'핸드폰', '보험':'보험', '이자':'대출이자',
+                         '구독':'구독', '청약':'청약', '차량':'차량' };
+function matchItemFor(name, who, cat){
+  const spend = spendItems();
+  const exact = spend.find(i=>i.name === name);
+  if(exact) return exact.id;
+  const pick = frag => {
+    const cands = spend.filter(i=>i.name.includes(frag));
+    if(!cands.length) return '';
+    const owners = state.settings.owners || [];
+    const person = owners.find(o=>o && (name.includes(o) || who===o)) || '';
+    return ((person && cands.find(i=>i.name.includes(person))) || cands[0]).id;
+  };
+  for(const [re, frag] of FIXED_ITEM_HINTS){
+    if(!re.test(name)) continue;
+    const id = pick(frag);
+    if(id) return id;
+  }
+  /* 이름으로 못 찾으면 분류(주거·통신·보험…)로 찾는다 */
+  const byCat = CAT_ITEM_HINTS[cat];
+  return byCat ? pick(byCat) : '';
+}
+/* 아직 연결 안 된 고정비·대출을 한 번에 이어 준다 */
+/* 고정비만 자동으로 잇는다. 대출은 고정비 '이자' 항목과 겹치는 경우가 많아
+   두 번 세지 않도록 직접 고르게 둔다. */
+function autoMatchAll(){
+  let n = 0;
+  (state.fixed||[]).forEach(f=>{
+    if(f.itemId && itemById(f.itemId)) return;
+    const id = matchItemFor(f.name, f.who, f.cat);
+    if(id){ f.itemId = id; n++; }
+  });
+  return n;
+}
+/* 고정비와 대출이 같은 가계부 항목을 보고 있으면 두 번 세질 수 있다 */
+function autoDupItems(){
+  const fx = new Set((state.fixed||[]).filter(f=>f.active!==false && f.itemId).map(f=>f.itemId));
+  return [...new Set((state.loans||[]).filter(l=>l.itemId && fx.has(l.itemId)).map(l=>l.itemId))];
+}
+const fixedLinkedCount = () => (state.fixed||[]).filter(f=>f.itemId && itemById(f.itemId)).length
+                             + (state.loans||[]).filter(l=>l.itemId && itemById(l.itemId)).length;
 
 /* ---------- 📅 1년에 한두 번 나가는 돈 (세금·연회비) ---------- */
 /* 우리나라에서 흔한 납부 일정입니다. 대상·금액은 집집마다 달라서
@@ -1715,7 +1781,9 @@ function viewLedger(){
           <div class="v" style="color:${sec.color}">${num(tot)}원</div></div>
         ${list.map(i=>{
           const v = cellVal(i.id,cur), n = entriesOf(i.id,cur).length, lk = linkVal(i.id,cur);
-          const sub = [ lk? `🧊 냉장고에서 ${num(lk)}원` : '', n? `상세 기록 ${n}건` : '' ].filter(Boolean).join(' · ');
+          const fa = fixedAutoVal(i.id, cur);
+          const sub = [ fa? `🔁 고정비에서 ${num(fa)}원` : '', lk? `🧊 냉장고에서 ${num(lk)}원` : '',
+                        n? `상세 기록 ${n}건` : '' ].filter(Boolean).join(' · ');
           return `<button class="line-item" data-act="cell" data-id="${i.id}">
             <div class="grow"><div class="nm">${esc(i.name)}
               ${i.auto?'<span class="badge auto">자동이체</span>':''}</div>
@@ -1983,7 +2051,8 @@ function viewFixed(){
           return `<button class="line-item" data-act="editFixed" data-id="${f.id}">
             <div class="grow">
               <div class="nm">${esc(f.name)} ${st? `<span class="badge ${st.cls}">${esc(st.label)}</span>`:''}</div>
-              <div class="sub">${esc(f.who||'')}${f.day? ` · 매달 ${f.day}일`:''}${f.memo? ` · ${esc(f.memo)}`:''}</div>
+              <div class="sub">${esc(f.who||'')}${f.day? ` · 매달 ${f.day}일`:''}${f.memo? ` · ${esc(f.memo)}`:''}
+                ${f.itemId && itemById(f.itemId)? `<br>🔁 가계부 ${esc(itemById(f.itemId).name)}` : '<br><span style="color:var(--gold)">가계부 연결 안 됨</span>'}</div>
             </div>
             <div style="text-align:right">
               <div class="val">${num(f.amount)}</div>
@@ -1991,13 +2060,34 @@ function viewFixed(){
             </div></button>`;
         }).join('')}
       </div>`).join('')}
+    <div class="card pad" style="margin-top:12px">
+      <div class="row">
+        <div class="grow">
+          <div style="font-size:13px;font-weight:900">🔁 가계부에 자동 반영 ${state.autoFixed===false? '<span class="badge">꺼짐</span>':'<span class="badge ok">켜짐</span>'}</div>
+          <div class="tiny muted" style="margin-top:4px;line-height:1.7">
+            연결된 항목 <b>${fixedLinkedCount()}개</b> · 금액을 고치면 가계부의 <b>아직 안 적은 달</b>이 같이 바뀝니다.
+            그 달에 직접 적었거나 내역을 붙여넣은 항목은 그대로 둡니다.<br>
+            ${(()=>{ const k = mk(nowMonthIdx());
+              const sum = spendItems().reduce((a,i)=>a+fixedAutoVal(i.id,k), 0);
+              return sum? `${nowMonthIdx()}월에 자동으로 들어간 금액 <b>${num(sum)}원</b>` : '';
+            })()}</div>
+        </div>
+        <button class="btn ghost sm" data-act="autoFixedToggle">${state.autoFixed===false? '켜기':'끄기'}</button>
+      </div>
+      <button class="btn sm block" style="margin-top:9px" data-act="autoMatch">🔗 가계부 항목과 자동으로 연결하기</button>
+      ${autoDupItems().length? `<div class="note" style="margin-top:9px">⚠️ 고정비와 대출이 <b>${
+        autoDupItems().map(id=>esc(itemById(id)?.name||'')).join(', ')}</b> 항목을 같이 보고 있어요.
+        같은 돈을 두 번 셀 수 있으니 <b>한쪽만</b> 연결해 두세요.</div>`:''}
+    </div>
+
     <button class="btn ghost block sm" style="margin-top:12px" data-act="editFixed">＋ 고정비 추가</button>
 
     <div class="sec-title"><h2>💳 대출</h2><p>월 상환 ${num(loanMonthly())}원</p></div>
     <div class="card">
       ${loans.length? loans.map(l=>`<button class="line-item" data-act="editLoan" data-id="${l.id}">
         <div class="grow"><div class="nm">${esc(l.name)} ${/🚨/.test(l.memo||'')? '<span class="badge alert">우선상환</span>':''}</div>
-          <div class="sub">${esc(l.bank||'')}${l.rate? ` · 연 ${(l.rate*100).toFixed(2)}%`:''}${l.owner? ` · ${esc(l.owner)}`:''}${l.memo? ` · ${esc(l.memo.replace('🚨 ',''))}`:''}</div></div>
+          <div class="sub">${esc(l.bank||'')}${l.rate? ` · 연 ${(l.rate*100).toFixed(2)}%`:''}${l.owner? ` · ${esc(l.owner)}`:''}${l.memo? ` · ${esc(l.memo.replace('🚨 ',''))}`:''}
+            ${l.itemId && itemById(l.itemId)? `<br>🔁 가계부 ${esc(itemById(l.itemId).name)}`:''}</div></div>
         <div style="text-align:right">
           <div class="val">${l.balance? bigWon(l.balance):'—'}</div>
           <div class="tiny muted">월 ${num(l.monthly)}원</div></div></button>`).join('')
@@ -2191,6 +2281,9 @@ function openCell(itemId){
     <div class="keypad">
       ${[10000,50000,100000,300000,500000,1000000].map(n=>`<button class="act" data-act="cPlus" data-n="${n}">+${shortWon(n)}</button>`).join('')}
     </div>
+    ${fixedAutoVal(itemId,key)? `<div class="note" style="margin-top:10px">🔁 고정비·대출에서
+      <b>${num(fixedAutoVal(itemId,key))}원</b>이 자동으로 들어와 있어요.
+      이 달 실제 금액이 다르면 아래에 직접 넣으세요 — <b>직접 넣은 값이 우선</b>합니다.</div>`:''}
     ${lk? `<div class="note" style="margin-top:10px">🧊 냉장고 식단표에서 <b>${num(lk)}원</b>이 자동으로 더해져 있어요.
       이 금액은 냉장고 앱에서 고치면 여기도 따라 바뀝니다.</div>`:''}
     ${list.length? `<div class="field"><label>상세 기록 ${list.length}건 (합계 ${num(extra)}원)</label>
@@ -2324,6 +2417,13 @@ function openFixedForm(id){
       <div class="field"><label>줄일 수 있는 금액</label>
         <input id="fxSave" data-money inputmode="numeric" value="${f.save? num(f.save):''}"></div>
     </div>
+    <div class="field"><label>가계부에서 이 항목으로 (자동 반영)</label>
+      <select id="fxItem">
+        <option value="">— 연결 안 함 —</option>
+        ${spendItems().map(i=>`<option value="${i.id}" ${f.itemId===i.id?'selected':''}>${esc(i.name)}</option>`).join('')}
+      </select>
+      <div class="tiny muted" style="margin-top:5px">연결해 두면 <b>금액을 고칠 때 가계부도 같이 바뀝니다.</b>
+        그 달에 직접 적은 금액이 있으면 그쪽이 우선해요.</div></div>
     <div class="field"><label>메모</label><input id="fxMemo" value="${esc(f.memo||'')}" placeholder="예: 약정 재협상"></div>
     <button class="btn block" style="margin-top:12px" data-act="saveFixed" data-id="${f.id||''}">저장</button>
     ${f.id? `<button class="btn ghost block sm" style="margin-top:7px;color:var(--spend)" data-act="delFixed" data-id="${f.id}">삭제</button>`:''}
@@ -2348,6 +2448,13 @@ function openLoanForm(id){
       <div class="field"><label>월 상환액</label><input id="lnMon" data-money inputmode="numeric" value="${l.monthly? num(l.monthly):''}"></div>
       <div class="field"><label>상환 우선순위</label><input id="lnPri" type="number" min="0" value="${l.priority||0}"></div>
     </div>
+    <div class="field"><label>가계부에서 이 항목으로 (월 상환액 자동 반영)</label>
+      <select id="lnItem">
+        <option value="">— 연결 안 함 —</option>
+        ${spendItems().map(i=>`<option value="${i.id}" ${l.itemId===i.id?'selected':''}>${esc(i.name)}</option>`).join('')}
+      </select>
+      <div class="tiny muted" style="margin-top:5px">달마다 상환액이 조금씩 다르면, 그 달 가계부에 실제 금액을
+        직접 넣으면 됩니다(직접 넣은 값이 우선).</div></div>
     <div class="field"><label>메모</label><input id="lnMemo" value="${esc(l.memo||'')}"></div>
     <button class="btn block" style="margin-top:12px" data-act="saveLoan" data-id="${l.id||''}">저장</button>
     ${l.id? `<button class="btn ghost block sm" style="margin-top:7px;color:var(--spend)" data-act="delLoan" data-id="${l.id}">삭제</button>`:''}
@@ -3506,11 +3613,21 @@ document.addEventListener('click', async (e)=>{
   }
 
   /* ---- 고정비 · 대출 ---- */
+  case 'autoFixedToggle':
+    state.autoFixed = (state.autoFixed === false);
+    save(); render();
+    toast(state.autoFixed? '가계부에 자동으로 반영해요' : '자동 반영을 껐어요'); break;
+  case 'autoMatch': {
+    const n = autoMatchAll();
+    save(); render();
+    toast(n? `${n}개를 가계부 항목과 연결했어요` : '연결할 것이 없어요 (이미 다 되어 있거나 이름이 달라요)'); break;
+  }
   case 'editFixed': openFixedForm(id); break;
   case 'saveFixed': {
     const o = { cat:$('#fxCat').value, name:$('#fxName').value.trim(), amount:parseAmount($('#fxAmt').value)||0,
                 who:$('#fxWho').value, day:+$('#fxDay').value||0, status:$('#fxStatus').value,
-                save:parseAmount($('#fxSave').value)||0, memo:$('#fxMemo').value.trim() };
+                save:parseAmount($('#fxSave').value)||0, memo:$('#fxMemo').value.trim(),
+                itemId:$('#fxItem').value };
     if(!o.name){ toast('항목 이름을 넣어 주세요'); break; }
     const f = (state.fixed||[]).find(x=>x.id===id);
     if(f) Object.assign(f,o); else (state.fixed=state.fixed||[]).push({ id:uid(), ...o });
@@ -3522,7 +3639,7 @@ document.addEventListener('click', async (e)=>{
     const o = { name:$('#lnName').value.trim(), bank:$('#lnBank').value.trim(), owner:$('#lnOwner').value,
                 balance:parseAmount($('#lnBal').value)||0, rate:(parseFloat($('#lnRate').value)||0)/100,
                 monthly:parseAmount($('#lnMon').value)||0, priority:+$('#lnPri').value||0,
-                memo:$('#lnMemo').value.trim() };
+                memo:$('#lnMemo').value.trim(), itemId:$('#lnItem').value };
     if(!o.name){ toast('대출명을 넣어 주세요'); break; }
     const l = (state.loans||[]).find(x=>x.id===id);
     if(l) Object.assign(l,o); else (state.loans=state.loans||[]).push({ id:uid(), kind:'', ...o });
@@ -3862,7 +3979,7 @@ async function fsPut(path, json, rev){
 }
 const CORE_KEYS = ['year','settings','items','cells','entries','assetRows','assetCells','limits',
                    'fixed','loans','goal','habits','habitLog','memo',
-                   'pays','itemPay','stmt','stmtFill','payeeMap','annuals'];
+                   'pays','itemPay','stmt','stmtFill','payeeMap','annuals','autoFixed'];
 function corePayload(){
   const o = {}; CORE_KEYS.forEach(k=>o[k]=state[k]);
   return JSON.stringify(o);
@@ -3946,6 +4063,7 @@ state.stmt = state.stmt || {};
 state.stmtFill = state.stmtFill || {};
 state.payeeMap = state.payeeMap || {};
 state.annuals = state.annuals || [];
+if(state.autoFixed === undefined) state.autoFixed = true;
 /* 🧊 냉장고 앱 기록이 같은 브라우저에 있으면 처음 한 번 자동으로 켠다 */
 if(!state.link) state.link = blankLink();
 if(!state.link.asked && fridgeHere()){ state.link.enabled = true; state.link.asked = true; }
