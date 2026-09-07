@@ -133,6 +133,14 @@ nav.tabs{position:sticky;top:0;z-index:30;background:var(--bg);padding:calc(10px
 .chip.line{background:#fff;border:1px solid var(--line)}
 .chip.on{background:var(--brand);color:#fff}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
+/* 📅 달마다 돌아보기 — 접힌 달 */
+details.mrev{border-top:1px solid var(--line);padding:2px 0}
+details.mrev summary{list-style:none;display:flex;justify-content:space-between;align-items:center;gap:8px;
+  padding:9px 2px;cursor:pointer;font-size:13px}
+details.mrev summary::-webkit-details-marker{display:none}
+details.mrev summary::before{content:'▸';color:var(--muted);margin-right:6px;font-size:11px}
+details.mrev[open] summary::before{content:'▾'}
+details.mrev .mbody{padding:0 2px 10px}
 /* 📅 배당 달력 — 4칸씩 3줄. 격자라서 몇 달이든 화면 밖으로 안 나갑니다 */
 .dcal{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-top:9px}
 .dcal button{position:relative;overflow:hidden;background:var(--card);border:1px solid var(--line);
@@ -260,6 +268,7 @@ nav.tabs{position:sticky;top:0;z-index:30;background:var(--bg);padding:calc(10px
     </div>
     <div class="head-right">
       <div class="head-meta" id="headMeta"></div>
+      <button class="gear" data-act="tab" data-tab="add" title="담기" style="font-weight:900">＋</button>
       <button class="gear" id="btnRefresh" data-act="refresh" title="시세 새로고침">🔄</button>
       <button class="gear" data-act="tab" data-tab="set">⚙️</button>
     </div>
@@ -2538,9 +2547,9 @@ const dupOf = (r, owner, acct) => (state.holdings||[]).find(h=>
    ============================================================ */
 const TABS = [
   { k:'home', label:'🏠 한눈에' },
-  { k:'list', label:'📈 내 종목' },
-  { k:'note', label:'📝 기록' },
-  { k:'add',  label:'＋ 담기' }
+  { k:'list', label:'💼 자산' },
+  { k:'flow', label:'💸 현금흐름' },
+  { k:'note', label:'📝 기록' }
 ];
 function renderTabs(){
   $('#tabbar').innerHTML = TABS.map(t=>
@@ -2846,7 +2855,7 @@ function emptyHome(){
 /* ============================================================
    6. 📈 내 종목
    ============================================================ */
-function viewList(){
+function viewListCore(){
   const list = activeHoldings().filter(inOwner);
   if(!activeHoldings().length) return emptyHome();
   const t = totals(list);
@@ -2890,26 +2899,149 @@ function viewList(){
 /* ============================================================
    6-2. 📝 기록 — 투자 일기 · 종목 코멘트
    ============================================================ */
-function viewNote(){
+/* 한 달치 돌아보기 — 순자산 변화를 원인별로, 배당·새로 담은 것·일기까지 한 화면 */
+function monthReview(mk){
+  const keys = Object.keys(state.snap||{}).sort();
+  const inM = keys.filter(k=>k.slice(0,7)===mk);
+  const before = keys.filter(k=>k.slice(0,7) < mk).pop();
+  const startK = before || inM[0], endK = inM[inM.length-1];
+  const [y,m] = mk.split('-').map(Number);
+  const ms = new Date(y,m-1,1).getTime(), me = new Date(y,m,1).getTime();
+  const addedL = activeHoldings().filter(h=>(+h.at||0) >= ms && (+h.at||0) < me);
+  const added = addedL.reduce((a,h)=>{ const r = calc(h); return a + (r.value||0) - (r.loan||0); }, 0);
+  const ch = (state.changes||[]).filter(c=>c.at >= ms && c.at < me);
+  const edited = ch.filter(c=>c.t==='edit').reduce((a,c)=>a+c.dv, 0);
+  const removed = ch.filter(c=>c.t==='del').reduce((a,c)=>a+c.dv, 0);
+  const divs = (state.divs||[]).filter(d=>String(d.date||'').slice(0,7)===mk).reduce((a,d)=>a+divKrw(d), 0);
+  const total = (startK && endK && startK !== endK) ? (state.snap[endK].net||0) - (state.snap[startK].net||0) : null;
+  const market = total === null ? null : total - added - edited - removed;
+  const diary = (state.diary||[]).filter(d=>String(d.date||'').slice(0,7)===mk).sort((a,b)=>b.at-a.at);
+  const bigAdds = addedL.filter(h=>total!==null && Math.abs(calc(h).value||0) >= Math.abs(total)*0.2).map(h=>h.name);
+  return { mk, startK, endK, total, added, addedN:addedL.length, addedNames:addedL.map(h=>h.name),
+           edited, removed, market, divs, diary, bigAdds };
+}
+/* 기록 탭 — 달마다 접어 두고, 이번 달만 펼칩니다. 일기가 쌓여도 길어지지 않아요. */
+function diaryMonths(){
+  const cur = iso(new Date()).slice(0,7);
+  const q = String(ui.dq||'').trim().toLowerCase();
+  const months = new Set([cur]);
+  (state.diary||[]).forEach(d=>months.add(String(d.date||'').slice(0,7)));
+  (state.divs||[]).forEach(d=>months.add(String(d.date||'').slice(0,7)));
+  activeHoldings().forEach(h=>{ if(h.at) months.add(iso(new Date(h.at)).slice(0,7)); });
+  const list = [...months].filter(k=>/^\d{4}-\d{2}$/.test(k)).sort().reverse();
+  const nameOf = id => (state.holdings||{}).find?.(h=>h.id===id)?.name || (state.holdings||[]).find(h=>h.id===id)?.name || '';
+  const row = (k, v) => v ? `<div class="between" style="padding:3px 0;font-size:12.5px">
+      <span class="muted">${k}</span><b class="num ${sgn(v)}">${v>=0?'+':'−'}${shortWon(Math.abs(v))}</b></div>` : '';
+  const total = (state.diary||[]).length;
+  const cards = list.map(mk=>{
+    const r = monthReview(mk);
+    let diary = r.diary;
+    if(q) diary = diary.filter(d=>String(d.text||'').toLowerCase().includes(q) || nameOf(d.hold).toLowerCase().includes(q));
+    if(q && !diary.length) return '';
+    const isCur = mk === cur;
+    const sumBits = [
+      r.total!==null ? `<b class="num ${sgn(r.total)}">${r.total>=0?'+':'−'}${shortWon(Math.abs(r.total))}</b>` : '',
+      r.divs ? `배당 ${shortWon(r.divs)}` : '',
+      r.addedN ? `새로 ${r.addedN}개` : '',
+      diary.length ? `일기 ${diary.length}` : '',
+    ].filter(Boolean).join(' · ');
+    return `<details class="mrev" ${isCur || q ? 'open' : ''}>
+      <summary>
+        <span style="font-weight:900">${+mk.slice(0,4)}년 ${+mk.slice(5)}월${isCur? ' <span class="tiny muted">이번 달</span>':''}</span>
+        <span class="tiny muted">${sumBits || '기록 없음'}</span>
+      </summary>
+      <div class="mbody">
+        ${r.total!==null ? `<div class="box" style="margin-bottom:8px">
+          <div class="tiny muted" style="margin-bottom:2px">순자산 ${r.startK.slice(5)} → ${r.endK.slice(5)}</div>
+          <div style="font-size:17px;font-weight:900;letter-spacing:-.03em" class="num ${sgn(r.total)}">${r.total>=0?'+':'−'}${shortWon(Math.abs(r.total))}원</div>
+          ${row('새로 담은 자산'+(r.addedNames.length? ` <span class="tiny">(${esc(r.addedNames.slice(0,3).join(', '))}${r.addedNames.length>3?' 등':''})</span>`:''), r.added)}
+          ${row('시세·환율로', r.market)}
+          ${row('수량·금액 고친 만큼', r.edited)}
+          ${row('지운 자산', r.removed)}
+          ${r.divs? `<div class="between tiny muted" style="padding:3px 0"><span>받은 배당</span><b class="num">${shortWon(r.divs)}원</b></div>`:''}
+        </div>` : (r.divs || r.addedN ? `<div class="tiny muted" style="margin-bottom:8px">
+          ${r.addedN? `새로 담은 자산 ${r.addedN}개` : ''}${r.addedN&&r.divs?' · ':''}${r.divs? `받은 배당 ${shortWon(r.divs)}원`:''}</div>` : '')}
+        ${diary.map(d=>`<div class="diary">
+          <div class="d1">
+            <span class="dt">${esc(String(d.date).replace(/-/g,'.'))}${d.hold&&nameOf(d.hold)? ' · '+esc(nameOf(d.hold)) : ''}</span>
+            <span class="dn">순자산 ${shortWon(d.net)}</span>
+          </div>
+          <div class="dx">${esc(d.text)}</div>
+          <div class="dm"><button class="chip line" style="padding:2px 8px;font-size:10px" data-act="dDel" data-id="${d.id}">지우기</button></div>
+        </div>`).join('') || (isCur ? '<div class="tiny muted">이번 달 일기는 아직 없어요.</div>' : '')}
+      </div>
+    </details>`;
+  }).join('');
+  return `<div class="card">
+    <div class="sec-head"><h2 style="margin:0">📅 달마다 돌아보기 <span class="sub">일기 ${total}개</span></h2></div>
+    ${total >= 6 ? `<div class="f" style="margin:6px 0 8px"><input id="dq" value="${esc(ui.dq||'')}" placeholder="일기 찾기 — 종목 이름이나 낱말" data-act="dSearch"></div>`:''}
+    ${cards || '<div class="empty">찾는 일기가 없어요.</div>'}
+    ${list.length > 1 ? `<div class="tiny muted" style="margin-top:8px">지난 달은 접혀 있어요 — 제목을 누르면 펼쳐집니다.</div>`:''}
+  </div>`;
+}
+/* 💸 현금흐름 — 들어오는 돈(배당)과 나가는 돈(대출 이자), 가계부 한 줄 */
+function viewList(){
   const al = alertList();
-  const withWhy = activeHoldings().filter(h=>(h.why||'').trim() || +h.target>0 || +h.stop>0);
-  const days = (state.diary||[]).slice().sort((a,b)=>b.at-a.at);
-  const byDate = {};
-  days.forEach(d=>{ (byDate[d.date] = byDate[d.date] || []).push(d); });
-  const dates = Object.keys(byDate).sort().reverse();
-  const nameOf = id => (state.holdings||[]).find(h=>h.id===id)?.name || '';
-
+  return `${viewListCore()}
+    ${al.length? `<div class="card">
+    <h2>지금 봐야 할 것 <span class="sub">${al.length}건</span></h2>
+    ${al.map(x=>{
+      const r = calc(x.h), c = CAT(x.h.cat);
+      const isT = x.hit==='target';
+      return `<div class="hold" data-act="open" data-id="${x.h.id}">
+        <div class="ic" style="background:${isT?'#e4f1ec':'#fbe9e7'};color:${isT?'#2e7d6b':'var(--up)'}">${isT?'🎯':'🛑'}</div>
+        <div class="mid"><div class="nm">${esc(x.h.name)}</div>
+          <div class="sb">${isT? '목표가' : '손절가'} ${priceS(isT? x.h.target : x.h.stop, r.px.ccy)} ${isT?'넘었어요':'밑으로 내려왔어요'}</div></div>
+        <div class="rt"><div class="amt num">${priceS(r.px.p, r.px.ccy)}</div>
+          ${r.cost>0? `<div class="pl num ${sgn(r.pl)}">${pctS(r.plRate,1)}</div>`:''}</div>
+      </div>`;
+    }).join('')}
+  </div>`:''}
+    ${(()=>{ const rb = rebalance(); if(!rb) return `
+    <div class="card">
+      <div class="sec-head"><h2 style="margin:0">⚖️ 리밸런싱</h2>
+        <button class="chip line" data-act="rbEdit">비중 정하기</button></div>
+      <div class="tiny muted" style="line-height:1.8">
+        주식 몇 %, 채권 몇 %… 이렇게 <b>목표 비중</b>을 정해 두면
+        지금 비중과 견줘서 <b>무엇을 얼마나 사고 팔면 되는지</b> 알려 드려요.
+      </div>
+    </div>`;
+    return `<div class="card">
+      <div class="sec-head"><h2 style="margin:0">⚖️ 리밸런싱</h2>
+        <button class="chip line" data-act="rbEdit">비중 고치기</button></div>
+      <div class="tiny muted" style="margin-bottom:8px">굴리는 돈 ${bigWon(rb.total)}원 기준</div>
+      ${rb.rows.map(r=>{
+        const off = Math.abs(r.gap) / rb.total;
+        const near = off < 0.01;
+        return `<div style="padding:7px 0;border-top:1px solid var(--line)">
+          <div class="row" style="justify-content:space-between;align-items:baseline">
+            <div style="font-weight:800;font-size:13px">
+              <span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:${r.color};margin-right:5px"></span>
+              ${esc(r.label)}${r.extra? ' <span class="tiny muted">정해 두지 않음</span>':''}</div>
+            <div class="tiny ${near?'muted':(r.gap>0?'down':'up')}" style="font-weight:800">
+              ${near ? '맞음' : (r.gap>0 ? `${shortWon(r.gap)}원 더 사기` : `${shortWon(-r.gap)}원 팔기`)}</div>
+          </div>
+          <div class="row" style="justify-content:space-between;align-items:center;gap:8px;margin-top:3px">
+            <div class="bar" style="flex:1;height:7px;background:#eceae4;border-radius:4px;overflow:hidden;position:relative">
+              <div style="position:absolute;left:0;top:0;bottom:0;width:${(r.nowPct*100).toFixed(1)}%;background:${r.color}"></div>
+              ${r.wantPct>0? `<div style="position:absolute;top:-2px;bottom:-2px;left:${(r.wantPct*100).toFixed(1)}%;width:2px;background:#333"></div>`:''}
+            </div>
+            <div class="tiny muted num" style="min-width:96px;text-align:right">
+              지금 ${(r.nowPct*100).toFixed(1)}%${r.wantPct>0? ` · 목표 ${(r.wantPct*100).toFixed(0)}%`:''}</div>
+          </div>
+        </div>`;
+      }).join('')}
+      <div class="tiny muted" style="margin-top:8px;line-height:1.7">
+        검은 선이 <b>목표</b>, 색 막대가 <b>지금</b>입니다. 1% 안쪽이면 <b>맞음</b>으로 봅니다.
+      </div>
+    </div>`; })()}`;
+}
+function viewFlow(){
+  const debts = activeHoldings().filter(h=>h.cat==='debt' && +h.loan>0);
+  const iv = debts.reduce((a,h)=>a + (+h.loan||0) * (+h.rate||0) / 100 / 12, 0);
+  const bs = state.bud?.sum;
   return `
-  <div class="card">
-    <h2>오늘 한 줄 <span class="sub">${iso(new Date())}</span></h2>
-    <div class="f" style="margin-bottom:8px">
-      <textarea id="dText" placeholder="예) 환율 1,400 넘어서 달러 더 안 사기로. 삼성전자는 9만원까지 들고 간다."></textarea>
-    </div>
-    <button class="btn block" data-act="dAdd">기록에 남기기</button>
-    <div class="tiny muted mt">적을 때 <b>그 순간 순자산</b>도 같이 저장돼서, 나중에 그때 무슨 생각이었는지 같이 보입니다.</div>
-  </div>
-
-  ${(()=>{
+    ${(()=>{
     const y = new Date().getFullYear(), m = new Date().getMonth()+1;
     const list = (state.divs||[]).slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))).slice(0,12);
     return `<div class="card">
@@ -3004,59 +3136,43 @@ function viewNote(){
     </div>`;
   })()}
 
-  ${(()=>{ const rb = rebalance(); if(!rb) return `
-    <div class="card">
-      <div class="sec-head"><h2 style="margin:0">⚖️ 리밸런싱</h2>
-        <button class="chip line" data-act="rbEdit">비중 정하기</button></div>
-      <div class="tiny muted" style="line-height:1.8">
-        주식 몇 %, 채권 몇 %… 이렇게 <b>목표 비중</b>을 정해 두면
-        지금 비중과 견줘서 <b>무엇을 얼마나 사고 팔면 되는지</b> 알려 드려요.
-      </div>
-    </div>`;
-    return `<div class="card">
-      <div class="sec-head"><h2 style="margin:0">⚖️ 리밸런싱</h2>
-        <button class="chip line" data-act="rbEdit">비중 고치기</button></div>
-      <div class="tiny muted" style="margin-bottom:8px">굴리는 돈 ${bigWon(rb.total)}원 기준</div>
-      ${rb.rows.map(r=>{
-        const off = Math.abs(r.gap) / rb.total;
-        const near = off < 0.01;
-        return `<div style="padding:7px 0;border-top:1px solid var(--line)">
-          <div class="row" style="justify-content:space-between;align-items:baseline">
-            <div style="font-weight:800;font-size:13px">
-              <span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:${r.color};margin-right:5px"></span>
-              ${esc(r.label)}${r.extra? ' <span class="tiny muted">정해 두지 않음</span>':''}</div>
-            <div class="tiny ${near?'muted':(r.gap>0?'down':'up')}" style="font-weight:800">
-              ${near ? '맞음' : (r.gap>0 ? `${shortWon(r.gap)}원 더 사기` : `${shortWon(-r.gap)}원 팔기`)}</div>
-          </div>
-          <div class="row" style="justify-content:space-between;align-items:center;gap:8px;margin-top:3px">
-            <div class="bar" style="flex:1;height:7px;background:#eceae4;border-radius:4px;overflow:hidden;position:relative">
-              <div style="position:absolute;left:0;top:0;bottom:0;width:${(r.nowPct*100).toFixed(1)}%;background:${r.color}"></div>
-              ${r.wantPct>0? `<div style="position:absolute;top:-2px;bottom:-2px;left:${(r.wantPct*100).toFixed(1)}%;width:2px;background:#333"></div>`:''}
-            </div>
-            <div class="tiny muted num" style="min-width:96px;text-align:right">
-              지금 ${(r.nowPct*100).toFixed(1)}%${r.wantPct>0? ` · 목표 ${(r.wantPct*100).toFixed(0)}%`:''}</div>
-          </div>
-        </div>`;
-      }).join('')}
-      <div class="tiny muted" style="margin-top:8px;line-height:1.7">
-        검은 선이 <b>목표</b>, 색 막대가 <b>지금</b>입니다. 1% 안쪽이면 <b>맞음</b>으로 봅니다.
-      </div>
-    </div>`; })()}
-
-  ${al.length? `<div class="card">
-    <h2>지금 봐야 할 것 <span class="sub">${al.length}건</span></h2>
-    ${al.map(x=>{
-      const r = calc(x.h), c = CAT(x.h.cat);
-      const isT = x.hit==='target';
-      return `<div class="hold" data-act="open" data-id="${x.h.id}">
-        <div class="ic" style="background:${isT?'#e4f1ec':'#fbe9e7'};color:${isT?'#2e7d6b':'var(--up)'}">${isT?'🎯':'🛑'}</div>
-        <div class="mid"><div class="nm">${esc(x.h.name)}</div>
-          <div class="sb">${isT? '목표가' : '손절가'} ${priceS(isT? x.h.target : x.h.stop, r.px.ccy)} ${isT?'넘었어요':'밑으로 내려왔어요'}</div></div>
-        <div class="rt"><div class="amt num">${priceS(r.px.p, r.px.ccy)}</div>
-          ${r.cost>0? `<div class="pl num ${sgn(r.pl)}">${pctS(r.plRate,1)}</div>`:''}</div>
-      </div>`;
-    }).join('')}
+  ${debts.length? `<div class="card">
+    <h2>💳 대출 <span class="sub">월 이자 약 ${won(Math.round(iv))}</span></h2>
+    ${debts.map(h=>`<div class="hold" data-act="open" data-id="${h.id}">
+      <div class="ic" style="background:${CAT('debt').color}1f;color:${CAT('debt').color}">${CAT('debt').emo}</div>
+      <div class="mid"><div class="nm">${esc(h.name)}</div>
+        <div class="sb">${h.rate>0? `연 ${(+h.rate).toFixed(2)}% · 월 이자 약 ${won(Math.round((+h.loan)*(+h.rate)/100/12))}` : '금리를 적으면 월 이자를 셈해 드려요'}${h.owner? ' · '+esc(h.owner):''}</div></div>
+      <div class="rt"><div class="amt num up">-${shortWon(h.loan)}원</div></div>
+    </div>`).join('')}
+    <div class="tiny muted mt" style="line-height:1.7">잔액 × 연 금리 ÷ 12 로 어림한 값이라 실제 청구액과 다를 수 있어요. 가계부와 연결돼 있으면 거기 대출 잔액으로 따라갑니다.</div>
   </div>`:''}
+
+  ${bs && bs.income > 0 ? `<div class="card">
+    <h2>🧾 가계부 <span class="sub">${+bs.key.slice(5)}월</span></h2>
+    <div class="grid3">
+      <div><div class="tiny muted">수입</div><div class="num" style="font-weight:800">${shortWon(bs.income)}</div></div>
+      <div><div class="tiny muted">지출</div><div class="num" style="font-weight:800">${shortWon(bs.spend)}</div></div>
+      <div><div class="tiny muted">남음 · 저축률</div><div class="num" style="font-weight:800">${shortWon(bs.net)} · ${(bs.rate*100).toFixed(0)}%</div></div>
+    </div>
+  </div>`:''}
+  ${!debts.length && !(bs && bs.income>0) && !(state.divs||[]).length && !Object.keys(state.divInfo||{}).length ? `<div class="card"><div class="empty">
+    배당을 기록하거나 💳 대출을 담으면 여기에 들어오고 나가는 돈이 모입니다.</div></div>`:''}`;
+}
+function viewNote(){
+  const withWhy = activeHoldings().filter(h=>(h.why||'').trim() || +h.target>0 || +h.stop>0);
+
+  return `
+  <div class="card">
+    <h2>오늘 한 줄 <span class="sub">${iso(new Date())}</span></h2>
+    <div class="f" style="margin-bottom:8px">
+      <textarea id="dText" placeholder="예) 환율 1,400 넘어서 달러 더 안 사기로. 삼성전자는 9만원까지 들고 간다."></textarea>
+    </div>
+    <button class="btn block" data-act="dAdd">기록에 남기기</button>
+    <div class="tiny muted mt">적을 때 <b>그 순간 순자산</b>도 같이 저장돼서, 나중에 그때 무슨 생각이었는지 같이 보입니다.</div>
+  </div>
+
+
+
 
   ${withWhy.length? `<div class="card">
     <h2>종목별 메모 <span class="sub">${withWhy.length}개</span></h2>
@@ -3076,25 +3192,7 @@ function viewNote(){
     }).join('')}
   </div>`:''}
 
-  ${dates.length? `<div class="card">
-    <h2>투자 일기 <span class="sub">${days.length}개</span></h2>
-    ${dates.map(dt=>`
-      ${byDate[dt].map(d=>`<div class="diary">
-        <div class="d1">
-          <span class="dt">${esc(dt.replace(/-/g,'.'))}${d.hold&&nameOf(d.hold)? ' · '+esc(nameOf(d.hold)) : ''}</span>
-          <span class="dn">순자산 ${shortWon(d.net)}</span>
-        </div>
-        <div class="dx">${esc(d.text)}</div>
-        <div class="dm"><button class="chip line" style="padding:2px 8px;font-size:10px"
-          data-act="dDel" data-id="${d.id}">지우기</button></div>
-      </div>`).join('')}
-    `).join('')}
-  </div>`
-  : (al.length||withWhy.length? '' : `<div class="card"><div class="empty">
-      아직 적어 둔 기록이 없어요.<br>
-      <b style="color:var(--ink)">왜 샀는지</b>, <b style="color:var(--ink)">언제 팔지</b>를 한 줄만 적어 둬도<br>
-      나중에 팔지 말지 정할 때 큰 도움이 됩니다.
-    </div></div>`)}`;
+  ${diaryMonths()}`;
 }
 
 /* ============================================================
@@ -4518,6 +4616,7 @@ function render(){
   renderTabs();
   const v = ui.tab==='home' ? viewHome()
           : ui.tab==='list' ? viewList()
+          : ui.tab==='flow' ? viewFlow()
           : ui.tab==='note' ? viewNote()
           : ui.tab==='add'  ? viewAdd()
           : viewSet();
@@ -4545,27 +4644,15 @@ function logChange(t, h, dv){
   if(state.changes.length > 500) state.changes = state.changes.slice(-500);
 }
 /* 이번 달 순자산 변화를 원인별로 가릅니다 */
-function whyChanged(){
-  const now = new Date(), ms = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-  const mk = iso(now).slice(0,7);
-  const keys = Object.keys(state.snap||{}).sort();
-  const inMonth = keys.filter(k=>k.slice(0,7)===mk);
-  const before = keys.filter(k=>k.slice(0,7) < mk).pop();
-  const startK = before || inMonth[0], endK = keys[keys.length-1];
-  if(!startK || !endK || startK === endK) return null;
-  const total = (state.snap[endK].net||0) - (state.snap[startK].net||0);
-  const added = activeHoldings().filter(h=>(+h.at||0) >= ms)
-    .reduce((a,h)=>{ const r = calc(h); return a + (r.value||0) - (r.loan||0); }, 0);
-  const ch = (state.changes||[]).filter(c=>c.at >= ms);
-  const edited = ch.filter(c=>c.t==='edit').reduce((a,c)=>a+c.dv, 0);
-  const removed = ch.filter(c=>c.t==='del').reduce((a,c)=>a+c.dv, 0);
-  const divs = (state.divs||[]).filter(d=>String(d.date||'').slice(0,7)===mk).reduce((a,d)=>a+divKrw(d), 0);
-  const market = total - added - edited - removed;
-  const bigAdds = activeHoldings().filter(h=>(+h.at||0) >= ms && Math.abs(calc(h).value||0) >= Math.abs(total)*0.2)
-    .map(h=>h.name);
-  return { startK, endK, total, added, edited, removed, market, divs, bigAdds };
-}
+function whyChanged(){ const r = monthReview(iso(new Date()).slice(0,7)); return r.total===null ? null : r; }
 
+document.addEventListener('input', ev=>{
+  if(ev.target && ev.target.id === 'dq'){
+    ui.dq = ev.target.value;
+    clearTimeout(ui._dqT); ui._dqT = setTimeout(()=>{ const pos = ev.target.selectionStart; render();
+      const el = $('#dq'); if(el){ el.focus(); try{ el.setSelectionRange(pos,pos); }catch(e){} } }, 250);
+  }
+});
 document.addEventListener('click', async ev=>{
   const b = ev.target.closest('[data-act]'); if(!b) return;
   const act = b.dataset.act, id = b.dataset.id;
@@ -4991,6 +5078,7 @@ document.addEventListener('click', async ev=>{
     else toast('연결했어요 — 초대 링크를 다른 기기에 붙여넣으세요');
     break; }
   case 'finView': ui.fin = b.dataset.v === '1'; render(); break;
+  case 'dSearch': break;   /* input 이벤트로 처리합니다 */
   case 'alertSeen': markAlertsSeen(); render(); toast('알림을 확인 표시했어요'); break;
   case 'alertToggle': { const c = alertCfg(); c.on = !c.on; save(false); render();
     toast(c.on? '알림을 켰어요' : '알림을 껐어요'); break; }
