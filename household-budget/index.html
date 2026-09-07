@@ -2095,6 +2095,20 @@ function viewFixed(){
       ${loans.length? `<div class="sec-foot"><span>잔액 합계</span>
         <b>${bigWon(loanBalance())}원 · 월 ${num(loanMonthly())}원</b></div>`:''}
     </div>
+    ${loans.length? `<div class="card pad" style="margin-top:10px">
+      ${(()=>{ const linked = loans.filter(l=>l.itemId && itemById(l.itemId));
+        const sum = loans.reduce((a,l)=>a+(+l.monthly||0),0);
+        return linked.length===loans.length && loans.length
+          ? `<div class="tiny" style="font-weight:800;color:var(--income)">🔁 대출 ${loans.length}건이
+               가계부 <b>${esc(itemById(linked[0].itemId)?.name||'')}</b>에 연결돼 있어요 · 월 ${num(sum)}원</div>`
+          : `<div class="tiny muted" style="line-height:1.7">
+               대출 ${loans.length}건 중 <b>${linked.length}건</b>만 가계부와 연결돼 있어요.
+               연결하면 <b>월 상환액을 고칠 때 가계부도 같이 바뀝니다.</b></div>`;
+      })()}
+      <button class="btn sm block" style="margin-top:9px" data-act="loanLinkAll">
+        🔗 대출 ${loans.length}건을 가계부 항목에 연결하기</button>
+    </div>`:''}
+
     <button class="btn ghost block sm" style="margin-top:10px" data-act="editLoan">＋ 대출 추가</button>
 
     ${(()=>{ const lp = loanPlan(); if(!lp.length) return '';
@@ -2427,6 +2441,40 @@ function openFixedForm(id){
     <div class="field"><label>메모</label><input id="fxMemo" value="${esc(f.memo||'')}" placeholder="예: 약정 재협상"></div>
     <button class="btn block" style="margin-top:12px" data-act="saveFixed" data-id="${f.id||''}">저장</button>
     ${f.id? `<button class="btn ghost block sm" style="margin-top:7px;color:var(--spend)" data-act="delFixed" data-id="${f.id}">삭제</button>`:''}
+  </div>`);
+}
+/* 대출 전체를 한 항목에 잇고, 겹치는 고정비 연결은 풀어 준다 */
+function openLoanLinkAll(){
+  const loans = state.loans||[];
+  const sum = loans.reduce((a,l)=>a+(+l.monthly||0),0);
+  const guess = spendItems().find(i=>/대출|이자/.test(i.name))?.id || '';
+  const cur = loans.find(l=>l.itemId && itemById(l.itemId))?.itemId || guess;
+  const dupFixed = (state.fixed||[]).filter(f=>f.active!==false && f.itemId===cur);
+  openModal(`<div class="modal">
+    <div class="mhead"><h3>대출을 가계부에 연결</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted" style="line-height:1.8">
+      대출 <b>${loans.length}건 · 월 ${num(sum)}원</b>을 가계부 한 항목에 넣습니다.
+      연결해 두면 <b>상환액을 고칠 때 가계부도 같이 바뀝니다.</b>
+      그 달에 실제 금액을 직접 넣으면 그 값이 우선해요.</div>
+    <div class="field"><label>가계부 항목</label>
+      <select id="llItem">
+        ${spendItems().map(i=>`<option value="${i.id}" ${cur===i.id?'selected':''}>${esc(i.name)}</option>`).join('')}
+      </select></div>
+    <div class="card" style="margin-top:11px">
+      ${loans.map(l=>`<div class="fx">
+        <div class="grow"><div style="font-size:12.5px;font-weight:800">${esc(l.name)}</div>
+          <div class="tiny muted">${esc(l.bank||'')}${l.owner? ' · '+esc(l.owner):''}</div></div>
+        <div class="val" style="font-size:13px">월 ${num(l.monthly)}</div>
+      </div>`).join('')}
+      <div class="sec-foot"><span>합계</span><b>${num(sum)}원</b></div>
+    </div>
+    ${dupFixed.length? `<div class="note" style="margin-top:11px">⚠️ 같은 항목에 고정비
+      <b>${dupFixed.length}건</b>(${esc(dupFixed.slice(0,3).map(f=>f.name).join(', '))}${dupFixed.length>3?' 등':''})도
+      연결돼 있어요. 그대로 두면 <b>두 번 세집니다.</b></div>
+      <label class="row" style="margin-top:9px;font-size:12.5px;font-weight:700">
+        <input type="checkbox" id="llUnfix" checked style="width:18px;height:18px">
+        겹치는 고정비 연결은 풀기 (권장)</label>`:''}
+    <button class="btn block" style="margin-top:13px" data-act="loanLinkRun">연결하기</button>
   </div>`);
 }
 function openLoanForm(id){
@@ -3634,6 +3682,19 @@ document.addEventListener('click', async (e)=>{
     save(); closeModal(); render(); toast('저장했어요'); break;
   }
   case 'delFixed': state.fixed = state.fixed.filter(f=>f.id!==id); save(); closeModal(); render(); break;
+  case 'loanLinkAll': openLoanLinkAll(); break;
+  case 'loanLinkRun': {
+    const itemId = $('#llItem').value; if(!itemId){ toast('항목을 골라 주세요'); break; }
+    (state.loans||[]).forEach(l=>{ l.itemId = itemId; });
+    let un = 0;
+    if($('#llUnfix')?.checked){
+      (state.fixed||[]).forEach(f=>{ if(f.itemId===itemId){ f.itemId=''; un++; } });
+    }
+    save(); closeModal(); render();
+    const sum = (state.loans||[]).reduce((a,l)=>a+(+l.monthly||0),0);
+    toast(`대출 ${(state.loans||[]).length}건(월 ${num(sum)}원)을 ${itemById(itemId).name}에 연결했어요`
+          + (un? ` · 겹치던 고정비 ${un}건은 풀었어요` : '')); break;
+  }
   case 'editLoan': openLoanForm(id); break;
   case 'saveLoan': {
     const o = { name:$('#lnName').value.trim(), bank:$('#lnBank').value.trim(), owner:$('#lnOwner').value,
