@@ -1866,6 +1866,7 @@ KODEX 레버리지|122630|KS
 KODEX 인버스|114800|KS
 TIGER 미국S&P500|360750|KS
 TIGER 미국나스닥100|133690|KS
+KODEX 미국S&P500|379810|KS
 KODEX 미국S&P500TR|379800|KS
 TIGER 미국배당다우존스|458730|KS
 ACE 미국배당다우존스|402970|KS
@@ -2322,9 +2323,128 @@ async function ocrIntoPaste(file){
   }catch(e){ say('못 읽었어요 — ' + esc(e.message||'다시 해 보세요')); }
 }
 
+/* ============================================================
+   📷 캡처 표 읽기 — 머리글로 칸 순서를 알아내고, 뭉개진 이름을 되살립니다
+   ------------------------------------------------------------
+   증권사 잔고표는 종목 하나가 두 줄입니다:
+     종목명   평가손익   잔고수량   매입가
+     국가 구분  수익률    평가금액   현재가
+   OCR 은 왼쪽 이름을 잘 뭉개지만(KODEX → 1006×) 오른쪽 숫자들의 순서는
+   지키므로, 머리글에서 칸 순서를 읽어 숫자를 오른쪽부터 짝지웁니다.
+   평가금액 = 수량 × 현재가 가 맞아떨어지면 진짜 종목 줄로 봅니다.
+   ============================================================ */
+const COL_WORDS = [
+  ['qty',  /잔고수량|보유수량|보유량|수량/],
+  ['avg',  /매입가|매입단가|매입평균|매수평균|평균단가|평균매입|평단/],
+  ['cur',  /현재가|현재가격/],
+  ['val',  /평가금액|평가액/],
+  ['pl',   /평가손익|손익금액|손익/],
+  ['rate', /수익률|손익률|등락률/],
+  ['name', /종목명|종목/],
+];
+const colsOf = line => {
+  const hits = [];
+  COL_WORDS.forEach(([k,re])=>{ const m = re.exec(line); if(m) hits.push({k, at:m.index}); });
+  const out = [];
+  hits.sort((a,b)=>a.at-b.at).forEach(h=>{ if(!out.includes(h.k)) out.push(h.k); });
+  return out;
+};
+const isHeader = line => colsOf(line).filter(k=>k!=='name').length >= 2 && collectNums(line).length <= 1;
+
+/* OCR 이 서로 헷갈리는 글자를 한 부류로 — 양쪽을 같은 식으로 뭉개서 견줍니다
+   KODEX → 1006×, S&P500 → 580500 처럼 읽히는 것을 그대로 따라갑니다 */
+const OCR_CLASS = [
+  [/[0OoDQP]/g,'0'], [/[1IilK|]/g,'1'], [/[5Ss]/g,'5'], [/[8B&]/g,'8'],
+  [/[6EGb]/g,'6'],   [/[2Zz]/g,'2'],    [/[×Xx]/g,'x'], [/[4A]/g,'4'], [/[7T]/g,'7'],
+];
+function ocrKey(str){
+  let t = String(str||'').replace(/[\s·.,\-_'"()\[\]]/g,'');
+  OCR_CLASS.forEach(([re,c])=>{ t = t.replace(re,c); });
+  return t;
+}
+function lcsLen(a, b){
+  let best = 0;
+  for(let i=0;i<a.length;i++) for(let j=i+best+1;j<=a.length;j++){
+    if(b.includes(a.slice(i,j))) best = j - i; else break;
+  }
+  return best;
+}
+/* 뭉개진 이름으로 목록에서 가장 닮은 종목 찾기 */
+function recoverName(frag){
+  /* 그대로 알아볼 수 있는 이름(삼성전자·카카오)은 정확한 목록 조회가 먼저입니다 */
+  const exact = findSym(String(frag||'').trim());
+  if(exact && exact.name !== exact.code) return { ...exact, sure:true };
+  const k = ocrKey(frag);
+  if(k.length < 4) return null;
+  let best = null, score = 0;
+  KR_LIST.forEach(x=>{
+    const kk = ocrKey(x.name);
+    const l = lcsLen(k, kk);
+    const sc = l / Math.max(k.length, kk.length);
+    if(sc > score){ score = sc; best = x; }
+  });
+  return score >= 0.6 ? { ...best, sure: score >= 0.9 } : null;
+}
+function parseTable(lines){
+  const rows = [], used = new Set();
+  for(let i=0;i<lines.length;i++){
+    if(used.has(i) || !isHeader(lines[i])) continue;
+    const colsA = colsOf(lines[i]);
+    const twoLine = i+1 < lines.length && isHeader(lines[i+1]);
+    const colsB = twoLine ? colsOf(lines[i+1]) : [];
+    let j = i + (twoLine ? 2 : 1);
+    used.add(i); if(twoLine) used.add(i+1);
+    while(j < lines.length){
+      const a = lines[j]; if(!a || isHeader(a) || SUMMARY_LINE.test(a)) break;
+      const numsA = collectNums(a);
+      const nA = colsA.filter(k=>k!=='name').length;
+      if(numsA.length < Math.max(1, nA)) break;
+      const r = { cat:'kr', code:'', sym:'', name:'', qty:NaN, avg:NaN, use:true, raw:a, fromTable:true };
+      const takeA = numsA.slice(-nA);
+      colsA.filter(k=>k!=='name').forEach((k,idx)=>{ r['_'+k] = takeA[idx].v; });
+      const cut = takeA.length ? takeA[0].at : a.length;
+      r.name = a.slice(0, cut).trim();
+      used.add(j); j++;
+      if(twoLine && j < lines.length && !isHeader(lines[j])){
+        const b = lines[j], numsB = collectNums(b);
+        const nB = colsB.filter(k=>k!=='name').length;
+        if(numsB.length >= 1){
+          const takeB = numsB.slice(-Math.min(nB, numsB.length));
+          const keys = colsB.filter(k=>k!=='name').slice(-takeB.length);
+          keys.forEach((k,idx)=>{ if(r['_'+k]===undefined) r['_'+k] = takeB[idx].v; });
+          r.raw += ' / ' + b; used.add(j); j++;
+        }
+      }
+      r.qty = +r._qty; r.avg = +r._avg;
+      if(!(r.avg > 0) && r._val > 0 && r.qty > 0 && r._pl !== undefined)
+        r.avg = (r._val - r._pl) / r.qty;
+      r.check = (r._val > 0 && r._cur > 0 && r.qty > 0)
+        ? Math.abs(r._val - r.qty * r._cur) / r._val < 0.02 : null;
+      const rec = recoverName(r.name);
+      if(rec){ r.code = rec.code; r.sym = rec.sym; r.cat = rec.cat; r.ocrName = r.name; r.name = rec.name; r.sure = rec.sure; }
+      else { r.weak = true; }
+      if(!(r.qty > 0)) continue;
+      if(r.check === false){ r.use = false; r.weak = true; }
+      if(r.weak && !r.check){ r.use = false; }
+      rows.push(r);
+    }
+  }
+  return { rows, used };
+}
+
 function parsePaste(text){
-  const rows = [], unknown = [];
   const lines = String(text||'').split(/\r?\n/).map(l=>l.replace(/ /g,' ').trim()).filter(Boolean);
+  /* 표 머리글이 있으면 그 규칙으로 먼저 읽습니다 — 캡처는 거의 이 모양입니다 */
+  const tbl = parseTable(lines.map(l=>l.replace(ACCT_NO,' ')));
+  if(tbl.rows.length){
+    const more = parsePasteLines(lines.filter((_,i)=>!tbl.used.has(i)));
+    return { rows: [...tbl.rows, ...more.rows.filter(r=>!tbl.rows.some(t=>t.code && t.code===r.code))],
+             unknown: more.unknown };
+  }
+  return parsePasteLines(lines);
+}
+function parsePasteLines(lines){
+  const rows = [], unknown = [];
   let cur = null;
   const flush = () => { if(cur){ rows.push(cur); cur = null; } };
   for(const rawLine of lines){
@@ -3305,7 +3425,10 @@ function openPastePreview(owner, working){
             <label>평균단가<input class="pa" data-i="${i}" inputmode="decimal" value="${isFinite(r.avg)?r.avg:''}"></label>
             <label>코드·티커<input class="pk" data-i="${i}" value="${esc(r.code||'')}" placeholder="${r.cat==='kr'?'005930':'AAPL'}"></label>
           </div>
-          ${r.weak? '<div class="warn">⚠️ 이름을 못 읽고 6자리 숫자만 잡혔어요 — 계좌번호일 수 있어 꺼 두었습니다</div>'
+          ${r.ocrName && r.ocrName !== r.name ? `<div class="hint" style="margin-top:4px">
+              📷 캡처에는 <b>${esc(r.ocrName)}</b> 로 찍혔는데 <b>${esc(r.name)}</b> 으로 알아봤어요${r.sure?'':' — 확실치 않으니 봐 주세요'}${r.check===true?' · 평가금액이 수량×현재가와 맞아 진짜 종목입니다':''}</div>`:''}
+          ${r.check===false? '<div class="warn">⚠️ 평가금액이 수량×현재가와 안 맞아요 — 숫자가 잘못 짝지어진 듯해 꺼 두었습니다</div>'
+            : r.weak? '<div class="warn">⚠️ 이름을 못 읽고 숫자만 잡혔어요 — 계좌번호일 수 있어 꺼 두었습니다</div>'
             : needCode? '<div class="warn">⚠️ 코드를 몰라서 시세가 안 붙어요 — 적어 주거나 체크를 빼 주세요</div>':''}
           ${dup? `<div class="dup">
               <span>이미 있어요 (${esc(dup.acct||dup.owner||'')} ${qtyS(dup.qty,dup.cat)}${CAT(dup.cat).unit})</span>
