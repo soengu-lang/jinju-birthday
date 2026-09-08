@@ -514,16 +514,34 @@ const linkVal = (itemId, key) =>
    · 그 달에 직접 적은 금액이나 상세 기록이 있으면 그쪽이 이긴다 (이중 계산 방지)
    · 아직 오지 않은 달에는 넣지 않는다
    · 고정비 금액을 고치면 아직 안 적은 달들은 바로 새 금액으로 바뀐다 */
-function fixedAutoVal(itemId, key){
-  if(state.autoFixed === false) return 0;
-  if(key > mk(nowMonthIdx())) return 0;
-  if(+state.cells[`${itemId}|${key}`]) return 0;
-  if(entriesOf(itemId, key).length) return 0;
+/* 이 항목에 연결된 고정비·대출이 넣으려는 금액 (직접 적은 값이 있어도 계산합니다) */
+function autoRawVal(itemId){
   let sum = 0;
   (state.fixed||[]).forEach(f=>{ if(f.active!==false && f.itemId===itemId) sum += +f.amount||0; });
   (state.loans||[]).forEach(l=>{ if(l.itemId===itemId) sum += +l.monthly||0; });
   return sum;
 }
+function fixedAutoVal(itemId, key){
+  if(state.autoFixed === false) return 0;
+  if(key > mk(nowMonthIdx())) return 0;
+  if(+state.cells[`${itemId}|${key}`]) return 0;
+  if(entriesOf(itemId, key).length) return 0;
+  return autoRawVal(itemId);
+}
+/* 연결은 됐는데 가계부에 직접 적은 값이 있어 금액이 안 따라오는 항목들.
+   (시트에서 옮겨 온 값이 남아 있으면 이렇게 됩니다) */
+function autoGaps(key){
+  if(state.autoFixed === false) return [];
+  const out = [];
+  spendItems().forEach(i=>{
+    const want = autoRawVal(i.id); if(!want) return;
+    if(entriesOf(i.id, key).length) return;      /* 상세 기록·붙여넣기가 있으면 건드리지 않습니다 */
+    const has = +state.cells[`${i.id}|${key}`] || 0;
+    if(has && has !== want) out.push({ item:i, has, want });
+  });
+  return out;
+}
+const autoGapOf = (itemId, key) => autoGaps(key).find(g=>g.item.id===itemId);
 function cellVal(itemId, key){
   const base = +state.cells[`${itemId}|${key}`] || 0;
   return base + entriesOf(itemId,key).reduce((s,e)=>s+(+e.amount||0),0)
@@ -1835,7 +1853,10 @@ function viewLedger(){
         ${list.map(i=>{
           const v = cellVal(i.id,cur), n = entriesOf(i.id,cur).length, lk = linkVal(i.id,cur);
           const fa = fixedAutoVal(i.id, cur);
-          const sub = [ fa? `🔁 고정비에서 ${num(fa)}원` : '', lk? `🧊 냉장고에서 ${num(lk)}원` : '',
+          const gap = autoGapOf(i.id, cur);
+          const sub = [ fa? `🔁 고정비에서 ${num(fa)}원` : '',
+                        gap? `<span style="color:var(--gold)">🔁 고정비·대출은 ${num(gap.want)}원</span>` : '',
+                        lk? `🧊 냉장고에서 ${num(lk)}원` : '',
                         n? `상세 기록 ${n}건` : '' ].filter(Boolean).join(' · ');
           return `<button class="line-item" data-act="cell" data-id="${i.id}">
             <div class="grow"><div class="nm">${esc(i.name)}
@@ -2149,6 +2170,17 @@ function viewFixed(){
           ? `<button class="btn sm block" style="margin-top:9px" data-act="autoMatch">🔗 안 된 ${un}개 가계부 항목과 자동으로 연결하기</button>`
           : `<div class="row" style="margin-top:8px"><span class="tiny muted grow">모두 연결돼 있어요 · 항목별 연결은 각 고정비를 눌러 바꿉니다</span>
              <button class="chip line" data-act="autoMatch">다시 연결</button></div>`; })()}
+      ${(()=>{ const m = nowMonthIdx(), gaps = autoGaps(mk(m));
+        if(!gaps.length) return '';
+        const tot = gaps.reduce((a,g)=>a+g.want,0);
+        return `<div class="note" style="margin-top:9px">⚠️ ${m}월 가계부에 <b>직접 적은 값</b>이 남아 있어
+          금액이 안 따라오고 있어요. 직접 적은 값이 늘 우선이라서 그렇습니다.
+          ${gaps.map(g=>`<div style="margin-top:6px">· <b>${esc(g.item.name)}</b> —
+            가계부 <b>${num(g.has)}원</b> · 고정비·대출 <b>${num(g.want)}원</b></div>`).join('')}
+          <button class="btn sm block" style="margin-top:10px" data-act="autoGapFix">
+            ${m}월 가계부를 ${num(tot)}원으로 맞추기</button>
+          <div class="tiny muted" style="margin-top:6px">맞추면 그 뒤로는 고정비·대출을 고칠 때마다 따라옵니다.</div>
+        </div>`; })()}
       ${autoDupItems().length? `<div class="note" style="margin-top:9px">⚠️ 고정비와 대출이 <b>${
         autoDupItems().map(id=>esc(itemById(id)?.name||'')).join(', ')}</b> 항목을 같이 보고 있어요.
         같은 돈을 두 번 셀 수 있으니 <b>한쪽만</b> 연결해 두세요.</div>`:''}
@@ -2187,7 +2219,10 @@ function viewFixed(){
         const all = linked.length===loans.length && loans.length;
         return all
           ? `<div class="row"><div class="tiny grow" style="font-weight:800;color:var(--income);line-height:1.6">🔁 대출 ${loans.length}건 → 가계부
-               <b>${esc(itemById(linked[0].itemId)?.name||'')}</b><br><span class="muted" style="font-weight:600">월 상환액(원금+이자) ${num(sum)}원이 들어갑니다</span></div>
+               <b>${esc(itemById(linked[0].itemId)?.name||'')}</b><br><span class="muted" style="font-weight:600">${
+                 autoGapOf(linked[0].itemId, mk(nowMonthIdx()))
+                   ? `${nowMonthIdx()}월엔 직접 적은 값이 우선이라 안 들어갔어요 · 위에서 맞출 수 있어요`
+                   : `월 상환액(원금+이자) ${num(sum)}원이 들어갑니다`}</span></div>
              <button class="chip line" data-act="loanLinkAll">연결 관리</button></div>`
           : `<div class="tiny muted" style="line-height:1.7">
                대출 ${loans.length}건 중 <b>${linked.length}건</b>만 가계부와 연결돼 있어요.
@@ -2398,6 +2433,11 @@ function openCell(itemId){
     ${fixedAutoVal(itemId,key)? `<div class="note" style="margin-top:10px">🔁 고정비·대출에서
       <b>${num(fixedAutoVal(itemId,key))}원</b>이 자동으로 들어와 있어요.
       이 달 실제 금액이 다르면 아래에 직접 넣으세요 — <b>직접 넣은 값이 우선</b>합니다.</div>`:''}
+    ${(()=>{ const g = autoGapOf(itemId, key); if(!g) return '';
+      return `<div class="note" style="margin-top:10px">🔁 연결된 고정비·대출은 <b>${num(g.want)}원</b>인데
+        여기 직접 적은 <b>${num(g.has)}원</b>이 우선하고 있어요.
+        <button class="btn sm block" style="margin-top:9px" data-act="cellAutoFix" data-id="${itemId}">
+          ${num(g.want)}원으로 맞추기</button></div>`; })()}
     ${lk? `<div class="note" style="margin-top:10px">🧊 냉장고 식단표에서 <b>${num(lk)}원</b>이 자동으로 더해져 있어요.
       이 금액은 냉장고 앱에서 고치면 여기도 따라 바뀝니다.</div>`:''}
     ${list.length? `<div class="field"><label>상세 기록 ${list.length}건 (합계 ${num(extra)}원)</label>
@@ -3790,6 +3830,21 @@ document.addEventListener('click', async (e)=>{
   }
 
   /* ---- 고정비 · 대출 ---- */
+  case 'autoGapFix': {
+    /* 직접 적은 값을 비우면 고정비·대출 금액이 그 자리에 들어옵니다 */
+    const key = mk(nowMonthIdx()), gaps = autoGaps(key);
+    if(!gaps.length){ toast('맞출 게 없어요'); break; }
+    gaps.forEach(g=>{ delete state.cells[`${g.item.id}|${key}`]; });
+    save(); render();
+    toast(`${gaps.length}개 항목을 고정비·대출 금액으로 맞췄어요`); break;
+  }
+  case 'cellAutoFix': {
+    const key = mk(ui.m), g = autoGapOf(id, key);
+    if(!g){ toast('맞출 게 없어요'); break; }
+    delete state.cells[`${id}|${key}`];
+    save(); closeModal(); render();
+    toast(`${itemById(id).name}을 ${num(g.want)}원으로 맞췄어요`); break;
+  }
   case 'autoFixedToggle':
     state.autoFixed = (state.autoFixed === false);
     save(); render();
