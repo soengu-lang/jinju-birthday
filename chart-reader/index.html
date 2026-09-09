@@ -187,6 +187,7 @@ footer{text-align:center;font-size:11px;color:var(--muted);line-height:1.8;paddi
   <div class="card" id="card1">
     <h2><span class="step">1</span>차트 캡처 넣기</h2>
     <p class="desc">증권사 앱이나 HTS에서 <b>캔들과 보조지표가 보이는 화면</b>을 캡처해서 넣으세요.
+      <b>넣기만 하면 알아서 읽습니다</b> — 선 색과 몇 일선인지도 앱이 찾아냅니다.
       사진은 이 폰(브라우저) 안에서만 처리되고 <b>어디로도 올라가지 않습니다</b>.</p>
     <div class="drop" id="drop">
       <div class="em">📈</div>
@@ -195,6 +196,11 @@ footer{text-align:center;font-size:11px;color:var(--muted);line-height:1.8;paddi
     </div>
     <input type="file" id="file" accept="image/*" class="hidden">
     <div class="btn-row"><button class="btn" id="btnFile">사진 고르기</button></div>
+  </div>
+
+  <div class="card hidden" id="cardAuto">
+    <h2><span class="step">✓</span>사진에서 읽은 것</h2>
+    <div id="autoBody"></div>
   </div>
 
   <div class="card hidden" id="card2">
@@ -218,6 +224,7 @@ footer{text-align:center;font-size:11px;color:var(--muted);line-height:1.8;paddi
     <div class="swatches" id="swatches"></div>
   </div>
 
+  <div id="manual" class="hidden">
   <div class="card hidden" id="card3">
     <h2><span class="step">3</span>어떤 선이 무슨 지표인지</h2>
     <p class="desc">색을 찍으면 그 색 선만 따라가서 읽습니다. <b>모두 채울 필요는 없고</b>,
@@ -248,6 +255,7 @@ footer{text-align:center;font-size:11px;color:var(--muted);line-height:1.8;paddi
       <span class="val"><input type="text" inputmode="decimal" id="scaleBV" placeholder="예: 60,000"></span>
     </div>
     <div class="hint" id="scaleState">아직 찍지 않았습니다.</div>
+  </div>
   </div>
 
   <div class="hidden" id="card5">
@@ -286,6 +294,7 @@ const S = {
   pending:null,                   // 색을 기다리는 역할 키
   pendingScale:null,              // 'a' | 'b'
   roles:{},                       // key -> {c:[r,g,b], pt:{x,y}}
+  barMaxCol:null,                 // 이 열보다 오른쪽은 캔들로 세지 않음 (현재가 딱지 등)
   mas:[],                         // [{id, period, c, pt}]
   scale:{a:null, b:null},         // {y, v}
   tol:52,
@@ -316,7 +325,7 @@ const cvx = cv.getContext('2d', {willReadFrequently:true});
 const ovx = ov.getContext('2d');
 const work = document.createElement('canvas');
 const wx = work.getContext('2d', {willReadFrequently:true});
-const MAXW = 1900;
+const MAXW = 2600;   /* 폰 캡처는 대개 그대로 씁니다 (선이 뭉개지면 색을 못 찾습니다) */
 
 async function loadFile(f){
   if(!f || !/^image\//.test(f.type)) return;
@@ -341,9 +350,10 @@ async function loadFile(f){
   $('#results').innerHTML = '';
   $('#card1').classList.add('hidden');
   ['card2','card3','card4','card5'].forEach(i=>$('#'+i).classList.remove('hidden'));
-  setMode('crop');
+  S.barMaxCol = null;
+  setMode('pick');
   fitCanvas(); autoSwatches(); drawSwatches(); paintScaleState();
-  window.scrollTo({top: $('#card2').offsetTop - 60, behavior:'smooth'});
+  runAuto();
 }
 
 function fitCanvas(){
@@ -535,8 +545,9 @@ function roleName(k){
 /* ─────────────────────────────────────────────
    색 자동 찾기
    ───────────────────────────────────────────── */
-function autoSwatches(){
-  const c = S.crop, map = new Map(), area = (c.x1-c.x0+1)*(c.y1-c.y0+1);
+function autoSwatches(){ S.swatches = swatchesIn(S.crop); }
+function swatchesIn(c){
+  const map = new Map();
   const stepX = Math.max(1, Math.round((c.x1-c.x0)/900)), stepY = Math.max(1, Math.round((c.y1-c.y0)/700));
   let n = 0;
   for(let y=c.y0; y<=c.y1; y+=stepY) for(let x=c.x0; x<=c.x1; x+=stepX){
@@ -558,7 +569,7 @@ function autoSwatches(){
     if(out.some(o => dist2(o.c, s.c) < 40*40)){ const o = out.find(o=>dist2(o.c,s.c) < 40*40); o.n += s.n; continue; }
     out.push(s); if(out.length >= 12) break;
   }
-  S.swatches = out;
+  return out;
 }
 function drawSwatches(){
   const box = $('#swatches');
@@ -722,8 +733,8 @@ function esc(s){ return String(s).replace(/[&<>]/g, m=>({'&':'&amp;','<':'&lt;',
    픽셀에서 선 뽑아내기
    ───────────────────────────────────────────── */
 /* 찍은 색이 서로 비슷할 수 있으므로, 픽셀 하나는 '가장 가까운 색'에게만 준다 */
-function buildOwner(pal){
-  const c = S.crop, w = c.x1-c.x0+1, h = c.y1-c.y0+1;
+function buildOwner(pal, rect){
+  const c = rect || S.crop, w = c.x1-c.x0+1, h = c.y1-c.y0+1;
   const own = new Uint8Array(w*h);
   for(let y=c.y0; y<=c.y1; y++){
     let o = (y-c.y0)*w;
@@ -738,10 +749,10 @@ function buildOwner(pal){
       if(best >= 0) own[o] = best+1;
     }
   }
-  return {own, w, h};
+  return {own, w, h, x0:c.x0, y0:c.y0};
 }
 function runsOf(O, k){
-  const y0 = S.crop.y0, cols = [];
+  const y0 = O.y0, cols = [];
   for(let x=0; x<O.w; x++){
     const runs = []; let st = -1, gap = 0;
     for(let y=0; y<O.h; y++){
@@ -861,11 +872,11 @@ function smooth(a){
 }
 
 /* 캔들 → 봉 단위로 묶기 */
-function candlesFrom(colsU, colsD, x0){
+function candlesFrom(colsU, colsD, maxCol){
   const n = (colsU || colsD).length, has = [];
   for(let i=0;i<n;i++){
     const a = colsU ? colsU[i].length : 0, b = colsD ? colsD[i].length : 0;
-    has.push(a + b > 0);
+    has.push(a + b > 0 && (maxCol == null || i <= maxCol));
   }
   const groups = [];
   let st = -1;
@@ -875,11 +886,16 @@ function candlesFrom(colsU, colsD, x0){
   }
   if(st >= 0) groups.push([st, n-1]);
   /* 캔들끼리 붙어 한 덩어리가 되는 일이 잦아, 봉 간격으로 다시 나눈다 */
-  let ranges = groups;
+  let ranges = groups, pitch0 = null;
   if(groups.length >= 4){
+    /* 봉 간격: 붙어 버린 덩어리가 많으면 중앙값이 부풀기 때문에,
+       가장 촘촘한 간격을 기준으로 나머지를 그 배수로 환산해 구한다 */
     const diffs = [];
     for(let i=1;i<groups.length;i++) diffs.push(groups[i][0]-groups[i-1][0]);
-    const pitch = median(diffs);
+    const sorted = diffs.slice().sort((a,b)=>a-b);
+    const base = Math.max(2, sorted[Math.floor(sorted.length*0.25)] || sorted[0]);
+    const norm = diffs.map(d => d / Math.max(1, Math.round(d/base))).filter(d => d >= 2);
+    const pitch = norm.length ? median(norm) : median(diffs); pitch0 = pitch;
     if(pitch >= 2){
       ranges = [];
       groups.forEach(([a,b])=>{
@@ -893,27 +909,98 @@ function candlesFrom(colsU, colsD, x0){
   for(const [a,b] of ranges){
     const w = b-a+1;
     const rowsU = {}, rowsD = {};
-    let pu = 0, pd = 0, hi = Infinity, lo = -Infinity;
+    let pu = 0, pd = 0;
     for(let i=a;i<=b;i++){
-      (colsU ? colsU[i] : []).forEach(r=>{ pu += runLen(r); hi = Math.min(hi, r[0]); lo = Math.max(lo, r[1]);
+      (colsU ? colsU[i] : []).forEach(r=>{ pu += runLen(r);
         for(let y=r[0]; y<=r[1]; y++) rowsU[y] = (rowsU[y]||0)+1; });
-      (colsD ? colsD[i] : []).forEach(r=>{ pd += runLen(r); hi = Math.min(hi, r[0]); lo = Math.max(lo, r[1]);
+      (colsD ? colsD[i] : []).forEach(r=>{ pd += runLen(r);
         for(let y=r[0]; y<=r[1]; y++) rowsD[y] = (rowsD[y]||0)+1; });
     }
-    if(!isFinite(hi)) continue;
+    if(!pu && !pd) continue;
     const type = pu >= pd ? 'up' : 'down';
     const rows = type === 'up' ? rowsU : rowsD;
     const need = Math.max(1, Math.ceil(w * 0.6));
-    const body = Object.keys(rows).map(Number).filter(y => rows[y] >= need);
-    let bt, bb;
-    if(body.length){ bt = Math.min.apply(null, body); bb = Math.max.apply(null, body); }
-    else { bt = hi; bb = lo; }
-    bars.push({i0:a, i1:b, cx:(a+b)/2, type, high:hi, low:lo,
-               close: type === 'up' ? bt : bb, open: type === 'up' ? bb : bt});
+    /* 몸통 후보 = 그 봉 너비를 거의 다 채우는 줄들이 이어진 덩어리
+       (몸통을 가로지르는 선 두께만큼은 이어진 것으로 본다) */
+    const ys = Object.keys(rows).map(Number).filter(y => rows[y] >= need).sort((p,q)=>p-q);
+    const cands = [];
+    let s0 = null, prev = null;
+    for(const y of ys){
+      if(prev == null || y > prev+5){ if(s0 != null) cands.push([s0, prev]); s0 = y; }
+      prev = y;
+    }
+    if(s0 != null) cands.push([s0, prev]);
+    if(!cands.length){
+      const all = [];
+      for(let i=a;i<=b;i++){ (colsU?colsU[i]:[]).forEach(r=>all.push(r)); (colsD?colsD[i]:[]).forEach(r=>all.push(r)); }
+      if(!all.length) continue;
+      cands.push([Math.min.apply(null, all.map(r=>r[0])), Math.max.apply(null, all.map(r=>r[1]))]);
+    }
+    bars.push({i0:a, i1:b, cx:(a+b)/2, type, cands});
   }
-  const med = bars.length > 4 ? median(bars.map(b=>b.i1-b.i0+1)) : 1;
-  const kept = bars.filter(b => (b.i1-b.i0+1) >= Math.max(1, med*0.34));
-  return {bars: kept, n};
+  if(!bars.length) return {bars:[], n, pitch: pitch0};
+
+  /* 몸통 하나 고르기 — 위아래 꼬리는 가운데 칸에서 몸통과 이어진 부분만 */
+  const setBody = (bar, cand) => {
+    bar.bodyTop = cand[0]; bar.bodyBot = cand[1];
+    let hi = cand[0], lo = cand[1];
+    const mid = Math.round((bar.i0+bar.i1)/2);
+    for(const arr of [colsU, colsD]){
+      if(!arr) continue;
+      for(const r of (arr[mid] || [])) if(r[1] >= cand[0]-1 && r[0] <= cand[1]+1){
+        hi = Math.min(hi, r[0]); lo = Math.max(lo, r[1]); }
+    }
+    bar.high = hi; bar.low = lo;
+    bar.close = bar.type === 'up' ? cand[0] : cand[1];
+    bar.open  = bar.type === 'up' ? cand[1] : cand[0];
+  };
+  bars.forEach(b => setBody(b, b.cands.reduce((x,y)=> (y[1]-y[0]) > (x[1]-x[0]) ? y : x)));
+
+  /* 차트 안 글씨처럼 엉뚱한 자리에 잡힌 몸통은 이웃 봉을 보고 다시 고른다 */
+  const ctr = b => (b.bodyTop + b.bodyBot)/2;
+  const spanY = Math.max(20, Math.max.apply(null, bars.map(b=>b.low)) - Math.min.apply(null, bars.map(b=>b.high)));
+  for(let pass=0; pass<2; pass++){
+    bars.forEach((b,i) => {
+      if(b.cands.length < 2) return;
+      const w = [];
+      for(let j=Math.max(0,i-3); j<=Math.min(bars.length-1,i+3); j++) if(j !== i) w.push(ctr(bars[j]));
+      if(w.length < 3) return;
+      const m = median(w);
+      if(Math.abs(ctr(b) - m) <= spanY*0.22) return;
+      let best = b.cands[0], bd = Infinity;
+      b.cands.forEach(c => { const d = Math.abs((c[0]+c[1])/2 - m); if(d < bd){ bd = d; best = c; } });
+      setBody(b, best);
+    });
+  }
+  const medW = bars.length > 4 ? median(bars.map(b=>b.i1-b.i0+1)) : 1;
+  let kept = bars.filter(b => (b.i1-b.i0+1) >= Math.max(1, medW*0.34) && (b.low-b.high+1) >= 3);
+  if(kept.length >= 8){
+    kept = kept.filter((b,i) => {
+      const w = [];
+      for(let j=Math.max(0,i-3); j<=Math.min(kept.length-1,i+3); j++) if(j !== i) w.push(ctr(kept[j]));
+      return w.length < 3 || Math.abs(ctr(b) - median(w)) <= spanY*0.3;
+    });
+  }
+  return {bars: kept, n, pitch: pitch0};
+}
+
+/* 가로 눈금선처럼 '모든 칸에서 같은 줄'에 있는 색인지 */
+function gridInfo(runs, cropY0, cropH){
+  const nCol = runs.length, cov = new Uint16Array(cropH);
+  runs.forEach(rs => rs.forEach(r => {
+    for(let y=Math.max(0,r[0]-cropY0); y<=Math.min(cropH-1, r[1]-cropY0); y++) cov[y]++;
+  }));
+  let lines = 0, x0 = -1, x1 = -1;
+  const hot = [];
+  for(let y=0;y<cropH;y++) if(cov[y] > nCol*0.6){ lines++; hot.push(y); }
+  if(lines >= 3){
+    runs.forEach((rs,x) => {
+      if(rs.some(r => hot.some(y => r[0] <= y+cropY0 && r[1] >= y+cropY0))){
+        if(x0 < 0) x0 = x; x1 = x;
+      }
+    });
+  }
+  return {isGrid: lines >= 3, lines, x0, x1};
 }
 
 /* ─────────────────────────────────────────────
@@ -934,9 +1021,26 @@ function analyze(){
   const masIn = S.mas.filter(m => m.c).slice().sort((a,b)=>a.period-b.period);
   ['candleUp','candleDown','bbBand','bbMid','cloudUp','cloudDown','tenkan','kijun']
     .forEach(k => { if(S.roles[k]) addC(k, S.roles[k].c); });
+  ['cloudUp','cloudDown'].forEach(k => {
+    const ex = S.roles[k] && S.roles[k].extra;
+    if(ex) ex.forEach((c2,i) => addC(k+'~'+i, c2));
+  });
+  const cloudRuns = k => {
+    if(!S.roles[k]) return null;
+    let base = runsK(k);
+    const ex = S.roles[k].extra || [];
+    ex.forEach((c2,i) => {
+      const key = k+'~'+i; if(IDX[key] == null) return;
+      const b2 = runsOf(O, IDX[key]);
+      base = base.map((rs,x) => rs.concat(b2[x]).sort((p,q)=> p[0]-q[0]));
+    });
+    return base;
+  };
   masIn.forEach((m,i) => addC('ma'+i, m.c));
   const O = buildOwner(pal);
+  const barLim = S.barMaxCol == null ? n-1 : Math.max(10, Math.min(n-1, S.barMaxCol - c.x0));
   const runsK = k => runsOf(O, IDX[k]);
+  const runsLine = k => runsOf(O, IDX[k]).slice(0, barLim+1);   /* 선은 캔들이 끝나는 곳까지 */
   const thick = Math.max(5, Math.round(H*0.02));
 
   A.val = y => {
@@ -953,7 +1057,7 @@ function analyze(){
   if(S.roles.candleUp || S.roles.candleDown){
     const cu = S.roles.candleUp ? runsK('candleUp') : null;
     const cdn = S.roles.candleDown ? runsK('candleDown') : null;
-    cd = candlesFrom(cu, cdn, c.x0);
+    cd = candlesFrom(cu, cdn, S.barMaxCol == null ? null : S.barMaxCol - c.x0);
     if(cd.bars.length < 4) cd = null;
   }
   A.bars = cd ? cd.bars : null;
@@ -1021,7 +1125,7 @@ function analyze(){
 
   /* ── 이동평균선 ── */
   const mas = masIn.map((m,i) => {
-    const r = lineFrom(runsOf(O, IDX['ma'+i]), thick);
+    const r = lineFrom(runsOf(O, IDX['ma'+i]).slice(0, barLim+1), thick);
     return {period:m.period, y:r.y, cover:r.cover};
   });
   mas.forEach(m => A.covers.push({nm:m.period+'일선', v:m.cover}));
@@ -1078,7 +1182,7 @@ function analyze(){
 
   /* ── 볼린저밴드 ── */
   if(S.roles.bbBand){
-    const bb = bandFrom(runsK('bbBand'), thick);
+    const bb = bandFrom(runsLine('bbBand'), thick);
     A.covers.push({nm:'볼린저 상·하단', v:bb.cover});
     const nowI = A.nowI;
     const width = bb.up.map((v,i)=> (v==null||bb.lo[i]==null) ? null : bb.lo[i]-v);
@@ -1088,7 +1192,7 @@ function analyze(){
     const facts = [];
     let midY = bb.midCover > 0.5 ? bb.mid : null;
     if(!midY && S.roles.bbMid){
-      const r = lineFrom(runsK('bbMid'), thick);
+      const r = lineFrom(runsLine('bbMid'), thick);
       if(r.cover > 0.4){ midY = r.y; A.covers.push({nm:'볼린저 중심선', v:r.cover}); }
     }
     if(!midY) midY = bb.up.map((v,i)=> (v==null||bb.lo[i]==null) ? null : (v+bb.lo[i])/2);
@@ -1145,8 +1249,7 @@ function analyze(){
     let d = 'flat', sc = 0;
     let cl = null;
     if(hasCloud){
-      cl = cloudFrom(S.roles.cloudUp ? runsK('cloudUp') : null,
-                     S.roles.cloudDown ? runsK('cloudDown') : null);
+      cl = cloudFrom(cloudRuns('cloudUp'), cloudRuns('cloudDown'));
       A.covers.push({nm:'구름', v:cl.cover});
       const i = A.nowI;
       if(cl.top[i] != null){
@@ -1172,9 +1275,9 @@ function analyze(){
       }
     }
     let ten = null, kij = null;
-    if(S.roles.tenkan){ const r = lineFrom(runsK('tenkan'), thick);
+    if(S.roles.tenkan){ const r = lineFrom(runsLine('tenkan'), thick);
       if(r.cover > 0.3){ ten = r.y; A.covers.push({nm:'전환선', v:r.cover}); } }
-    if(S.roles.kijun){ const r = lineFrom(runsK('kijun'), thick);
+    if(S.roles.kijun){ const r = lineFrom(runsLine('kijun'), thick);
       if(r.cover > 0.3){ kij = r.y; A.covers.push({nm:'기준선', v:r.cover}); } }
     if(ten){ const t = A.dir(ten); if(t){ facts.push('전환선은 ' + tag(t.d, t.txt) + (cal ? ' (지금 ' + A.money(ten[A.nowI]) + ')' : '')); sc += t.d==='up'?0.5:t.d==='down'?-0.5:0; } }
     if(kij){ const t = A.dir(kij); if(t){ facts.push('기준선은 ' + tag(t.d, t.txt) + (cal ? ' (지금 ' + A.money(kij[A.nowI]) + ')' : '')); sc += t.d==='up'?0.5:t.d==='down'?-0.5:0; } }
@@ -1192,9 +1295,366 @@ function analyze(){
     A.dirs.push(d);
     A.cards.push({t:'일목균형표', badge:d, facts,
       mean: '일목균형표는 <b>가격이 구름의 어느 쪽에 있는지</b>를 가장 크게 봅니다. 구름 위는 그동안의 매수 균형이 위쪽에 있다는 뜻으로, 구름 아래는 그 반대로 읽습니다. 구름 속은 균형이 잡히지 않은 구간이라 <b>방향을 판단하지 않는 자리</b>로 봅니다. 구름이 두꺼울수록 그 구간을 지나가기 어려운 벽으로 봅니다.',
-      edu: '<b>일목균형표</b>는 전환선(9), 기준선(26), 선행스팬1·2, 후행스팬으로 이뤄집니다. 선행스팬 1과 2 사이를 칠한 것이 <b>구름</b>이고, 26칸 앞에 미리 그려지기 때문에 차트 오른쪽 끝에 <b>앞으로의 구름</b>이 먼저 보입니다. 선행1이 위면 <b>양운</b>, 선행2가 위면 <b>음운</b>이라 하고, 색이 바뀌는 자리를 <b>구름 전환</b>이라고 부릅니다. 전환선이 기준선 위로 올라간 상태를 <b>호전</b>, 아래로 내려간 상태를 <b>역전</b>이라고 합니다.'});
+      edu: '구름 색은 <b>따뜻한 색(붉은 계열)을 양운</b>으로 보고 읽었습니다 — 국내 증권사 기본 설정 기준이라, 색을 바꿔 쓰신다면 반대로 보셔야 합니다. ' +
+        '<b>일목균형표</b>는 전환선(9), 기준선(26), 선행스팬1·2, 후행스팬으로 이뤄집니다. 선행스팬 1과 2 사이를 칠한 것이 <b>구름</b>이고, 26칸 앞에 미리 그려지기 때문에 차트 오른쪽 끝에 <b>앞으로의 구름</b>이 먼저 보입니다. 선행1이 위면 <b>양운</b>, 선행2가 위면 <b>음운</b>이라 하고, 색이 바뀌는 자리를 <b>구름 전환</b>이라고 부릅니다. 전환선이 기준선 위로 올라간 상태를 <b>호전</b>, 아래로 내려간 상태를 <b>역전</b>이라고 합니다.'});
   }
   return A;
+}
+
+/* ═════════════════════════════════════════════
+   사진만 넣으면 알아서 읽기
+   ─ 범례의 색 네모와 그림에서 쓰인 색을 모으고,
+     캔들에서 뽑은 종가로 이동평균·일목 값을 직접 계산해
+     어느 선이 몇 일선인지 맞춰 봅니다.
+   ═════════════════════════════════════════════ */
+const MA_SET = [3,5,7,9,10,12,15,20,25,26,30,33,40,50,60,75,90,100,112,120,130,150,180,200,224,240];
+/* 흰 바탕·연회색 같은 '배경'만 걸러낸다 (옅은 구름색과 검은 선은 남겨야 한다) */
+const isBgColor = c => (Math.max(c[0],c[1],c[2]) - Math.min(c[0],c[1],c[2])) < 20
+                       && Math.min(c[0],c[1],c[2]) > 198;
+const STD_MA = [5,10,20,60,120,200,240];
+const warmth = c => c[0] - c[2];
+
+/* 범례에 찍힌 작은 색 네모(■) 찾기 — 검은 선 색도 여기서 얻는다 */
+function findChips(){
+  const W = S.W, H = S.H, lim = Math.min(H-1, Math.round(H*0.6)), out = [];
+  const at = (x,y) => { const i = (y*W+x)*4; return [S.px[i], S.px[i+1], S.px[i+2]]; };
+  const near = (a,b,t) => dist2(a,b) < t*t;
+  for(let y=3; y<lim; y+=2){
+    let x = 1;
+    while(x < W-1){
+      const c = at(x,y);
+      let x2 = x;
+      while(x2+1 < W && near(at(x2+1,y), c, 20)) x2++;
+      const w = x2-x+1;
+      if(w >= 5 && w <= 30 && !isBgColor(c)){
+        const cx = Math.round((x+x2)/2);
+        let y0 = y, y1 = y;
+        while(y0-1 >= 0 && near(at(cx,y0-1), c, 20)) y0--;
+        while(y1+1 < H && near(at(cx,y1+1), c, 20)) y1++;
+        const h = y1-y0+1;
+        if(h >= 5 && h <= 30 && Math.abs(h-w) <= Math.max(5, w*0.7)){
+          let fill = 0, tot = 0;
+          for(let yy=y0; yy<=y1; yy++) for(let xx=x; xx<=x2; xx++){ tot++; if(near(at(xx,yy), c, 26)) fill++; }
+          if(tot && fill/tot > 0.86) out.push({c, x, y0, y1, w, h});
+        }
+      }
+      x = x2+1;
+    }
+  }
+  /* 같은 네모를 여러 줄에서 잡은 것만 합친다 (같은 색이 범례에 두 번 나올 수 있으므로
+     색이 같다고 지우면 안 된다 — 기준선과 60일선이 둘 다 초록인 경우가 있다) */
+  const res = [];
+  out.forEach(o => {
+    if(!res.some(r => dist2(r.c, o.c) < 26*26 && Math.abs(r.x-o.x) < Math.max(r.w,o.w)
+                      && o.y0 <= r.y1+2 && o.y1 >= r.y0-2)) res.push(o);
+  });
+  return res;
+}
+
+/* 한 번 훑어서 색마다 열별 개수와 세로 길이 통계를 낸다 */
+function colorScan(O, nPal){
+  const W = O.w, H = O.h, col = [];
+  const runN = new Int32Array(nPal), runSum = new Int32Array(nPal), runMax = new Int32Array(nPal);
+  for(let k=0;k<nPal;k++) col.push(new Uint16Array(W));
+  for(let x=0; x<W; x++){
+    let cur = 0, len = 0;
+    for(let y=0; y<H; y++){
+      const k = O.own[y*W+x];
+      if(k) col[k-1][x]++;
+      if(k === cur){ len++; continue; }
+      if(cur){ runN[cur-1]++; runSum[cur-1] += len; if(len > runMax[cur-1]) runMax[cur-1] = len; }
+      cur = k; len = 1;
+    }
+    if(cur){ runN[cur-1]++; runSum[cur-1] += len; if(len > runMax[cur-1]) runMax[cur-1] = len; }
+  }
+  return {col, runN, runSum, runMax};
+}
+
+/* 봉 값으로 만든 '정답표'와 견줘 이 선이 무엇인지 맞춘다 */
+function makeTemplates(bars){
+  const n = bars.length, cl = bars.map(b=>b.close), hi = bars.map(b=>b.high), lo = bars.map(b=>b.low);
+  const sma = N => { const o = new Array(n).fill(null); let s = 0;
+    for(let i=0;i<n;i++){ s += cl[i]; if(i>=N) s -= cl[i-N]; if(i>=N-1) o[i] = s/N; } return o; };
+  const mid = N => { const o = new Array(n).fill(null);
+    for(let i=N-1;i<n;i++){ let a = Infinity, b = -Infinity;
+      for(let j=i-N+1;j<=i;j++){ if(hi[j] < a) a = hi[j]; if(lo[j] > b) b = lo[j]; }
+      o[i] = (a+b)/2; } return o; };
+  const t9 = mid(9), t26 = mid(26), t52 = mid(52);
+  const spanA = t9.map((v,i)=> (v==null||t26[i]==null) ? null : (v+t26[i])/2);
+  const out = [];
+  MA_SET.forEach(N => { if(N < n*0.9) out.push({kind:'ma', N, label:N+'일선', v:sma(N), shift:0}); });
+  if(n > 12) out.push({kind:'tenkan', label:'전환선(9)',  v:t9,   shift:0});
+  if(n > 30) out.push({kind:'kijun',  label:'기준선(26)', v:t26,  shift:0});
+  if(n > 34) out.push({kind:'spanA',  label:'선행스팬1',  v:spanA, shift:26});
+  if(n > 58) out.push({kind:'spanB',  label:'선행스팬2',  v:t52,  shift:26});
+  if(n > 34) out.push({kind:'chikou', label:'후행스팬',   v:cl,   shift:-26});
+  return out;
+}
+function matchLine(y, bars, tpls){
+  const at = i => { const j = Math.round(bars[i].cx); return (j>=0 && j<y.length) ? y[j] : null; };
+  const res = [];
+  for(const t of tpls){
+    let s = 0, m = 0;
+    for(let i=0;i<bars.length;i++){
+      const j = i + t.shift; if(j < 0 || j >= bars.length) continue;
+      const a = t.v[i]; if(a == null) continue;
+      const b = at(j); if(b == null) continue;
+      const d = b - a; s += d*d; m++;
+    }
+    if(m >= Math.max(8, bars.length*0.2)) res.push({t, e: Math.sqrt(s/m), m});
+  }
+  res.sort((a,b)=> a.e - b.e);
+  return res[0] || null;
+}
+
+function autoRead(){
+  const W = S.W, H = S.H, full = {x0:0, y0:0, x1:W-1, y1:H-1};
+  const fail = why => ({ok:false, why});
+  if(!S.px) return fail('그림이 없습니다');
+
+  /* 1) 후보 색 모으기 */
+  let pal = [];
+  const add = c => { if(!isBgColor(c) && !pal.some(p => dist2(p,c) < 26*26)) pal.push(c); };
+  /* 그림에서 실제로 얼마나 쓰였는지 (범례 네모 색 중 진짜 쓰이는 것만 고르려고) */
+  const usage = c => { let n = 0;
+    for(let y=0; y<H; y+=4) for(let x=0; x<W; x+=4){
+      const i = (y*W+x)*4, dr = S.px[i]-c[0], dg = S.px[i+1]-c[1], db = S.px[i+2]-c[2];
+      if(dr*dr+dg*dg+db*db < 30*30) n++;
+    }
+    return n; };
+  const chips = findChips();
+  chips.forEach(k => { k.row = Math.round(k.y0/14); });
+  const dupColor = c => chips.filter(k => dist2(k.c, c) < 26*26).length >= 2;
+  chips.sort((a,b)=> (a.row - b.row) || (a.x - b.x));
+  /* 같은 색이 범례에 두 번 나올 수 있어(기준선과 60일선이 둘 다 초록 등)
+     찾을 줄을 정해 줄 수 있게 한다 */
+  const chipIdx = (c, row) => { let bi = -1, bd = 26*26;
+    chips.forEach((k,i)=>{ if(row != null && k.row !== row) return;
+      const d = dist2(k.c, c); if(d < bd){ bd = d; bi = i; } }); return bi; };
+  swatchesIn(full).forEach(s2 => add(s2.c));           /* 많이 쓰인 색 먼저 */
+  chips.map(k => ({k, n: usage(k.c)}))                 /* 범례 색은 실제로 쓰인 순서로 */
+       .filter(o => o.n >= 60).sort((a,b)=> b.n - a.n)
+       .forEach(o => add(o.k.c));
+  if(pal.length < 2) return fail('차트에서 쓰인 색을 찾지 못했습니다');
+  pal = pal.slice(0, 26);
+  const O1 = buildOwner(pal.map(c => ({c, t2: 44*44})), full);
+  const sc = colorScan(O1, pal.length);
+  const st = pal.map((c,k) => {
+    let first = -1, last = -1, tot = 0, groups = 0, on = false;
+    for(let x=0; x<W; x++){
+      const v = sc.col[k][x]; tot += v;
+      if(v >= 2){ if(first < 0) first = x; last = x; if(!on){ groups++; on = true; } } else on = false;
+    }
+    return {c, k, first, last, tot, groups, span: last-first+1,
+            mean: sc.runN[k] ? sc.runSum[k]/sc.runN[k] : 0, max: sc.runMax[k]};
+  });
+
+  /* 2) 캔들 색 두 가지 = 세로로 길쭉한 덩어리가 넓게 흩어져 있는 색 */
+  const cc = st.filter(v => v.span > W*0.3 && v.groups >= 12 && v.mean >= 2.2 && v.max >= 8)
+               .sort((a,b) => b.tot - a.tot).slice(0, 2);
+  if(cc.length < 2 || cc[1].tot < cc[0].tot*0.06) return fail('캔들을 찾지 못했습니다');
+
+  /* 3) 가격 칸 고르기 (아래 거래량 칸과 나눈다) */
+  const rows = new Int32Array(H);
+  for(let y=0; y<H; y++){
+    let n = 0; const row = y*W;
+    for(let x=0; x<W; x++){ const k = O1.own[row+x]; if(k === cc[0].k+1 || k === cc[1].k+1) n++; }
+    rows[y] = n;
+  }
+  const bands = []; let st0 = -1, gap = 0;
+  for(let y=0; y<H; y++){
+    if(rows[y] >= 3){ if(st0 < 0) st0 = y; gap = 0; }
+    else if(st0 >= 0){ gap++; if(gap > 8){ bands.push([st0, y-gap]); st0 = -1; } }
+  }
+  if(st0 >= 0) bands.push([st0, H-1]);
+  const band = bands.sort((a,b) => (b[1]-b[0]) - (a[1]-a[0]))[0];
+  if(!band || band[1]-band[0] < H*0.08) return fail('캔들이 그려진 칸을 찾지 못했습니다');
+
+  /* 4) 봉 세기 → 자를 영역 정하기 */
+  const bandRect = {x0:0, y0:band[0], x1:W-1, y1:band[1]};
+  const Ob = buildOwner([{c:cc[0].c, t2:44*44}, {c:cc[1].c, t2:44*44}], bandRect);
+  const cd0 = candlesFrom(runsOf(Ob,0), runsOf(Ob,1), null);
+  if(cd0.bars.length < 10) return fail('봉을 세지 못했습니다');
+  const bs0 = cd0.bars;
+  const pitch = Math.max(2, cd0.pitch || median(bs0.slice(1).map((b,i)=> b.cx - bs0[i].cx)) || 5);
+  const medH0 = median(bs0.map(b => b.low-b.high+1));
+  let real = bs0.filter(b => (b.low-b.high+1) >= Math.max(3, medH0*0.15));
+  if(real.length < 10) return fail('봉을 세지 못했습니다');
+  /* 캔들은 일정한 간격으로 늘어서 있다 — 그 규칙이 이어지는 가장 긴 구간만 남긴다.
+     (현재가 딱지·눈금·차트 안 글씨는 간격이 제멋대로라 여기서 걸러진다) */
+  const seq = [[real[0]]];
+  for(let i=1;i<real.length;i++){
+    const d = real[i].cx - real[i-1].cx, k = Math.round(d/pitch);
+    if(k >= 1 && k <= 2 && Math.abs(d - k*pitch) <= pitch*0.35) seq[seq.length-1].push(real[i]);
+    else seq.push([real[i]]);
+  }
+  real = seq.sort((a,b)=> b.length - a.length)[0];
+  if(real.length < 10) return fail('봉을 세지 못했습니다');
+  const bx0 = real[0].i0, bx1 = real[real.length-1].i1;
+  let top = band[0], bot = band[1];
+  const padY = Math.round((bot-top)*0.03);
+  let y0 = Math.max(0, top - padY);
+  chips.forEach(k => { if(k.y1 < top) y0 = Math.max(y0, k.y1 + 3); });   /* 범례는 넣지 않는다 */
+  S.crop = {x0: Math.max(0, bx0-2), y0,
+            x1: Math.min(W-1, bx1 + Math.round(27*pitch)), y1: Math.min(H-1, bot + padY)};
+  S.barMaxCol = bx1 + 2;
+
+  /* 5) 양봉·음봉 가리기 — 시가가 앞 봉 종가와 이어지는 쪽이 맞다 */
+  const flipErr = flip => {
+    let e = 0;
+    for(let i=1;i<real.length;i++){
+      const b = real[i], p = real[i-1];
+      const bUp = flip ? b.type !== 'up' : b.type === 'up';
+      const pUp = flip ? p.type !== 'up' : p.type === 'up';
+      e += Math.abs((bUp ? b.bodyBot : b.bodyTop) - (pUp ? p.bodyTop : p.bodyBot));
+    }
+    return e;
+  };
+  let up = cc[0].c, dn = cc[1].c;
+  const e0 = flipErr(false), e1 = flipErr(true);
+  if(Math.min(e0,e1) > 0 && Math.abs(e0-e1)/Math.max(e0,e1) > 0.03){ if(e1 < e0){ up = cc[1].c; dn = cc[0].c; } }
+  else if(warmth(cc[1].c) > warmth(cc[0].c)){ up = cc[1].c; dn = cc[0].c; }   /* 못 가리면 붉은 쪽을 양봉으로 */
+
+  /* 6) 자른 영역에서 나머지 색이 무엇인지 맞추기 */
+  S.roles = {}; S.mas = [];
+  S.roles.candleUp = {c: up, pt: null};
+  S.roles.candleDown = {c: dn, pt: null};
+  const others = st.filter(v => dist2(v.c, up) > 20*20 && dist2(v.c, dn) > 20*20 && v.tot > 400);
+  const pal2 = [{c:up, t2:44*44}, {c:dn, t2:44*44}]
+    .concat(others.map(v => ({c: v.c, t2: 44*44})));
+  const Oc = buildOwner(pal2, S.crop);
+  const cd = candlesFrom(runsOf(Oc,0), runsOf(Oc,1), S.barMaxCol - S.crop.x0);
+  if(cd.bars.length < 10) return fail('봉을 세지 못했습니다');
+  const bars = cd.bars, cropH = S.crop.y1-S.crop.y0+1, nCol = S.crop.x1-S.crop.x0+1;
+  const tpls = makeTemplates(bars);
+  const thick = Math.max(5, Math.round(cropH*0.02));
+  const found = [{label:'양봉', c:up}, {label:'음봉', c:dn}];
+  const fills = [], lines = [], grids = [];
+
+  const lim = Math.max(10, Math.min(nCol-1, S.barMaxCol - S.crop.x0));
+  const tallY = Math.max(9, cropH*0.018);
+  others.forEach((v,i) => {
+    const runs = runsOf(Oc, i+2);
+    let tallCol = 0, twoCol = 0, anyCol = 0, px = 0;
+    runs.forEach((rs,x) => {
+      if(!rs.length) return;
+      anyCol++;
+      let mx = 0;
+      rs.forEach(r => { const L = runLen(r); px += L; if(L > mx) mx = L; });
+      if(mx >= tallY) tallCol++;                                   /* 한 줄이 통째로 두꺼운 칸 */
+      if(x <= lim && rs.filter(r => runLen(r) <= thick).length >= 2) twoCol++;
+    });
+    if(!anyCol) return;
+    const item = {v, runs, lruns: runs.slice(0, lim+1), chip: chipIdx(v.c),
+                  tall: tallCol/nCol, two: twoCol/(lim+1), any: anyCol/nCol, dens: px/anyCol};
+    /* 구름은 증권사마다 통째로 칠하기도 하고 세로 빗금으로 그리기도 한다.
+       둘 다 '위아래 두 줄이 있고 그 사이가 색으로 차 있는' 모양이 된다.
+       바탕색(칸 전체를 덮는 색)은 뺀다 */
+    if(item.dens > cropH*0.4) return;
+    const gi = gridInfo(runs, S.crop.y0, cropH);
+    item.grid = gi.lines;
+    if(gi.isGrid){ grids.push({item, gi}); return; }         /* 가로 눈금선 */
+    if((item.two >= 0.4 && item.dens >= 7) || (item.tall >= 0.12 && item.dens >= 8)) fills.push(item);
+    else lines.push(item);
+  });
+
+  /* 구름 = 넓게 칠해진 면. 붉은 쪽을 양운으로 본다 */
+  /* 띠 모양 중 가운데가 이동평균과 맞으면 볼린저밴드, 아니면 구름 */
+  const clouds = [];
+  fills.forEach(item => {
+    if(!S.roles.bbBand && item.two >= 0.5){
+      const bb = bandFrom(item.lruns, thick);
+      const mid = bb.up.map((u,i)=> (u==null||bb.lo[i]==null) ? null : (u+bb.lo[i])/2);
+      const hit = matchLine(mid, bars, tpls.filter(t => t.kind === 'ma' && t.N >= 10 && t.N <= 30));
+      if(hit && hit.e < cropH*0.02){
+        S.roles.bbBand = {c: item.v.c, pt:null};
+        found.push({label:'볼린저밴드 (중심 ' + hit.t.N + '일)', c:item.v.c, e:hit.e/cropH});
+        item.done = 1; return;
+      }
+    }
+    clouds.push(item);
+  });
+  if(clouds.length){
+    /* 구름은 두 가지 색으로 칠해진다 — 따뜻한 쪽이 양운, 찬 쪽이 음운.
+       같은 계열을 여러 톤으로 겹쳐 그리는 경우가 많아 그 톤들을 함께 쓴다 */
+    const warm = clouds.filter(f => warmth(f.v.c) > 6).sort((a,b)=> b.any - a.any);
+    const cool = clouds.filter(f => warmth(f.v.c) < -6).sort((a,b)=> b.any - a.any);
+    if(warm.length){
+      S.roles.cloudUp = {c: warm[0].v.c, pt:null, extra: warm.slice(1,3).map(f=>f.v.c)};
+      found.push({label:'구름 · 양운', c: warm[0].v.c});
+    }
+    if(cool.length){
+      S.roles.cloudDown = {c: cool[0].v.c, pt:null, extra: cool.slice(1,3).map(f=>f.v.c)};
+      found.push({label:'구름 · 음운', c: cool[0].v.c});
+    }
+  }
+
+  /* 선 = 이평선·전환선·기준선 (정답표와 견줘 이름을 붙인다) */
+  const used = {};
+  lines.forEach(item => {
+    if(item.two > 0.5){                                   /* 위아래 두 줄 = 볼린저 */
+      const bb = bandFrom(item.lruns, thick);
+      const mid = bb.up.map((u,i)=> (u==null||bb.lo[i]==null) ? null : (u+bb.lo[i])/2);
+      const hit = matchLine(mid, bars, tpls.filter(t=>t.kind==='ma'));
+      if(hit && hit.e < cropH*0.03){
+        S.roles.bbBand = {c: item.v.c, pt:null};
+        found.push({label:'볼린저밴드 (중심 ' + hit.t.N + '일)', c:item.v.c, e:hit.e/cropH});
+        item.done = 1; return;
+      }
+    }
+    const ln = lineFrom(item.lruns, thick);
+    if(ln.cover < 0.45) return;
+    const hit = matchLine(ln.y, bars, tpls);
+    if(!hit || hit.e > cropH*0.022) return;
+    const t = hit.t, err = hit.e/cropH;
+    if(t.kind === 'ma'){
+      if(used['ma'+t.N]) return;
+      used['ma'+t.N] = 1;
+      S.mas.push({id:'ma:'+t.N+':'+Math.random().toString(36).slice(2,6), period:t.N, c:item.v.c, pt:null, chip:item.chip});
+      found.push({label:t.N+'일선', c:item.v.c, e:err, dup: dupColor(item.v.c)});
+      item.done = 1;
+    } else if(t.kind === 'tenkan' && !S.roles.tenkan){
+      S.roles.tenkan = {c:item.v.c, pt:null}; found.push({label:'전환선(9)', c:item.v.c, e:err}); item.done = 1;
+    } else if(t.kind === 'kijun' && !S.roles.kijun){
+      S.roles.kijun = {c:item.v.c, pt:null}; found.push({label:'기준선(26)', c:item.v.c, e:err}); item.done = 1;
+    } else if(t.kind === 'spanA' || t.kind === 'spanB' || t.kind === 'chikou'){
+      found.push({label:t.label, c:item.v.c, e:err, side:true});
+    }
+  });
+
+  /* 보이는 봉보다 긴 이평선(60·120·200일 등)은 계산으로 확인할 수 없다.
+     매끈하게 이어지는 선이면 범례에 놓인 차례대로 흔히 쓰는 기간을 넣어 둔다 */
+  const known = S.mas.filter(m => m.chip >= 0).sort((a,b)=> a.chip - b.chip);
+  const maRow = known.length ? chips[known[0].chip].row : null;
+  const clean = lines.filter(it => !it.done && it.dens < 8 && it.tall < 0.05
+                                   && it.two < 0.15 && it.any > 0.55)
+                     .map(it => { it.chip = chipIdx(it.v.c, maRow); return it; })
+                     .filter(it => it.chip >= 0);
+  if(clean.length && known.length){
+    {
+      const anchor = known[0], ai = STD_MA.indexOf(anchor.period);
+      if(ai >= 0){
+        const seq = known.concat(clean.map(it => ({chip:it.chip, item:it})))
+                         .sort((a,b)=> a.chip - b.chip);
+        const base = seq.findIndex(x => x.chip === anchor.chip);
+        seq.forEach((x, i) => {
+          if(!x.item) return;
+          const N = STD_MA[ai + (i - base)];
+          if(!N || used['ma'+N]) return;
+          const ln2 = lineFrom(x.item.lruns, thick);
+          if(ln2.cover < 0.5) return;
+          used['ma'+N] = 1;
+          S.mas.push({id:'ma:'+N+':'+Math.random().toString(36).slice(2,6), period:N, c:x.item.v.c, pt:null});
+          found.push({label:N+'일선', c:x.item.v.c, guess:true, dup: dupColor(x.item.v.c)});
+        });
+      }
+    }
+  }
+  S.mas.sort((a,b)=> a.period - b.period);
+  const dbg = grids.map(g => ({c:g.item.v.c, kind:'눈금', tall:0, dens:+g.item.dens.toFixed(1), any:+g.item.any.toFixed(2), grid:g.gi.lines}))
+    .concat(fills.map(f => ({c:f.v.c, kind:'면', tall:+f.tall.toFixed(2), dens:+f.dens.toFixed(1), any:+f.any.toFixed(2), grid:f.grid})))
+    .concat(lines.map(f => ({c:f.v.c, kind:'선', tall:+f.tall.toFixed(2), dens:+f.dens.toFixed(1), any:+f.any.toFixed(2), two:+f.two.toFixed(2), grid:f.grid, done:!!f.done})));
+  return {ok:true, found, bars: bars.length, pitch, chips: chips.length, pal: pal.length, dbg};
 }
 
 /* ─────────────────────────────────────────────
@@ -1210,7 +1670,7 @@ $('#btnRun').onclick = ()=>{
     catch(e){ $('#results').innerHTML = '<div class="card"><div class="warn">읽는 중에 문제가 생겼습니다: ' + esc(e.message) + '</div></div>';
       btn.innerHTML = '지표 읽기'; btn.disabled = false; return; }
     renderResult(A);
-    btn.innerHTML = '다시 읽기'; btn.disabled = false;
+    btn.innerHTML = '지표 다시 읽기'; btn.disabled = false;
     window.scrollTo({top: $('#results').offsetTop - 60, behavior:'smooth'});
   }, 30);
 };
@@ -1266,6 +1726,61 @@ function renderResult(A){
   };
 }
 function strip(h){ return String(h).replace(/<[^>]*>/g,'').replace(/\s+/g,' ').trim(); }
+
+/* ─────────────────────────────────────────────
+   자동으로 읽기 — 화면
+   ───────────────────────────────────────────── */
+function autoButtons(){
+  return '<div class="btn-row">' +
+    '<button class="btn ghost sm" id="btnManual">손으로 고치기</button>' +
+    '<button class="btn ghost sm" id="btnRedo">자동으로 다시</button>' +
+    '<button class="btn ghost sm" id="btnOther2">다른 사진</button></div>';
+}
+function bindAutoButtons(){
+  const m = $('#btnManual'), r = $('#btnRedo'), o = $('#btnOther2');
+  if(m) m.onclick = ()=>{
+    const box = $('#manual'); box.classList.toggle('hidden');
+    if(!box.classList.contains('hidden')) window.scrollTo({top: box.offsetTop - 60, behavior:'smooth'});
+  };
+  if(r) r.onclick = ()=> runAuto();
+  if(o) o.onclick = ()=> $('#file').click();
+}
+function runAuto(){
+  const box = $('#autoBody');
+  $('#cardAuto').classList.remove('hidden');
+  box.innerHTML = '<p class="desc"><span class="spin">◠</span> 사진에서 캔들과 보조지표를 찾는 중…</p>';
+  window.scrollTo({top: $('#cardAuto').offsetTop - 60, behavior:'smooth'});
+  setTimeout(()=>{
+    let r;
+    try{ r = autoRead(); }catch(e){ r = {ok:false, why:e.message}; }
+    if(!r.ok){
+      S.barMaxCol = null;
+      box.innerHTML = '<p class="desc">자동으로는 못 읽었습니다 — <b>' + esc(r.why) + '</b>.<br>' +
+        '아래에서 <b>캔들 영역을 자르고 색을 찍어</b> 주시면 그대로 읽습니다.</p>' + autoButtons();
+      bindAutoButtons();
+      $('#manual').classList.remove('hidden');
+      setMode('crop'); fitCanvas(); paintRoles(); drawSwatches();
+      return;
+    }
+    fitCanvas(); paintRoles(); autoSwatches(); drawSwatches(); save();
+    const chip = f => '<span class="sw' + (f.side?'':' used') + '"><i style="background:' + rgb(f.c) + '"></i>' +
+      f.label + (f.guess ? ' <b style="color:var(--gold)">짐작</b>' : '') + '</span>';
+    const main = r.found.filter(f => !f.side);
+    const notes = [];
+    if(r.found.some(f => f.guess))
+      notes.push('화면에 보이는 봉보다 <b>긴 이평선</b>(60·120·200일 등)은 캔들로 확인할 수 없어, 범례에 놓인 차례대로 <b>흔히 쓰는 기간</b>을 넣었습니다. 다르면 고쳐 주세요.');
+    if(r.found.some(f => f.dup))
+      notes.push('차트에 <b>같은 색을 쓰는 지표가 둘 이상</b> 있습니다. 그 색은 섞여서 읽힐 수 있습니다.');
+    notes.push('빠진 지표가 있으면 <b>손으로 고치기</b>에서 색을 찍어 더할 수 있습니다.');
+    box.innerHTML =
+      '<p class="desc">캔들 <b>약 ' + r.bars + '개</b>를 찾았고, 아래 지표를 읽었습니다. ' +
+        '자른 영역과 찍은 색은 <b>아래 그림</b>에 표시해 두었습니다.</p>' +
+      '<div class="swatches">' + main.map(chip).join('') + '</div>' +
+      '<div class="hint">' + notes.join('<br>') + '</div>' + autoButtons();
+    bindAutoButtons();
+    $('#btnRun').click();
+  }, 40);
+}
 
 /* ─────────────────────────────────────────────
    지표 사전
