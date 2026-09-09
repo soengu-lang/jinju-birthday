@@ -58,7 +58,7 @@ header{background:var(--card);border-bottom:1px solid var(--line);padding-top:en
 .head-in{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0 10px}
 .brand{font-size:11.5px;font-weight:700;color:var(--gold);letter-spacing:.04em}
 h1{font-size:clamp(18px,5vw,22px);font-weight:900;letter-spacing:-.03em;margin-top:1px;white-space:nowrap}
-.head-note{font-size:11px;color:var(--muted);line-height:1.45;text-align:right;max-width:52%}
+.head-note{font-size:11px;color:var(--muted);line-height:1.5;text-align:right;white-space:nowrap}
 .gear{font-size:20px;padding:6px 8px;border-radius:10px}
 .gear:active{background:var(--soft)}
 
@@ -285,6 +285,7 @@ let state = {
   chats: {},          /* code('*'=포트폴리오) → [{role,text,t}] */
   seenNews: {},       /* code → {articleId:true} 이미 본 뉴스 */
   brief: null,        /* 오늘의 AI 브리핑 캐시 {date,text} */
+  assets: { mode:'off', room:'', projectId:'', apiKey:'', holdings:[], accts:{}, px:{}, fx:0, at:0, err:'' },   /* 우리집 자산 앱에서 읽어 온 보유 (읽기 전용) */
   settings: { provider:'anthropic', apiKey:'', model:'', relayUrl:'', relay:0, effort:'medium' },
   ui: { tab:'home', code:'', demo:false }
 };
@@ -537,6 +538,7 @@ function series(fin, key){
   return { a, e };
 }
 const last = arr => arr.length ? arr[arr.length-1].v : NaN;
+/* growth(지금, 기준) = 기준 대비 몇 % 인가. 순서를 바꾸면 부호가 뒤집힙니다 */
 const growth = (cur, prev) => (has(cur) && has(prev) && prev !== 0) ? (cur-prev)/Math.abs(prev)*100 : NaN;
 function cagr(arr, n){ if(arr.length < n+1) return NaN; const a = arr[arr.length-1-n].v, b = arr[arr.length-1].v; if(!(a>0) || !(b>0)) return NaN; return (Math.pow(b/a, 1/n)-1)*100; }
 
@@ -638,7 +640,9 @@ function riskMonitor(d, sc, sn){
   const m = opm.a.map(x=>x.v); if(m.length>=3){ const sd = Math.sqrt(avg(m.map(v=>(v-avg(m))**2))); add('이익 변동성(경기민감)', clamp(Math.round(interp(sd,[[1,1],[3,2],[6,3],[10,4],[15,5]])),1,5), `영업이익률 표준편차 ${sd.toFixed(1)}%p`); }
   const r = rev.a; if(r.length>=2){ const g = growth(last(r), r[r.length-2].v); if(has(g) && g<0) add('매출 역성장', clamp(Math.round(interp(-g,[[0,2],[5,3],[15,4],[30,5]])),2,5), `직전 연도 매출 ${pct(g)}`); }
   const pos = sc?.s?._mas?.pos52; if(has(pos)) add(pos>85?'단기 과열(52주 고점권)':'가격 위치', clamp(Math.round(interp(pos,[[0,3],[30,2],[60,1],[85,3],[100,4]])),1,5), `52주 범위 ${pos.toFixed(0)}% 위치`);
-  const cs = sn?.consensusMissing; if(!has(I.target)) add('증권사 커버리지 부족', 3, '목표주가 컨센서스가 없습니다 — 정보가 적은 종목');
+  if(!has(I.target)) add('증권사 커버리지 부족', 3, '목표주가 컨센서스가 없습니다 — 정보가 적은 종목');
+  const w = weightOf(d.code);
+  if(w && has(w.inKr)) add('내 포트폴리오 집중도', clamp(Math.round(interp(w.inKr, [[5,1],[15,2],[25,3],[40,4],[60,5]])),1,5), `국내주식의 ${w.inKr.toFixed(0)}%가 이 종목 (전체 자산의 ${has(w.inAll)?w.inAll.toFixed(1):'?'}%)`);
   return out.sort((a,b)=>b.lv-a.lv).slice(0,6);
 }
 
@@ -829,7 +833,7 @@ function dataPack(code){
   const th = state.theses.filter(t=>t.code===code).map(t=>({ 논리:t.title, 원문:t.text, 가정:(t.assumptions||[]).map(a=>a.text), 리스크:(t.risks||[]).map(a=>a.text), 확신도:t.confidence, 작성일: iso(t.createdAt) }));
   return {
     종목: { 이름: d.basic.name, 코드: code, 업종: d.integ.industry||'', 데이터출처: d.demo ? '샘플(실제 아님)' : '네이버증권', 기준시각: new Date(d.t).toLocaleString('ko-KR') },
-    시세: { 현재가: d.basic.price, 전일대비: pct(growth(d.basic.prev, d.basic.price)), 시가총액_억원: d.integ.marketCap, '52주최고': d.integ.high52, '52주최저': d.integ.low52,
+    시세: { 현재가: d.basic.price, 전일대비: pct(growth(d.basic.price, d.basic.prev)), 시가총액_억원: d.integ.marketCap, '52주최고': d.integ.high52, '52주최저': d.integ.low52,
       PER: d.integ.per, PBR: d.integ.pbr, 추정EPS: d.integ.epsE, 동일업종PER: d.integ.indPer, 배당수익률: d.integ.divYield, 목표주가컨센서스: d.integ.target, 투자의견평균_5만점: d.integ.recomm, 외국인비율: d.integ.foreignRatio },
     점수모델: { 총점: sc.s.total, 성장성: sc.s.growth, 수익성: sc.s.profit, 밸류에이션: sc.s.value, 재무건전성: sc.s.health, 모멘텀: sc.s.momentum, 근거: sc.why, 가중치:'성장25 수익25 밸류20 재무15 모멘텀15' },
     시나리오: { 방식:'EPS × PER', 기준EPS: sn.epsBase, EPS출처: sn.epsSrc, 과거PER_평균: +sn.perAvg.toFixed(1), 과거PER_최저: +sn.perLo.toFixed(1), 과거PER_최고: +sn.perHi.toFixed(1),
@@ -839,12 +843,26 @@ function dataPack(code){
     최근변화: ch.map(c=>({ 방향:c.impact, 중요도:c.level, 제목:c.title, 내용:c.detail })),
     최근뉴스제목: (d.news||[]).slice(0,12).map(n=>n.title),
     내_투자논리: th,
+    내_보유: (() => { const p = positionOf(code); if(!p) return '보유하고 있지 않음(관심종목만)';
+      const w = weightOf(code);
+      return { 수량:p.qty, 평단가:Math.round(p.avg), 평가금액:Math.round(p.value), 손익:Math.round(p.pl), 수익률:pct(p.plRate),
+        국내주식내_비중: w&&has(w.inKr)?+w.inKr.toFixed(1):null, 전체자산내_비중: w&&has(w.inAll)?+w.inAll.toFixed(1):null,
+        계좌:p.accts, 내가적은_목표가:p.target||null, 내가적은_손절가:p.stop||null }; })(),
   };
 }
 function portfolioPack(){
   const items = state.watch.map(w => { const p = dataPack(w.code); if(!p) return null; return { 종목: p.종목.이름, 코드: w.code, 업종: p.종목.업종, 시세: p.시세, 점수: p.점수모델, 시나리오Base: p.시나리오.Base, 리스크: p.리스크모니터.slice(0,3), 최근변화: p.최근변화, 논리: p.내_투자논리 }; }).filter(Boolean);
   const j = state.journal.map(x => ({ 종목:x.name, 매수일: iso(x.t), 매수가:x.price, 수량:x.qty, 이유:x.reason, 목표기간:x.horizon, 기대수익률:x.expect, 손절조건:x.stop, 현재가: state.data[x.code]?.basic.price }));
-  return { 관심종목: items, 투자일지: j };
+  const t = assetTotals();
+  const 자산 = t ? { 국내주식_평가액: Math.round(t.kr), 국내주식_손익: has(t.krPl)?Math.round(t.krPl):null, 국내주식_수익률: pct(t.krPlRate),
+      전체자산: Math.round(t.total), 순자산: Math.round(t.net), 국내주식_비중: t.total>0?+(t.kr/t.total*100).toFixed(1):null,
+      값을_모르는_자산_줄: t.unknown,
+      종목별: Object.keys(krPositions()).map(c => { const p = positionOf(c), w = weightOf(c);
+        return { 종목: state.data[c]?.basic.name || p.name, 코드:c, 평가금액: has(p.value)?Math.round(p.value):null, 수익률: pct(p.plRate),
+          국내주식내_비중: w&&has(w.inKr)?+w.inKr.toFixed(1):null, 업종: state.data[c]?.integ.industry||'' }; }),
+      업종별_비중: industryMix().map(x=>({ 업종:x.industry, 비중:+x.pct.toFixed(1), 종목:x.names })) }
+    : '자산 앱을 연동하지 않아 실제 보유 수량·비중을 모릅니다. 비중 질문에는 모른다고 답하세요.';
+  return { 관심종목: items, 투자일지: j, 내_자산: 자산 };
 }
 
 /* AI 기능들 */
@@ -901,6 +919,148 @@ async function aiJournalReview(){
 
 <script>
 /* ============================================================
+   4.5 우리집 자산 앱 연동 — 읽기만 합니다
+   ------------------------------------------------------------
+   · 같은 폰: 자산 앱과 주소가 같아서 localStorage(myAssets.v1)를 그대로 읽습니다
+   · 다른 폰: 자산 앱이 배우자와 공유하는 Firestore 방을 읽습니다
+     (자산 앱이 가계부 방을 읽는 것과 같은 방식. 상대 방에는 아무것도 쓰지 않습니다)
+   보유 수량·평단가가 붙으면 점수와 시나리오가 '내 계좌 기준 손익'으로 바뀝니다.
+   ============================================================ */
+const MA_KEY = 'myAssets.v1';
+const MA_CATS = { kr:'국내주식·ETF', us:'미국주식·ETF', coin:'코인', gold:'금', fx:'달러·외화', real:'부동산', cash:'예적금·현금', etc:'연금·펀드·기타', debt:'대출·부채' };
+const pad6 = c => String(c||'').replace(/\D/g,'').padStart(6,'0');
+
+let _maCache = { at:0, v:null };
+function readLocalAssets(force){
+  if(!force && Date.now() - _maCache.at < 5000) return _maCache.v;
+  try{
+    const d = JSON.parse(localStorage.getItem(MA_KEY)||'null');
+    if(!d || !Array.isArray(d.holdings)) return null;
+    _maCache = { at: Date.now(), v: { holdings: d.holdings, accts: d.accts||{}, px: d.px||{}, fx: +d.fx?.v||0, sync: d.sync||{}, at: Date.now() } };
+    return _maCache.v;
+  }catch(e){ _maCache = { at: Date.now(), v: null }; return null; }
+}
+/* Firestore 방 읽기 — 자산 앱이 저장해 둔 core 문서 안에 holdings 가 들어 있습니다 */
+async function readCloudAssets(cfg){
+  const { projectId, apiKey, room } = cfg;
+  if(!projectId || !apiKey || !room) throw new Error('방 정보가 모자라요 (프로젝트·키·방 이름)');
+  const u = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}`
+          + `/databases/(default)/documents/rooms/${encodeURIComponent(room)}/assets/core?key=${encodeURIComponent(apiKey)}`;
+  const r = await fetch(u);
+  if(r.status === 404) throw new Error('그 방에 아직 자산이 없어요');
+  if(!r.ok){ let m=''; try{ m = (await r.json())?.error?.message||''; }catch(_){} throw new Error(m || ('HTTP '+r.status)); }
+  const core = JSON.parse((await r.json()).fields?.json?.stringValue || '{}');
+  if(!Array.isArray(core.holdings)) throw new Error('자산 목록을 찾지 못했어요');
+  /* 시세 캐시는 공유되지 않습니다 — 국내주식은 이 앱이 직접 가져오고, 나머지는 평가액을 모릅니다 */
+  return { holdings: core.holdings, accts: core.accts||{}, px: {}, fx: 0, sync: cfg, at: Date.now() };
+}
+async function loadAssets(opts={}){
+  const A = state.assets;
+  if(A.mode === 'off') return;
+  try{
+    let got;
+    if(A.mode === 'local'){
+      got = readLocalAssets(true);
+      if(!got) throw new Error('이 폰의 자산 앱에서 자료를 찾지 못했어요');
+    }else{
+      got = await readCloudAssets(A);
+    }
+    Object.assign(A, { holdings: got.holdings, accts: got.accts, px: got.px, fx: got.fx, at: got.at, err:'' });
+    if(A.mode === 'local' && got.sync?.room && !A.room){ A.room = got.sync.room; A.projectId = got.sync.projectId||''; A.apiKey = got.sync.apiKey||''; }
+    save();
+  }catch(e){ A.err = e.message; save(); if(!opts.quiet) toast(e.message); }
+}
+const assetsOn = () => state.assets?.mode !== 'off' && (state.assets?.holdings||[]).length>0;
+const liveHoldings = () => (state.assets?.holdings||[]).filter(h => !h.hide);
+
+/* 같은 종목이 계좌 여러 곳에 있으면 한 줄로 합칩니다 */
+function krPositions(){
+  const map = {};
+  for(const h of liveHoldings()){
+    if(h.cat !== 'kr' || !h.code) continue;
+    const code = pad6(h.code);
+    const m = map[code] = map[code] || { code, name: h.name||code, qty:0, cost:0, accts:[], owners:[], target:0, stop:0 };
+    const q = +h.qty||0, avg = +h.avg||0;
+    m.qty += q; m.cost += q*avg;
+    if(h.acct && !m.accts.includes(h.acct)) m.accts.push(h.acct);
+    const ow = h.owner||'공동'; if(!m.owners.includes(ow)) m.owners.push(ow);
+    if(+h.target>0) m.target = Math.max(m.target, +h.target);
+    if(+h.stop>0) m.stop = m.stop ? Math.min(m.stop, +h.stop) : +h.stop;
+  }
+  for(const m of Object.values(map)) m.avg = m.qty>0 ? m.cost/m.qty : NaN;
+  return map;
+}
+/* 한 종목의 내 보유 — 평가액은 이 앱이 방금 받은 시세로 계산합니다 (자산 앱보다 최신) */
+function positionOf(code){
+  const p = krPositions()[code];
+  if(!p || !(p.qty>0)) return null;
+  const d = state.data[code];
+  const price = d?.basic.price, prev = d?.basic.prev;
+  const value = has(price) ? price*p.qty : NaN;
+  const pl = has(value) && p.cost>0 ? value - p.cost : NaN;
+  const plRate = has(pl) && p.cost>0 ? pl/p.cost*100 : NaN;
+  const day = (has(price)&&has(prev)) ? (price-prev)*p.qty : NaN;
+  return Object.assign({}, p, { price, value, pl, plRate, day });
+}
+/* 자산 앱 한 줄의 원화 평가액 — 자산 앱 calc() 과 같은 규칙 */
+function maValue(h){
+  const A = state.assets, q = +h.qty||0;
+  if(h.cat === 'debt') return 0;
+  if(h.cat === 'kr' && h.code && state.data[pad6(h.code)]) return state.data[pad6(h.code)].basic.price * q;
+  if(h.mp !== undefined && h.mp !== null && h.mp !== '') return (+h.mp||0) * q;
+  const c = A.px?.[h.cat + ':' + (h.code || h.sym || h.id)];
+  if(c && +c.p>0) return (+c.p) * q * (c.ccy==='USD' ? (A.fx||0) : 1);
+  return NaN;
+}
+/* 전체 자산 합계 — 값을 모르는 줄은 세지 않고 몇 개인지 알려 줍니다 */
+function assetTotals(){
+  if(!assetsOn()) return null;
+  let total=0, debt=0, unknown=0, kr=0, krCost=0;
+  const byCat = {};
+  for(const h of liveHoldings()){
+    if(h.cat === 'debt'){ debt += +h.loan||0; continue; }
+    const v = maValue(h);
+    if(!has(v)){ unknown++; continue; }
+    total += v; byCat[h.cat] = (byCat[h.cat]||0) + v;
+    if(h.cat === 'kr'){ kr += v; krCost += (+h.qty||0)*(+h.avg||0); }
+  }
+  return { total, debt, net: total-debt, unknown, byCat, kr, krCost, krPl: krCost>0 ? kr-krCost : NaN, krPlRate: krCost>0 ? (kr-krCost)/krCost*100 : NaN };
+}
+/* 국내주식 안에서의 비중 · 전체 자산 안에서의 비중 */
+function weightOf(code){
+  const t = assetTotals(), p = positionOf(code);
+  if(!t || !p || !has(p.value)) return null;
+  return { inKr: t.kr>0 ? p.value/t.kr*100 : NaN, inAll: t.total>0 ? p.value/t.total*100 : NaN };
+}
+/* 업종이 얼마나 겹쳐 있는지 — 데이터를 받아 온 종목만 셉니다 */
+function industryMix(){
+  const t = assetTotals(); if(!t || !(t.kr>0)) return [];
+  const by = {};
+  for(const code of Object.keys(krPositions())){
+    const p = positionOf(code); if(!p || !has(p.value)) continue;
+    const ind = state.data[code]?.integ.industry || '업종 모름';
+    (by[ind] = by[ind] || { industry:ind, value:0, names:[] }).value += p.value;
+    by[ind].names.push(state.data[code]?.basic.name || code);
+  }
+  return Object.values(by).map(x => Object.assign(x, { pct: x.value/t.kr*100 })).sort((a,b)=>b.value-a.value);
+}
+/* 보유 중인데 관심종목에 없는 국내주식 */
+function missingWatch(){ return Object.values(krPositions()).filter(p => !W(p.code)); }
+/* 보유 중인데 투자 논리를 안 적어 둔 종목 */
+function noThesis(){ return Object.values(krPositions()).filter(p => W(p.code) && !state.theses.some(t=>t.code===p.code)); }
+
+async function importHoldings(){
+  const miss = missingWatch();
+  if(!miss.length){ toast('이미 다 담겨 있어요'); return; }
+  for(const p of miss) if(!W(p.code)) state.watch.push({ code:p.code, name:p.name, addedAt: Date.now(), fromAssets:true });
+  save(); closeModal(); showTab('home');
+  busy.refreshAll = true; render();
+  for(const p of miss) await refreshStock(p.code, {quiet:true});
+  busy.refreshAll = false; save(); render();
+  toast(`보유 종목 ${miss.length}개를 담았어요`);
+}
+
+/* ============================================================
    5. 화면
    ============================================================ */
 const TABS = ['home','search','stock','thesis','ai'];
@@ -912,7 +1072,7 @@ function showTab(t){
 }
 function render(){ ({home:renderHome, search:renderSearch, stock:renderStock, thesis:renderThesis, ai:renderAI})[state.ui.tab](); }
 const W = code => state.watch.find(w=>w.code===code);
-const chgOf = code => { const d = state.data[code]; return d ? growth(d.basic.prev, d.basic.price) : NaN; };
+const chgOf = code => { const d = state.data[code]; return d ? growth(d.basic.price, d.basic.prev) : NaN; };
 const cls = v => !has(v) || Math.abs(v)<0.005 ? 'flat' : v>0 ? 'up' : 'down';
 const levelLabel = { high:'HIGH', mid:'MED', low:'LOW' };
 const impIcon = c => c.impact==='up' ? '🟢' : c.impact==='down' ? '🔴' : '🟡';
@@ -921,11 +1081,70 @@ const lvWord = n => n>=5?'매우 높음':n>=4?'높음':n>=3?'보통':n>=2?'낮�
 let busy = {};
 const spinBtn = (id, on) => { busy[id]=on; };
 
+/* 홈 — 내 자산 요약 (자산 앱에서 읽어 온 보유 기준) */
+function assetCard(){
+  const A = state.assets;
+  if(A.mode === 'off'){
+    const local = readLocalAssets();
+    if(!local || !local.holdings.some(h=>h.cat==='kr')) return '';
+    return `<div class="card"><h2>📊 우리집 자산 연동</h2>
+      <p class="desc">이 폰의 <b>우리집 자산</b> 앱에 국내주식 <b>${local.holdings.filter(h=>h.cat==='kr'&&!h.hide).length}개</b>가 담겨 있습니다.
+      연동하면 보유 수량·평단가가 붙어서 <b>내 계좌 기준 손익·비중</b>으로 보여 드립니다.</p>
+      <div class="btn-row"><button class="btn sm" data-act="linkLocal">🔗 이 폰의 자산 앱과 연동</button><button class="btn sm ghost" data-act="settings">다른 폰이에요</button></div></div>`;
+  }
+  const t = assetTotals();
+  if(!t) return `<div class="card"><h2>📊 우리집 자산</h2><p class="desc">${esc(A.err||'보유 자료를 읽지 못했어요.')}</p><div class="btn-row"><button class="btn sm ghost" data-act="reloadAssets">다시 읽기</button></div></div>`;
+  const miss = missingWatch(), mix = industryMix(), top = mix[0];
+  const day = Object.keys(krPositions()).reduce((sk,c)=>{ const p = positionOf(c); return sk + (has(p?.day)?p.day:0); }, 0);
+  const nonKr = liveHoldings().filter(h=>h.cat!=='kr'&&h.cat!=='debt').length;
+  return `<div class="card">
+    <h2>📊 내 국내주식 <span class="sub">${A.mode==='local'?'이 폰의 자산 앱':'공유 방 '+esc(A.room)} · ${A.at?new Date(A.at).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):''}</span></h2>
+    <div class="kv">
+      <div class="c"><div class="k">평가금액</div><div class="v">${won(t.kr)}</div></div>
+      <div class="c"><div class="k">손익</div><div class="v ${cls(t.krPlRate)}">${has(t.krPl)?(t.krPl>0?'+':'')+fmt(t.krPl):'–'}</div></div>
+      <div class="c"><div class="k">수익률</div><div class="v ${cls(t.krPlRate)}">${pct(t.krPlRate)}</div></div>
+    </div>
+    <p class="tiny muted mt">오늘 ${has(day)&&day!==0?`<b class="${cls(day)}">${day>0?'+':''}${fmt(day)}원</b>`:'변동 없음'}
+      ${t.total>0?` · 전체 자산 ${won(t.total)} 중 <b>${(t.kr/t.total*100).toFixed(0)}%</b>`:''}${nonKr?` · 국내주식이 아닌 ${nonKr}개는 이 앱이 추적하지 않습니다`:''}</p>
+    ${top && top.pct>=40 ? `<div class="note mt">⚠️ 국내주식의 <b>${top.pct.toFixed(0)}%</b>가 <b>${esc(top.industry)}</b> 한 곳에 있습니다 (${esc(top.names.slice(0,3).join(', '))}). 같은 뉴스에 같이 움직입니다.</div>` : ''}
+    ${miss.length ? `<div class="btn-row"><button class="btn sm" data-act="importHold">＋ 안 담긴 보유 종목 ${miss.length}개 담기</button></div>` : ''}
+    <div class="btn-row"><button class="btn sm ghost" data-act="reloadAssets">🔄 자산 다시 읽기</button>${mix.length?`<button class="btn sm ghost" data-act="showMix">업종 비중 보기</button>`:''}</div>
+  </div>`;
+}
+/* 종목 — 내 보유 카드 */
+function positionCard(code, sn){
+  const p = positionOf(code); if(!p) return '';
+  const w = weightOf(code), d = state.data[code];
+  const at = px => has(px) && p.qty>0 ? px*p.qty : NaN;
+  const plAt = px => has(px) && p.cost>0 ? px*p.qty - p.cost : NaN;
+  const line = (lab, px, k) => `<tr><td>${lab}</td><td class="num">${won(px)}</td><td class="num">${won(at(px))}</td><td class="num ${cls(plAt(px))}">${has(plAt(px))?(plAt(px)>0?'+':'')+fmt(plAt(px)):'–'}</td><td class="num ${cls(growth(px,p.avg))}">${pct(growth(px,p.avg))}</td></tr>`;
+  return `<div class="card" style="border-color:var(--soft-d)">
+    <h2>💼 내 보유 <span class="sub">${esc(p.accts.join(', ')||p.owners.join(', '))}</span></h2>
+    <div class="kv">
+      <div class="c"><div class="k">수량</div><div class="v">${fmt(p.qty)}주</div></div>
+      <div class="c"><div class="k">평단가</div><div class="v">${won(p.avg)}</div></div>
+      <div class="c"><div class="k">평가금액</div><div class="v">${won(p.value)}</div></div>
+      <div class="c"><div class="k">손익</div><div class="v ${cls(p.pl)}">${has(p.pl)?(p.pl>0?'+':'')+fmt(p.pl):'–'}</div></div>
+      <div class="c"><div class="k">수익률</div><div class="v ${cls(p.plRate)}">${pct(p.plRate)}</div></div>
+      <div class="c"><div class="k">국내주식 비중</div><div class="v">${w&&has(w.inKr)?w.inKr.toFixed(0)+'%':'–'}</div></div>
+    </div>
+    ${has(p.day)&&p.day!==0?`<p class="tiny muted mt">오늘 <b class="${cls(p.day)}">${p.day>0?'+':''}${fmt(p.day)}원</b>${w&&has(w.inAll)?` · 전체 자산의 ${w.inAll.toFixed(1)}%`:''}</p>`:''}
+    <div class="sec-t">시나리오가 맞는다면 내 계좌는</div>
+    <div class="tbwrap"><table class="tb"><thead><tr><th></th><th>주가</th><th>평가금액</th><th>손익</th><th>평단대비</th></tr></thead><tbody>
+      ${line('Bull', sn.bull)}${line('Base', sn.base)}${line('Bear', sn.bear)}
+      ${has(d.integ.target)?line('증권사 목표가', d.integ.target):''}
+      ${p.target>0?line('내 목표가', p.target):''}${p.stop>0?line('내 손절가', p.stop):''}
+    </tbody></table></div>
+    <p class="tiny muted">평단 ${won(p.avg)} 기준. ${p.target>0||p.stop>0?'내 목표가·손절가는 자산 앱에 적어 둔 값입니다.':'자산 앱에 목표가·손절가를 적어 두면 여기에 같이 나옵니다.'}</p>
+  </div>`;
+}
+
 /* ---------- 홈 ---------- */
 function renderHome(){
   const el = $('#tab-home');
   if(!state.watch.length){
-    el.innerHTML = `<div class="card">
+    el.innerHTML = `${assetCard()}
+    <div class="card">
       <h2>👋 처음이시죠</h2>
       <p class="desc">이 앱은 <b>종목을 찍어 주지 않습니다.</b><br>관심 종목을 넣으면 재무데이터로 점수를 매기고, 내가 적은 <b>투자 논리</b>가 맞는지 데이터가 바뀔 때마다 검증합니다.</p>
       <div class="btn-row"><button class="btn" data-act="go" data-tab="search">🔍 관심 종목 넣기</button></div>
@@ -941,7 +1160,8 @@ function renderHome(){
   const all = [];
   for(const w of state.watch){ const ch = detectChangesFor(w.code); ch.forEach(c => all.push(Object.assign({code:w.code, name:w.name}, c))); }
   const rank = {high:3, mid:2, low:1};
-  all.sort((a,b)=>rank[b.level]-rank[a.level]);
+  const wOf = c => weightOf(c.code)?.inKr || 0;     /* 많이 들고 있는 종목의 변화를 위로 */
+  all.sort((a,b)=> (rank[b.level]-rank[a.level]) || (wOf(b)-wOf(a)));
   const top = all.filter(c=>c.level!=='low').slice(0,3);
   const alerts = state.theses.filter(t => { const chk = thesisCheck(t, detectChangesFor(t.code), (state.data[t.code]?.news||[]).filter(n=>!state.seenNews[t.code]?.[n.id])); return chk.needsReview; });
   const lastT = Math.max(0, ...state.watch.map(w=>state.data[w.code]?.t||0));
@@ -962,6 +1182,7 @@ function renderHome(){
     </div>
     ${state.brief ? `<div class="msg ai mt" style="max-width:100%">${esc(state.brief.text)}<div class="src">${state.brief.date} · ${esc(state.brief.model||'')}</div></div>` : ''}
   </div>
+  ${assetCard()}
   ${alerts.length ? `<div class="card" style="border-color:#f3c9c5">
     <h2>🚨 투자 논리 점검 필요</h2>
     ${alerts.map(t => `<div class="chg-item"><div class="ico">🧭</div><div class="grow"><div class="t">${esc(t.title)} <span class="tiny muted">· ${esc(W(t.code)?.name||t.code)}</span></div>
@@ -971,10 +1192,10 @@ function renderHome(){
   <div class="card">
     <h2>관심종목 <span class="sub">${state.watch.length}개</span></h2>
     <div class="list">
-    ${state.watch.map(w => { const d = state.data[w.code], c = chgOf(w.code), sc = d ? computeScore(d).s.total : NaN; const ch = detectChangesFor(w.code); const worst = ch.find(x=>x.level==='high') || ch.find(x=>x.level==='mid');
+    ${state.watch.map(w => { const d = state.data[w.code], c = chgOf(w.code), sc = d ? computeScore(d).s.total : NaN; const ch = detectChangesFor(w.code); const worst = ch.find(x=>x.level==='high') || ch.find(x=>x.level==='mid'); const pos = positionOf(w.code);
       return `<button class="item" data-act="open" data-code="${w.code}">
         <div class="dot ${worst ? (worst.impact==='flat'?'flat':worst.impact) : 'flat'}"></div>
-        <div class="grow"><div class="nm">${esc(w.name)} ${d?.demo?'<span class="pill gold">샘플</span>':''}</div><div class="cd">${w.code}${worst ? ' · ' + esc(worst.title) : (state.theses.some(t=>t.code===w.code) ? ' · 논리 저장됨' : '')}</div></div>
+        <div class="grow"><div class="nm">${esc(w.name)} ${d?.demo?'<span class="pill gold">샘플</span>':''}${pos?`<span class="pill brand">보유</span>`:''}</div><div class="cd">${w.code}${worst ? ' · ' + esc(worst.title) : (pos&&has(pos.plRate) ? ` · 내 손익 <span class="${cls(pos.plRate)}">${pct(pos.plRate)}</span>` : (state.theses.some(t=>t.code===w.code) ? ' · 논리 저장됨' : ''))}</div></div>
         <div class="right"><div class="px num">${d ? won(d.basic.price) : '–'}</div><div class="chg num ${cls(c)}">${pct(c)}${has(sc)?` · <b>${sc}</b>점`:''}</div></div>
       </button>`; }).join('')}
     </div>
@@ -1046,6 +1267,7 @@ async function refreshStock(code, opts={}){
 async function refreshAll(){
   if(busy.refreshAll) return;
   busy.refreshAll = true; resetRelays(); render();
+  await loadAssets({quiet:true});
   for(const w of state.watch){ await refreshStock(w.code, {quiet:true}); }
   busy.refreshAll = false; save(); render();
   toast(state.ui.demo ? '샘플 데이터를 다시 만들었어요' : '새로고침 완료');
@@ -1102,6 +1324,7 @@ function renderStock(){
     <p class="tiny muted mt">${new Date(d.t).toLocaleString('ko-KR')} · ${d.demo?'샘플 데이터(실제 아님)':'네이버증권'}${d.errs.length?` · 일부 누락: ${esc(d.errs.slice(0,2).join(', '))}`:''}</p>
   </div>
 
+  ${positionCard(code, sn)}
   <div class="card">
     <h2>AI SCORE <span class="sub">계산 모델 · 데이터 커버리지 ${sc.s.coverage}%</span></h2>
     <div class="score-hero mt"><div class="score-big">${has(sc.s.total)?sc.s.total:'–'}<small> / 100</small></div>
@@ -1125,7 +1348,7 @@ function renderStock(){
       <div class="c base"><div class="t">Base</div><div class="p">${won(sn.base)}</div><div class="d">EPS 그대로 × ${sn.adj.perBase}배<br>${pct(sn.upBase)}</div></div>
       <div class="c bear"><div class="t down">Bear</div><div class="p">${won(sn.bear)}</div><div class="d">EPS ${sn.adj.epsBear}% × ${sn.adj.perBear}배<br>${pct(sn.upBear)}</div></div>
     </div>
-    ${has(I.target)?`<p class="tiny muted mt">증권사 목표가 컨센서스 ${won(I.target)} (${pct(growth(d.basic.price, I.target))}) 와 비교해 보세요.</p>`:''}
+    ${has(I.target)?`<p class="tiny muted mt">증권사 목표가 컨센서스 ${won(I.target)} (지금 대비 ${pct(growth(I.target, d.basic.price))}) 와 비교해 보세요.</p>`:''}
     <details class="mt"><summary>가정 바꿔 보기 (영업이익이 20% 떨어지면?)</summary>
       <div class="slider"><span>Bull EPS</span><input type="range" min="-50" max="100" step="5" value="${sn.adj.epsBull}" data-adj="epsBull" data-code="${code}"><span class="v num">${sn.adj.epsBull>0?'+':''}${sn.adj.epsBull}%</span></div>
       <div class="slider"><span>Bull PER</span><input type="range" min="3" max="80" step="0.5" value="${sn.adj.perBull}" data-adj="perBull" data-code="${code}"><span class="v num">${sn.adj.perBull}배</span></div>
@@ -1198,11 +1421,15 @@ function renderThesis(){
   el.innerHTML = `
   ${state.theses.length ? state.theses.slice().sort((a,b)=>b.createdAt-a.createdAt).map(t=>thesisCard(t)).join('')
     : `<div class="card"><h2>🧭 투자 논리</h2><p class="desc">아직 저장한 논리가 없어요. 종목 화면에서 <b>✍️ 직접 쓰기</b> 또는 <b>✨ AI가 논리 만들기</b>를 눌러 보세요.</p>${state.watch.length?`<div class="btn-row">${state.watch.slice(0,4).map(w=>`<button class="btn sm ghost" data-act="newThesis" data-code="${w.code}">${esc(w.name)} 논리 쓰기</button>`).join('')}</div>`:''}</div>`}
+  ${(() => { const nt = noThesis(); return nt.length ? `<div class="card">
+    <h2>💼 논리 없이 들고 있는 종목 <span class="sub">${nt.length}개</span></h2>
+    <p class="desc">보유 중인데 <b>왜 샀는지</b>가 적혀 있지 않습니다. 적어 두면 데이터가 바뀔 때 그 이유가 아직 유효한지 점검해 드립니다.</p>
+    <div class="btn-row">${nt.slice(0,6).map(x=>`<button class="btn sm ghost" data-act="newThesis" data-code="${x.code}">${esc(x.name)} 논리 쓰기</button>`).join('')}</div></div>` : ''; })()}
   <div class="card">
     <h2>📓 투자일지 <span class="sub">${j.length}건</span></h2>
     <p class="desc">매수할 때 이유를 적어 두면, 나중에 결과와 견줘 <b>내 판단 습관</b>을 볼 수 있습니다.</p>
     ${stat ? `<div class="kv"><div class="c"><div class="k">기록</div><div class="v">${stat.n}건</div></div><div class="c"><div class="k">현재 수익 중</div><div class="v">${stat.win}/${stat.n}</div></div><div class="c"><div class="k">평균 수익률</div><div class="v ${cls(stat.avg)}">${pct(stat.avg)}</div></div></div>` : ''}
-    <div class="list">${j.map(x => { const cur = state.data[x.code]?.basic.price, r = growth(x.price, cur); return `<div class="item" style="cursor:default"><div class="grow"><div class="nm">${esc(x.name)} <span class="tiny muted">${iso(x.t)}</span></div><div class="cd">"${esc(x.reason)}" · ${esc(x.horizon||'')} ${x.expect?'· 기대 '+esc(x.expect):''}</div>${x.stop?`<div class="cd">손절 조건: ${esc(x.stop)}</div>`:''}</div>
+    <div class="list">${j.map(x => { const cur = state.data[x.code]?.basic.price, r = growth(cur, x.price); return `<div class="item" style="cursor:default"><div class="grow"><div class="nm">${esc(x.name)} <span class="tiny muted">${iso(x.t)}</span></div><div class="cd">"${esc(x.reason)}" · ${esc(x.horizon||'')} ${x.expect?'· 기대 '+esc(x.expect):''}</div>${x.stop?`<div class="cd">손절 조건: ${esc(x.stop)}</div>`:''}</div>
       <div class="right"><div class="px num">${won(x.price)}</div><div class="chg num ${cls(r)}">${has(r)?'지금 '+pct(r):'–'}</div><button class="btn xs ghost mt" data-act="delJournal" data-id="${x.id}">삭제</button></div></div>`; }).join('')}</div>
     <div class="btn-row"><button class="btn sm" data-act="newJournal">＋ 매수 기록</button><button class="btn sm ghost" data-act="reviewJournal" ${busy.review?'disabled':''}>${busy.review?'<span class="spin dark"></span> 복기 중':'🧠 AI 복기'}</button></div>
     ${state.ui.review?`<div class="msg ai mt" style="max-width:100%">${esc(state.ui.review.text)}<div class="src">${state.ui.review.date} · ${esc(state.ui.review.model)}</div></div>`:''}
@@ -1211,14 +1438,14 @@ function renderThesis(){
 function journalStats(){
   const j = state.journal.filter(x=>has(state.data[x.code]?.basic.price));
   if(!j.length) return null;
-  const rs = j.map(x=>growth(x.price, state.data[x.code].basic.price));
+  const rs = j.map(x=>growth(state.data[x.code].basic.price, x.price));
   return { n: j.length, win: rs.filter(r=>r>0).length, avg: avg(rs) };
 }
 
 /* ---------- AI ---------- */
 const SAMPLE_Q = {
-  '*': ['내 포트폴리오에서 가장 위험한 종목은?','업종이 겹쳐서 같은 리스크에 노출된 종목이 있어?','지금 가장 밸류에이션이 매력적인 건 어디야?','내 투자 논리들 중 근거가 약한 건?'],
-  s: ['지금 비싼 거야? 최근 몇 년 중 어느 수준이야?','영업이익이 20% 떨어지면 적정주가는?','Bear case 를 더 구체적으로 만들어 줘','워런 버핏 관점으로 평가해 줘','이 회사 논리를 깨뜨릴 가장 빠른 신호는?'],
+  '*': ['내 포트폴리오에서 가장 위험한 종목은?','업종이 겹쳐서 같은 리스크에 노출된 종목이 있어?','비중이 너무 큰 종목이 있어?','지금 가장 밸류에이션이 매력적인 건 어디야?','내 투자 논리들 중 근거가 약한 건?'],
+  s: ['지금 비싼 거야? 최근 몇 년 중 어느 수준이야?','내 평단 대비 지금 어떤 상태야?','영업이익이 20% 떨어지면 적정주가는?','Bear case 를 더 구체적으로 만들어 줘','워런 버핏 관점으로 평가해 줘','이 회사 논리를 깨뜨릴 가장 빠른 신호는?'],
 };
 function renderAI(){
   const el = $('#tab-ai');
@@ -1273,6 +1500,20 @@ function openSettings(){
     <div class="f"><label>모델 <span class="muted">(비우면 ${esc(p.models[0])})</span></label><input id="sModel" list="mlist" value="${esc(s.model)}" placeholder="${esc(p.models[0])}"><datalist id="mlist">${p.models.map(m=>`<option value="${m}">`).join('')}</datalist></div>
     ${s.provider==='anthropic'?`<div class="f"><label>생각 깊이 (effort)</label><select id="sEffort">${['low','medium','high'].map(e=>`<option ${s.effort===e?'selected':''}>${e}</option>`).join('')}</select></div>`:''}
     <p class="tiny muted mt">키는 이 브라우저의 저장소에만 있고, 질문할 때 해당 AI 회사 서버로만 전송됩니다. 다른 곳으로는 가지 않습니다.</p>
+    <div class="sec-t">📊 우리집 자산 연동 <span class="tiny muted">(읽기만 합니다)</span></div>
+    ${(() => { const A = state.assets, local = readLocalAssets();
+      const n = (A.holdings||[]).filter(h=>h.cat==='kr'&&!h.hide).length;
+      return `<div class="f"><label>어디서 읽을까요</label><select id="aMode">
+        <option value="off" ${A.mode==='off'?'selected':''}>연동 안 함</option>
+        <option value="local" ${A.mode==='local'?'selected':''}>이 폰의 자산 앱${local?` (국내주식 ${local.holdings.filter(h=>h.cat==='kr'&&!h.hide).length}개 있음)`:' (자료 없음)'}</option>
+        <option value="cloud" ${A.mode==='cloud'?'selected':''}>배우자와 공유하는 방 (다른 폰)</option></select></div>
+      <div id="aCloud" class="${A.mode==='cloud'?'':'hidden'}">
+        <div class="f"><label>방 이름</label><input id="aRoom" value="${esc(A.room||local?.sync?.room||'')}" placeholder="자산 앱 ⚙️ → 배우자와 함께 보기 의 방 이름"></div>
+        <div class="f"><label>Firebase 프로젝트 ID</label><input id="aPid" value="${esc(A.projectId||local?.sync?.projectId||'')}"></div>
+        <div class="f"><label>Firebase API 키</label><input id="aKey" value="${esc(A.apiKey||local?.sync?.apiKey||'')}"></div>
+        <p class="tiny muted">자산 앱 ⚙️ → 배우자와 함께 보기 에 있는 값과 같습니다. 이 앱은 그 방을 <b>읽기만</b> 하고 아무것도 쓰지 않습니다.</p></div>
+      ${A.mode!=='off' ? `<p class="tiny muted mt">${A.err ? '⚠️ '+esc(A.err) : `국내주식 ${n}개 · ${A.at?new Date(A.at).toLocaleString('ko-KR'):'아직 안 읽음'}`}</p>` : ''}
+      <p class="tiny muted mt">보유 수량·평단가를 읽어 오면 <b>내 계좌 기준 손익·비중</b>이 붙고, AI 질문에도 실제 비중이 함께 전달됩니다.</p>`; })()}
     <div class="sec-t">📡 데이터 (시세·재무·뉴스)</div>
     <p class="tiny muted">서버가 없어서 공개 중계를 거쳐 네이버증권을 읽습니다. 공개 중계는 자주 막히니 <b>내 구글 스크립트 중계</b>를 한 번 만들어 두면 안정적입니다. (우리집 자산 앱에서 만든 주소가 있으면 자동으로 씁니다)</p>
     <div class="f"><label>내 중계 주소</label><input id="sRelay" value="${esc(s.relayUrl)}" placeholder="https://script.google.com/macros/s/…/exec"></div>
@@ -1287,14 +1528,20 @@ function openSettings(){
     <input type="file" id="impFile" accept="application/json" class="hidden">
     <p class="tiny muted mt">StockLens v0.1 · 저장 키 ${KEY} · 사라/팔라는 말하지 않습니다. 투자 판단과 결과는 본인의 몫입니다.</p>`);
   $('#sProv').addEventListener('change', e => { state.settings.provider = e.target.value; state.settings.model=''; openSettings(); });
+  $('#aMode').addEventListener('change', e => { $('#aCloud').classList.toggle('hidden', e.target.value!=='cloud'); });
 }
 function saveSettings(){
-  const s = state.settings;
+  const s = state.settings, A = state.assets;
   s.apiKey = $('#sKey').value.trim(); s.model = $('#sModel').value.trim(); s.relayUrl = normRelay($('#sRelay').value); s.relay = 0;
   if($('#sEffort')) s.effort = $('#sEffort').value;
+  const wasMode = A.mode;
+  A.mode = $('#aMode').value;
+  if(A.mode === 'cloud'){ A.room = $('#aRoom').value.trim(); A.projectId = $('#aPid').value.trim(); A.apiKey = $('#aKey').value.trim(); }
+  if(A.mode === 'off'){ A.holdings = []; A.err = ''; }
   const demo = $('#sDemo').checked;
   const changed = demo !== !!state.ui.demo; state.ui.demo = demo;
   save(); closeModal(); toast('저장했어요'); resetRelays();
+  if(A.mode !== 'off') loadAssets().then(()=>{ render(); if(A.mode!==wasMode && missingWatch().length) toast(`자산 앱에 있는 ${missingWatch().length}개가 아직 안 담겼어요`); });
   if(changed && state.watch.length) refreshAll(); else render();
 }
 function openThesisEditor(code, t){
@@ -1326,9 +1573,11 @@ function fillThesisForm(j){
   if(j.comment) toast('AI: ' + j.comment.slice(0,60));
 }
 function openJournal(){
+  const pos0 = positionOf(state.ui.code);
   openModal(`<div class="mhead"><h3>📓 매수 기록</h3><button class="x" data-act="close">✕</button></div>
     <div class="f"><label>종목</label><select id="jCode">${state.watch.map(w=>`<option value="${w.code}" ${state.ui.code===w.code?'selected':''}>${esc(w.name)}</option>`).join('')}</select></div>
-    <div class="row"><div class="f grow"><label>매수가 (원)</label><input id="jPrice" type="number" inputmode="numeric" value="${state.data[state.ui.code]?.basic.price||''}"></div><div class="f grow"><label>수량</label><input id="jQty" type="number" inputmode="numeric" placeholder="30"></div></div>
+    <div class="row"><div class="f grow"><label>매수가 (원)</label><input id="jPrice" type="number" inputmode="numeric" value="${Math.round(pos0?.avg || state.data[state.ui.code]?.basic.price || 0)||''}"></div><div class="f grow"><label>수량</label><input id="jQty" type="number" inputmode="numeric" value="${pos0?.qty||''}" placeholder="30"></div></div>
+    ${pos0?`<p class="tiny muted">자산 앱의 평단 ${won(pos0.avg)} · ${fmt(pos0.qty)}주를 채워 두었습니다.</p>`:''}
     <div class="f"><label>투자 이유 (한 문장)</label><input id="jReason" placeholder="예: HBM 성장"></div>
     <div class="row"><div class="f grow"><label>목표 보유기간</label><input id="jH" placeholder="2년"></div><div class="f grow"><label>기대 수익률</label><input id="jE" placeholder="+40%"></div></div>
     <div class="f"><label>손절(논리 포기) 조건</label><input id="jStop" placeholder="예: HBM 점유율 하락, 영업이익 추정 -20%"></div>
@@ -1348,6 +1597,16 @@ document.addEventListener('click', async e => {
     case 'copyGas': try{ await navigator.clipboard.writeText(GAS_CODE); toast('복사했어요'); }catch(_){ toast('길게 눌러 복사해 주세요'); } break;
     case 'demo': state.ui.demo = true; for(const [c,n] of [['005930','삼성전자'],['000660','SK하이닉스'],['035420','NAVER']]) if(!W(c)) state.watch.push({code:c,name:n,addedAt:Date.now()}); save(); await refreshAll(); break;
     case 'demoOne': { state.data[code] = demoStock(code); const d = state.data[code]; const sc = computeScore(d); const snap = makeSnap(d, sc, scenarios(d)); (state.snaps[code]=state.snaps[code]||[]).push(snap); if(!state.seenNews[code]){ state.seenNews[code]={}; d.news.forEach(n=>state.seenNews[code][n.id]=1); } save(); render(); break; }
+    case 'linkLocal': state.assets.mode = 'local'; save(); await loadAssets(); render(); if(missingWatch().length) importHoldings(); break;
+    case 'reloadAssets': await loadAssets(); render(); toast(state.assets.err || '자산을 다시 읽었어요'); break;
+    case 'importHold': importHoldings(); break;
+    case 'showMix': { const mix = industryMix(), t = assetTotals();
+      openModal(`<div class="mhead"><h3>업종 비중</h3><button class="x" data-act="close">✕</button></div>
+        <p class="tiny muted">국내주식 ${won(t.kr)} 기준. 데이터를 받아 온 종목만 셉니다.</p>
+        ${mix.map(x=>`<div class="mt"><div class="row"><span class="grow b">${esc(x.industry)}</span><span class="num b">${x.pct.toFixed(0)}%</span></div>
+          <div class="bar"><i style="width:${x.pct}%;background:${x.pct>=40?'var(--up)':'var(--brand)'}"></i></div>
+          <div class="tiny muted">${esc(x.names.join(', '))} · ${won(x.value)}</div></div>`).join('')}
+        <p class="tiny muted mt2">한 업종에 40% 넘게 몰려 있으면 같은 뉴스에 함께 움직입니다.</p>`); break; }
     case 'search': doSearch(); break;
     case 'pick': addWatch(code, b.dataset.name); break;
     case 'open': state.ui.code = code; showTab('stock'); if(!state.data[code]) refreshStock(code); break;
@@ -1440,6 +1699,8 @@ document.querySelectorAll('nav.tabs button').forEach(b => b.addEventListener('cl
 load();
 showTab(state.ui.tab && TABS.includes(state.ui.tab) ? state.ui.tab : 'home');
 (async () => {
+  await loadAssets({quiet:true});
+  if(state.assets.mode !== 'off') render();
   const stale = state.watch.filter(w => !state.data[w.code] || Date.now() - state.data[w.code].t > 6*3600000);
   if(stale.length){ busy.refreshAll = true; render(); for(const w of stale) await refreshStock(w.code, {quiet:true}); busy.refreshAll = false; save(); render(); }
 })();
