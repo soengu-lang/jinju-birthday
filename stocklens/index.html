@@ -261,6 +261,13 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 const fmt = (n, d=0) => (n==null || !isFinite(n)) ? '–' : Number(n).toLocaleString('ko-KR', {maximumFractionDigits:d, minimumFractionDigits:d});
 const pct = (n, d=1) => (n==null || !isFinite(n)) ? '–' : (n>0?'+':'') + Number(n).toFixed(d) + '%';
 const won = n => (n==null || !isFinite(n)) ? '–' : '₩' + fmt(Math.round(n));
+const usd = n => (n==null || !isFinite(n)) ? '–' : '$' + fmt(n, Math.abs(n) < 1000 ? 2 : 0);
+/* 종목이 미국이면 달러로 적습니다 */
+const px$ = (n, code) => (state.data[code]?.ccy === 'USD' || W(code)?.mk === 'us') ? usd(n) : won(n);
+/* 시가총액 — 국내는 억원, 미국은 달러 절대값으로 옵니다 */
+const capS = (v, us) => !has(v) ? '–'
+  : us ? (v >= 1e12 ? (v/1e12).toFixed(2)+'조$' : v >= 1e9 ? (v/1e9).toFixed(0)+'십억$' : fmt(v/1e6)+'백만$')
+       : (v >= 10000 ? (v/10000).toFixed(1)+'조' : fmt(v)+'억');
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const iso = d => { const x = new Date(d); return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0'); };
 const today = () => iso(Date.now());
@@ -473,10 +480,20 @@ const BUILTIN = [
 ];
 function searchBuiltin(q){
   const ql = q.toLowerCase();
-  let out = BUILTIN.filter(([c,n]) => c.includes(q) || n.toLowerCase().includes(ql)).map(([code,name]) => ({code,name,market:''}));
-  if(!out.length && /^\d{6}$/.test(q)) out = [{code:q, name:q, market:''}];
+  let out = BUILTIN.filter(([c,n]) => c.includes(q) || n.toLowerCase().includes(ql)).map(([code,name]) => ({code,mk:'kr',name,market:''}));
+  US_BUILTIN.forEach(([c,n]) => { if(c.toLowerCase().includes(ql) || n.toLowerCase().includes(ql)) out.push({code:c, mk:'us', name:n, market:'미국'}); });
+  if(!out.length && /^\d{6}$/.test(q)) out = [{code:q, mk:'kr', name:q, market:''}];
+  if(!out.length && /^[A-Za-z.\-]{1,6}$/.test(q)) out = [{code:q.toUpperCase(), mk:'us', name:q.toUpperCase(), market:'미국'}];
   return out;
 }
+/* 검색이 막혀도 흔히 찾는 미국 종목은 바로 담을 수 있게 */
+const US_BUILTIN = [
+  ['NVDA','엔비디아 NVIDIA'],['AAPL','애플 Apple'],['MSFT','마이크로소프트 Microsoft'],['GOOGL','알파벳 구글 Alphabet'],
+  ['AMZN','아마존 Amazon'],['META','메타 Meta'],['TSLA','테슬라 Tesla'],['AVGO','브로드컴 Broadcom'],['AMD','AMD'],
+  ['MU','마이크론 Micron'],['TSM','TSMC 대만반도체'],['ASML','ASML'],['NFLX','넷플릭스 Netflix'],['COST','코스트코 Costco'],
+  ['JPM','JP모건 JPMorgan'],['V','비자 Visa'],['UNH','유나이티드헬스'],['LLY','일라이릴리 Eli Lilly'],['BRK-B','버크셔 해서웨이'],
+  ['SPY','S&P500 ETF'],['QQQ','나스닥100 ETF'],['SCHD','SCHD 배당 ETF'],['VOO','VOO S&P500 ETF'],['TQQQ','TQQQ 3배'],
+];
 /* 네이버 자동완성에는 해외 종목도 섞여 옵니다.
    이 앱은 아직 국내 주식·ETF만 읽을 수 있어서, 해외로 보이는 것은 걸러 냅니다
    (중국 A주처럼 6자리 숫자를 쓰는 시장이 있어 코드 모양만으로는 못 가립니다) */
@@ -488,21 +505,43 @@ const isKr = x => {
   if(mk && FOREIGN.test(mk)) return false;
   return true;
 };
+const US_MK = /나스닥|뉴욕|아멕스|NASDAQ|NYSE|AMEX|NMS|NYQ|PCX|ASE/i;
+const isUsItem = x => {
+  const nation = String(x.nationCode || x.nationName || '').trim();
+  if(/^(USA|US|미국)$/i.test(nation)) return true;
+  return US_MK.test(String(x.typeName || x.typeCode || x.marketType || x.exchDisp || x.exchange || ''));
+};
 async function searchStocks(q){
   q = q.trim(); if(!q) return [];
-  let out = [], foreign = 0;
+  let out = [], other = 0;
   try{
-    const j = await withTimeout(relayJSON(NV.search(q)), 5000);
+    const j = await withTimeout(relayJSON(NV.search(q)), 6000);
     const items = j?.items || j?.result?.items || (Array.isArray(j)? j : []);
     for(const x of items){
       const code = String(x.code || x.symbolCode || x.itemCode || '');
-      if(!/^\d{6}$/.test(code)){ foreign++; continue; }        /* AAPL 같은 글자 코드 = 해외 */
-      if(!isKr(x)){ foreign++; continue; }
-      out.push({ code, name: x.name || x.itemName || x.stockName || code, market: x.typeName || x.typeCode || x.marketType || '' });
+      const mkName = x.typeName || x.typeCode || x.marketType || '';
+      if(/^\d{6}$/.test(code) && isKr(x)){ out.push({ code, mk:'kr', name: x.name || x.itemName || x.stockName || code, market: mkName }); continue; }
+      if(isUsItem(x) && /^[A-Za-z.\-]{1,6}$/.test(code)){
+        out.push({ code: code.toUpperCase(), mk:'us', sym: x.reutersCode || '', name: x.name || x.stockName || code, market: mkName || '미국' }); continue; }
+      other++;
     }
   }catch(e){}
+  /* 네이버가 막히거나 영어로 찾을 때는 야후에서도 찾아봅니다 */
+  if(out.length < 3 && /[A-Za-z]/.test(q)){
+    try{
+      const j = await withTimeout(relayJSON(YH.search(q)), 6000);
+      for(const x of (j?.quotes||[])){
+        const sym = String(x.symbol||'');
+        if(!sym || !/^[A-Za-z.\-]{1,6}$/.test(sym)) continue;
+        if(!/^(EQUITY|ETF)$/i.test(String(x.quoteType||'EQUITY'))) continue;
+        if(!isUsItem(x)) continue;
+        if(out.some(o=>o.code===sym.toUpperCase())) continue;
+        out.push({ code: sym.toUpperCase(), mk:'us', name: x.shortname || x.longname || sym, market: x.exchDisp || '미국' });
+      }
+    }catch(e){}
+  }
   if(!out.length) out = searchBuiltin(q);
-  searchForeign = foreign;
+  searchForeign = other;
   return out.slice(0, 15);
 }
 const withTimeout = (pr, ms) => Promise.race([pr, new Promise((_,rej)=>setTimeout(()=>rej(new Error('시간 초과')), ms))]);
@@ -644,6 +683,132 @@ async function fetchStock(code){
 }
 
 /* ============================================================
+   1-2. 미국주식 — 야후 파이낸스를 먼저, 네이버 해외종목을 예비로
+   ------------------------------------------------------------
+   국내와 달리 재무 항목이 다 오지 않을 수 있습니다.
+   빠진 항목은 점수에서 빼고 '데이터 커버리지'로 알려 줍니다.
+   ============================================================ */
+const YH = {
+  chart: t => `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(t)}?range=2y&interval=1d`,
+  quote: t => `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(t)}`
+    + `?modules=price,summaryDetail,defaultKeyStatistics,financialData,incomeStatementHistory,balanceSheetHistory,earningsTrend,assetProfile`,
+  search: q => `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=12&newsCount=0&listsCount=0`,
+  news: t => `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(t)}&quotesCount=0&newsCount=15`,
+};
+const NVU = {                                   /* 네이버 해외종목 (심볼 뒤에 .O 나스닥 / .K 뉴욕) */
+  basic: s => `https://api.stock.naver.com/stock/${encodeURIComponent(s)}/basic`,
+  integ: s => `https://api.stock.naver.com/stock/${encodeURIComponent(s)}/integration`,
+  annual: s => `https://api.stock.naver.com/stock/${encodeURIComponent(s)}/finance/annual`,
+  news: s => `https://api.stock.naver.com/news/worldstock/${encodeURIComponent(s)}?pageSize=20&page=1`,
+};
+const raw = v => (v && typeof v === 'object') ? num(v.raw ?? v.fmt) : num(v);
+const isUs = code => (W(code)?.mk || state.data[code]?.mk) === 'us';
+const mkOf = code => isUs(code) ? 'us' : 'kr';
+
+/* 야후 차트 하나로 시세·전일·52주·일봉을 모두 얻습니다 */
+function parseYhChart(j){
+  const r = j?.chart?.result?.[0]; if(!r) throw new Error('시세를 못 찾았어요');
+  const m = r.meta || {};
+  const price = num(m.regularMarketPrice);
+  if(!(price > 0)) throw new Error('시세 값이 없어요');
+  const closes = (r.indicators?.quote?.[0]?.close) || [];
+  const stamps = r.timestamp || [];
+  const chart = [];
+  for(let i=0;i<stamps.length;i++){
+    const c = num(closes[i]); if(!has(c)) continue;
+    chart.push({ d: iso(stamps[i]*1000).replace(/-/g,''), c, v: num(r.indicators?.quote?.[0]?.volume?.[i]) });
+  }
+  const prev = num(m.chartPreviousClose ?? m.previousClose ?? (chart.length>1 ? chart[chart.length-2].c : price));
+  return { basic: { price, prev: has(prev)&&prev>0 ? prev : price, name: m.longName || m.shortName || m.symbol || '', market: m.fullExchangeName || m.exchangeName || '' },
+           chart, high52: num(m.fiftyTwoWeekHigh), low52: num(m.fiftyTwoWeekLow), ccy: m.currency || 'USD' };
+}
+/* 야후 요약 — PER·PBR·목표가·마진·ROE 등 */
+function parseYhQuote(j){
+  const r = j?.quoteSummary?.result?.[0] || {};
+  const sd = r.summaryDetail || {}, ks = r.defaultKeyStatistics || {}, fd = r.financialData || {}, pr = r.price || {};
+  const I = {
+    per: raw(sd.trailingPE) || raw(ks.trailingEps) && NaN, pbr: raw(ks.priceToBook), eps: raw(ks.trailingEps),
+    epsE: raw(ks.forwardEps), perE: raw(sd.forwardPE), divYield: has(raw(sd.dividendYield)) ? raw(sd.dividendYield)*100 : NaN,
+    high52: raw(sd.fiftyTwoWeekHigh), low52: raw(sd.fiftyTwoWeekLow), marketCap: raw(sd.marketCap ?? pr.marketCap),
+    target: raw(fd.targetMeanPrice), recomm: has(raw(fd.recommendationMean)) ? 6 - raw(fd.recommendationMean) : NaN,   /* 야후는 1이 강력매수라 국내(5점 만점)와 방향을 맞춥니다 */
+    industry: r.assetProfile?.industry || r.assetProfile?.sector || '',
+    corpSummary: r.assetProfile?.longBusinessSummary || '',
+  };
+  if(!has(I.per)) I.per = raw(sd.trailingPE);
+  /* 연간 재무: 손익계산서 + 재무상태표에서 필요한 줄만 만들어 씁니다 (단위: 백만) */
+  const inc = (r.incomeStatementHistory?.incomeStatementHistory || []).slice().reverse();
+  const bal = (r.balanceSheetHistory?.balanceSheetStatements || []).slice().reverse();
+  const cols = [], table = {};
+  const put = (k, col, v) => { if(has(v)){ (table[k] = table[k] || {})[col] = v; } };
+  inc.forEach((x, i) => {
+    const col = String(x.endDate?.fmt || '').slice(0,4) || String(i);
+    if(!col || cols.some(c=>c.key===col)) return;
+    cols.push({ key: col, title: col, est: false });
+    const rev = raw(x.totalRevenue), op = raw(x.operatingIncome), ni = raw(x.netIncome);
+    put('revenue', col, has(rev)? rev/1e6 : NaN); put('op', col, has(op)? op/1e6 : NaN); put('ni', col, has(ni)? ni/1e6 : NaN);
+    if(has(rev) && rev>0){ put('opm', col, has(op)? op/rev*100 : NaN); put('npm', col, has(ni)? ni/rev*100 : NaN); }
+    const b = bal[i];
+    if(b){
+      const eq = raw(b.totalStockholderEquity), li = raw(b.totalLiab);
+      if(has(eq) && eq>0){ put('roe', col, has(ni)? ni/eq*100 : NaN); put('debt', col, has(li)? li/eq*100 : NaN); }
+    }
+  });
+  /* 최근 해의 ROE·부채비율은 야후 요약 값이 더 정확합니다 */
+  const lastCol = cols.length ? cols[cols.length-1].key : null;
+  if(lastCol){
+    if(has(raw(fd.returnOnEquity))) put('roe', lastCol, raw(fd.returnOnEquity)*100);
+    if(has(raw(fd.debtToEquity))) put('debt', lastCol, raw(fd.debtToEquity));
+    if(has(raw(fd.operatingMargins))) put('opm', lastCol, raw(fd.operatingMargins)*100);
+    if(has(raw(fd.profitMargins))) put('npm', lastCol, raw(fd.profitMargins)*100);
+  }
+  /* 내년 추정 영업이익·EPS (증권사 추정)  */
+  const tr = (r.earningsTrend?.trend || []).find(t => t.period === '+1y');
+  if(tr && lastCol){
+    const y = String(+lastCol + 1);
+    if(!cols.some(c=>c.key===y)){
+      const e = raw(tr.earningsEstimate?.avg), rv = raw(tr.revenueEstimate?.avg);
+      if(has(e) || has(rv)){
+        cols.push({ key:y, title:y+'(E)', est:true });
+        if(has(rv)) put('revenue', y, rv/1e6);
+        if(has(e)) put('eps', y, e);
+      }
+    }
+  }
+  return { integ: I, annual: { cols, table } };
+}
+function parseYhNews(j){
+  return (j?.news || []).map(n => ({ id: String(n.uuid || n.link), title: n.title || '', office: n.publisher || '',
+    dt: n.providerPublishTime ? iso(n.providerPublishTime*1000).replace(/-/g,'')+'0000' : '', body:'', url: n.link || '' })).slice(0, 20);
+}
+/* 미국주식 한 종목 모으기 */
+async function fetchStockUs(code, sym){
+  const errs = [];
+  const tryGet = async (name, fn) => { try{ return await fn(); }catch(e){ errs.push(name+' — '+e.message); return null; } };
+  let core = null;
+  try{ core = parseYhChart(await relayJSON(YH.chart(code))); }
+  catch(e){
+    /* 야후가 막히면 네이버 해외종목으로 시세만이라도 */
+    const cands = sym ? [sym] : [code+'.O', code+'.K'];
+    for(const s of cands){
+      try{ const b = parseBasic(await relayJSON(NVU.basic(s)));
+        if(has(b.price) && b.price>0){ core = { basic:b, chart:[], high52:NaN, low52:NaN, ccy:'USD', nsym:s }; break; } }
+      catch(e2){ errs.push('네이버 '+s+' — '+e2.message); }
+    }
+    if(!core){ const err = new Error('시세를 못 가져왔어요 — ' + e.message); err.relay = true; throw err; }
+  }
+  const [q, news] = await Promise.all([
+    tryGet('재무·투자지표', async()=>parseYhQuote(await relayJSON(YH.quote(code)))),
+    tryGet('뉴스', async()=>parseYhNews(await relayJSON(YH.news(code)))),
+  ]);
+  const integ = Object.assign({}, q?.integ || {});
+  if(!has(integ.high52)) integ.high52 = core.high52;
+  if(!has(integ.low52)) integ.low52 = core.low52;
+  return { code, mk:'us', sym: core.nsym || sym || code, ccy: core.ccy || 'USD', t: Date.now(),
+    basic: core.basic, integ, annual: q?.annual || {cols:[],table:{}}, quarter: {cols:[],table:{}},
+    news: news || [], chart: core.chart || [], errs, demo:false };
+}
+
+/* ============================================================
    2. 계산 모델 — 점수 (0~100) · 시나리오 · 변화 감지
    ------------------------------------------------------------
    모두 순수 함수. 입력은 위의 data 한 덩어리, 출력은 숫자와 '왜' 목록입니다.
@@ -761,6 +926,7 @@ function scenarios(d, adj={}){
     target: I.target,
   };
   out.perNow = perNow;
+  out.noHist = !hist.length;   /* 과거 PER 을 모르면 Base 는 지금 가격과 비슷할 수밖에 없습니다 */
   out.upBull = growth(out.bull, price); out.upBase = growth(out.base, price); out.upBear = growth(out.bear, price);
   if(has(base) && base <= 0) out.note = '이익이 적자(또는 없음)라 EPS×PER 방식이 맞지 않습니다. PBR·매출 기준으로 따로 봐야 합니다.';
   return out;
@@ -780,14 +946,14 @@ function riskMonitor(d, sc, sn){
   const pos = sc?.s?._mas?.pos52; if(has(pos)) add(pos>85?'단기 과열(52주 고점권)':'가격 위치', clamp(Math.round(interp(pos,[[0,3],[30,2],[60,1],[85,3],[100,4]])),1,5), `52주 범위 ${pos.toFixed(0)}% 위치`);
   if(!has(I.target)) add('증권사 커버리지 부족', 3, '목표주가 컨센서스가 없습니다 — 정보가 적은 종목');
   const w = weightOf(d.code);
-  if(w && has(w.inKr)) add('내 포트폴리오 집중도', clamp(Math.round(interp(w.inKr, [[5,1],[15,2],[25,3],[40,4],[60,5]])),1,5), `국내주식의 ${w.inKr.toFixed(0)}%가 이 종목 (전체 자산의 ${has(w.inAll)?w.inAll.toFixed(1):'?'}%)`);
+  if(w && has(w.inKr)) add('내 포트폴리오 집중도', clamp(Math.round(interp(w.inKr, [[5,1],[15,2],[25,3],[40,4],[60,5]])),1,5), `주식 전체의 ${w.inKr.toFixed(0)}%가 이 종목 (전체 자산의 ${has(w.inAll)?w.inAll.toFixed(1):'?'}%)`);
   return out.sort((a,b)=>b.lv-a.lv).slice(0,6);
 }
 
 /* 스냅샷 — 변화 감지용으로 하루 하나씩 남깁니다 */
 function makeSnap(d, sc, sn){
   const A = d.annual, opE = series(A,'op').e, epsE = series(A,'eps').e;
-  return { t: d.t, date: iso(d.t), price: d.basic.price, per: d.integ.per, pbr: d.integ.pbr, target: d.integ.target, recomm: d.integ.recomm,
+  return { t: d.t, date: iso(d.t), code: d.code, price: d.basic.price, per: d.integ.per, pbr: d.integ.pbr, target: d.integ.target, recomm: d.integ.recomm,
     epsE: has(d.integ.epsE)?d.integ.epsE:(epsE[0]?.v), opE: opE[0]?.v, opEk: opE[0]?.k, score: sc.s.total, sub: {growth:sc.s.growth, profit:sc.s.profit, value:sc.s.value, health:sc.s.health, momentum:sc.s.momentum},
     base: sn.base, newsIds: (d.news||[]).slice(0,20).map(n=>n.id), latestCol: A.cols.length ? A.cols[A.cols.length-1].title : '' };
 }
@@ -799,9 +965,9 @@ function detectChanges(prev, cur, news, seen){
   if(prev){
     const days = Math.max(1, Math.round((cur.t - prev.t)/DAY));
     const pc = d(prev.price, cur.price);
-    if(has(pc) && Math.abs(pc) >= (days<=1 ? 4 : 8)) add(pc>0?'up':'down', Math.abs(pc)>=10?'high':'mid', `주가 ${pct(pc)} (${days}일)`, `${won(prev.price)} → ${won(cur.price)}`, 'price');
+    if(has(pc) && Math.abs(pc) >= (days<=1 ? 4 : 8)) add(pc>0?'up':'down', Math.abs(pc)>=10?'high':'mid', `주가 ${pct(pc)} (${days}일)`, `${px$(prev.price, cur.code)} → ${px$(cur.price, cur.code)}`, 'price');
     const tc = d(prev.target, cur.target);
-    if(has(tc) && Math.abs(tc) >= 2) add(tc>0?'up':'down', Math.abs(tc)>=5?'high':'mid', `목표주가 컨센서스 ${pct(tc)}`, `${won(prev.target)} → ${won(cur.target)} — 증권사 평균 목표가가 바뀌었습니다`, 'target');
+    if(has(tc) && Math.abs(tc) >= 2) add(tc>0?'up':'down', Math.abs(tc)>=5?'high':'mid', `목표주가 컨센서스 ${pct(tc)}`, `${px$(prev.target, cur.code)} → ${px$(cur.target, cur.code)} — 증권사 평균 목표가가 바뀌었습니다`, 'target');
     const oc = d(prev.opE, cur.opE);
     if(has(oc) && Math.abs(oc) >= 2 && prev.opEk === cur.opEk) add(oc>0?'up':'down', Math.abs(oc)>=5?'high':'mid', `${cur.opEk||'올해'} 영업이익 추정 ${pct(oc)}`, `${fmt(prev.opE)}억 → ${fmt(cur.opE)}억 — 실적 전망이 바뀌었습니다`, 'estimate');
     const ec = d(prev.epsE, cur.epsE);
@@ -857,10 +1023,11 @@ function guessKeywords(s){
    (실제 값이 아닙니다. 형태만 진짜와 같습니다)
    ============================================================ */
 function demoStock(code){
-  const name = (BUILTIN.find(([c])=>c===code)||[code,code])[1];
+  const us = (W(code)?.mk || state.data[code]?.mk) === 'us';
+  const name = (BUILTIN.find(([c])=>c===code) || US_BUILTIN.find(([c])=>c===code) || [code,code])[1];
   const seed = [...code].reduce((a,c)=>a+c.charCodeAt(0),0);
   const rnd = (i, a=0, b=1) => { const x = Math.sin(seed*7 + i*13) * 10000; return a + (x - Math.floor(x))*(b-a); };
-  const price = Math.round(rnd(1, 20000, 200000)/100)*100;
+  const price = us ? Math.round(rnd(1, 30, 400)*100)/100 : Math.round(rnd(1, 20000, 200000)/100)*100;
   const yrs = ['2022.12','2023.12','2024.12','2025.12','2026.12(E)'];
   const cols = yrs.map(k => ({ key:k, title:k, est:/E/.test(k) }));
   const rev0 = rnd(2, 20000, 3000000);
@@ -888,7 +1055,9 @@ function demoStock(code){
     target: Math.round(price*rnd(14,0.95,1.35)/100)*100, recomm: +(rnd(15,3.4,4.2)).toFixed(2), epsE: eps[4], industry: '샘플 업종', corpSummary: `${name}의 샘플 데이터입니다. 실제 재무·시세가 아니며 화면과 기능을 둘러보기 위한 값입니다.` };
   const topics = ['실적 발표, 영업이익 컨센서스 상회','신규 수주 계약 체결 공시','목표주가 상향 — 증권사 리포트','업황 둔화 우려로 주가 약세','자사주 매입 결정','경쟁사 신제품 출시로 점유율 경쟁 심화','원자재 가격 상승, 마진 압박 전망','배당 확대 정책 발표'];
   const news = topics.map((t,i) => ({ id: 'demo-'+code+'-'+i, title: `${name}, ${t}`, office:'샘플뉴스', dt: iso(Date.now()-i*DAY).replace(/-/g,'')+'0900', body:'', url:'' }));
-  return { code, t: Date.now(), basic: { price, prev: chart[chart.length-2].c, name, market:'KOSPI(샘플)', marketCap: integ.marketCap }, integ, annual:{cols, table}, quarter:{cols:[],table:{}}, news, chart, errs:[], demo:true };
+  return { code, mk: us?'us':'kr', ccy: us?'USD':'KRW', t: Date.now(),
+    basic: { price, prev: chart[chart.length-2].c, name, market: us?'NASDAQ(샘플)':'KOSPI(샘플)', marketCap: integ.marketCap },
+    integ, annual:{cols, table}, quarter:{cols:[],table:{}}, news, chart, errs:[], demo:true };
 }
 
 /* ============================================================
@@ -970,14 +1139,14 @@ function dataPack(code){
   const ch = prev ? detectChanges(prev, snaps[snaps.length-1], d.news, state.seenNews[code]) : [];
   const th = state.theses.filter(t=>t.code===code).map(t=>({ 논리:t.title, 원문:t.text, 가정:(t.assumptions||[]).map(a=>a.text), 리스크:(t.risks||[]).map(a=>a.text), 확신도:t.confidence, 작성일: iso(t.createdAt) }));
   return {
-    종목: { 이름: d.basic.name, 코드: code, 업종: d.integ.industry||'', 데이터출처: d.demo ? '샘플(실제 아님)' : '네이버증권', 기준시각: new Date(d.t).toLocaleString('ko-KR') },
+    종목: { 이름: d.basic.name, 코드: code, 시장: isUs(code)?'미국':'국내', 통화: isUs(code)?'USD':'KRW', 업종: d.integ.industry||'', 데이터출처: d.demo ? '샘플(실제 아님)' : '네이버증권', 기준시각: new Date(d.t).toLocaleString('ko-KR') },
     시세: { 현재가: d.basic.price, 전일대비: pct(growth(d.basic.price, d.basic.prev)), 시가총액_억원: d.integ.marketCap, '52주최고': d.integ.high52, '52주최저': d.integ.low52,
       PER: d.integ.per, PBR: d.integ.pbr, 추정EPS: d.integ.epsE, 동일업종PER: d.integ.indPer, 배당수익률: d.integ.divYield, 목표주가컨센서스: d.integ.target, 투자의견평균_5만점: d.integ.recomm, 외국인비율: d.integ.foreignRatio },
     점수모델: { 총점: sc.s.total, 성장성: sc.s.growth, 수익성: sc.s.profit, 밸류에이션: sc.s.value, 재무건전성: sc.s.health, 모멘텀: sc.s.momentum, 근거: sc.why, 가중치:'성장25 수익25 밸류20 재무15 모멘텀15' },
-    시나리오: { 방식:'EPS × PER', 기준EPS: sn.epsBase, EPS출처: sn.epsSrc, 기준PER: +sn.perAvg.toFixed(1), 낮은PER: +sn.perLo.toFixed(1), 높은PER: +sn.perHi.toFixed(1), 지금PER: has(sn.perNow)?+sn.perNow.toFixed(1):null,
+    시나리오: { 방식:'EPS × PER', 기준EPS: sn.epsBase, EPS출처: sn.epsSrc, 기준PER: +sn.perAvg.toFixed(1), 낮은PER: +sn.perLo.toFixed(1), 높은PER: +sn.perHi.toFixed(1), 지금PER: has(sn.perNow)?+sn.perNow.toFixed(1):null, 한계: sn.noHist ? '과거 PER 기록이 없어 지금 PER 을 기준으로 잡았음 — Base 가 현재가와 비슷한 것은 당연하고 근거가 약함' : '',
       Bull: { 가격: sn.bull, EPS조정: sn.adj.epsBull+'%', PER: sn.adj.perBull, 상승여력: pct(sn.upBull) }, Base: { 가격: sn.base, PER: sn.adj.perBase, 상승여력: pct(sn.upBase) }, Bear: { 가격: sn.bear, EPS조정: sn.adj.epsBear+'%', PER: sn.adj.perBear, 상승여력: pct(sn.upBear) }, 참고: sn.note||'' },
     리스크모니터: rk.map(r=>({ 항목:r.name, 등급_5만점:r.lv, 근거:r.why })),
-    재무_억원: fin,
+    [isUs(code)?'재무_백만달러':'재무_억원']: fin,
     최근변화: ch.map(c=>({ 방향:c.impact, 중요도:c.level, 제목:c.title, 내용:c.detail })),
     최근뉴스제목: (d.news||[]).slice(0,12).map(n=>n.title),
     내_투자논리: th,
@@ -1111,15 +1280,19 @@ async function loadAssets(opts={}){
 const assetsOn = () => state.assets?.mode !== 'off' && (state.assets?.holdings||[]).length>0;
 const liveHoldings = () => (state.assets?.holdings||[]).filter(h => !h.hide);
 
-/* 같은 종목이 계좌 여러 곳에 있으면 한 줄로 합칩니다 */
+/* 같은 종목이 계좌 여러 곳에 있으면 한 줄로 합칩니다 (국내·미국 모두) */
+const FX = () => +state.assets?.fx || 0;
 function krPositions(){
-  const map = {};
+  const map = {}, fx = FX();
   for(const h of liveHoldings()){
-    if(h.cat !== 'kr' || !h.code) continue;
-    const code = pad6(h.code);
-    const m = map[code] = map[code] || { code, name: h.name||code, qty:0, cost:0, accts:[], owners:[], target:0, stop:0 };
+    if(h.cat !== 'kr' && h.cat !== 'us') continue;
+    const code = h.cat === 'kr' ? pad6(h.code) : String(h.code || h.sym || '').toUpperCase();
+    if(!code) continue;
+    const m = map[code] = map[code] || { code, mk: h.cat, name: h.name||code, qty:0, cost:0, costKrw:0, accts:[], owners:[], target:0, stop:0, sym: h.nsym||'' };
     const q = +h.qty||0, avg = +h.avg||0;
     m.qty += q; m.cost += q*avg;
+    m.costKrw += h.cat === 'us' ? q*avg*((+h.avgFx>0 ? +h.avgFx : fx) || 0) : q*avg;
+    if(h.nsym && !m.sym) m.sym = h.nsym;
     if(h.acct && !m.accts.includes(h.acct)) m.accts.push(h.acct);
     const ow = h.owner||'공동'; if(!m.owners.includes(ow)) m.owners.push(ow);
     if(+h.target>0) m.target = Math.max(m.target, +h.target);
@@ -1138,13 +1311,20 @@ function positionOf(code){
   const pl = has(value) && p.cost>0 ? value - p.cost : NaN;
   const plRate = has(pl) && p.cost>0 ? pl/p.cost*100 : NaN;
   const day = (has(price)&&has(prev)) ? (price-prev)*p.qty : NaN;
-  return Object.assign({}, p, { price, value, pl, plRate, day });
+  const k = p.mk === 'us' ? FX() : 1;                    /* 비중은 원화로 견줍니다 */
+  return Object.assign({}, p, { price, value, pl, plRate, day, ccy: p.mk==='us' ? 'USD' : 'KRW',
+    valueKrw: (has(value) && k>0) ? value*k : (p.mk==='kr' ? value : NaN),
+    dayKrw: (has(day) && k>0) ? day*k : (p.mk==='kr' ? day : NaN) });
 }
 /* 자산 앱 한 줄의 원화 평가액 — 자산 앱 calc() 과 같은 규칙 */
 function maValue(h){
   const A = state.assets, q = +h.qty||0;
   if(h.cat === 'debt') return 0;
   if(h.cat === 'kr' && h.code && state.data[pad6(h.code)]) return state.data[pad6(h.code)].basic.price * q;
+  if(h.cat === 'us'){                                   /* 우리가 받아 온 달러 시세 × 환율 */
+    const c = String(h.code || h.sym || '').toUpperCase(), d = state.data[c];
+    if(d && has(d.basic.price) && FX() > 0) return d.basic.price * q * FX();
+  }
   if(h.mp !== undefined && h.mp !== null && h.mp !== '') return (+h.mp||0) * q;
   const c = A.px?.[h.cat + ':' + (h.code || h.sym || h.id)];
   if(c && +c.p>0) return (+c.p) * q * (c.ccy==='USD' ? (A.fx||0) : 1);
@@ -1153,31 +1333,39 @@ function maValue(h){
 /* 전체 자산 합계 — 값을 모르는 줄은 세지 않고 몇 개인지 알려 줍니다 */
 function assetTotals(){
   if(!assetsOn()) return null;
-  let total=0, debt=0, unknown=0, kr=0, krCost=0;
+  let total=0, debt=0, unknown=0;
   const byCat = {};
   for(const h of liveHoldings()){
     if(h.cat === 'debt'){ debt += +h.loan||0; continue; }
     const v = maValue(h);
     if(!has(v)){ unknown++; continue; }
     total += v; byCat[h.cat] = (byCat[h.cat]||0) + v;
-    if(h.cat === 'kr'){ kr += v; krCost += (+h.qty||0)*(+h.avg||0); }
   }
-  return { total, debt, net: total-debt, unknown, byCat, kr, krCost, krPl: krCost>0 ? kr-krCost : NaN, krPlRate: krCost>0 ? (kr-krCost)/krCost*100 : NaN };
+  /* 주식(국내+미국)은 우리가 받은 시세로 따로 계산합니다 — 원화 기준 */
+  let kr=0, krCost=0, nUs=0, noFx=0;
+  for(const c of Object.keys(krPositions())){
+    const p = positionOf(c); if(!p) continue;
+    if(p.mk === 'us') nUs++;
+    if(!has(p.valueKrw)){ if(p.mk==='us') noFx++; continue; }
+    kr += p.valueKrw; krCost += p.costKrw || 0;
+  }
+  return { total, debt, net: total-debt, unknown, byCat, kr, krCost, nUs, noFx,
+    krPl: krCost>0 ? kr-krCost : NaN, krPlRate: krCost>0 ? (kr-krCost)/krCost*100 : NaN };
 }
 /* 국내주식 안에서의 비중 · 전체 자산 안에서의 비중 */
 function weightOf(code){
   const t = assetTotals(), p = positionOf(code);
-  if(!t || !p || !has(p.value)) return null;
-  return { inKr: t.kr>0 ? p.value/t.kr*100 : NaN, inAll: t.total>0 ? p.value/t.total*100 : NaN };
+  if(!t || !p || !has(p.valueKrw)) return null;
+  return { inKr: t.kr>0 ? p.valueKrw/t.kr*100 : NaN, inAll: t.total>0 ? p.valueKrw/t.total*100 : NaN };
 }
 /* 업종이 얼마나 겹쳐 있는지 — 데이터를 받아 온 종목만 셉니다 */
 function industryMix(){
   const t = assetTotals(); if(!t || !(t.kr>0)) return [];
   const by = {};
   for(const code of Object.keys(krPositions())){
-    const p = positionOf(code); if(!p || !has(p.value)) continue;
+    const p = positionOf(code); if(!p || !has(p.valueKrw)) continue;
     const ind = state.data[code]?.integ.industry || '업종 모름';
-    (by[ind] = by[ind] || { industry:ind, value:0, names:[] }).value += p.value;
+    (by[ind] = by[ind] || { industry:ind, value:0, names:[] }).value += p.valueKrw;
     by[ind].names.push(state.data[code]?.basic.name || code);
   }
   return Object.values(by).map(x => Object.assign(x, { pct: x.value/t.kr*100 })).sort((a,b)=>b.value-a.value);
@@ -1190,7 +1378,7 @@ function noThesis(){ return Object.values(krPositions()).filter(p => W(p.code) &
 async function importHoldings(){
   const miss = missingWatch();
   if(!miss.length){ toast('이미 다 담겨 있어요'); return; }
-  for(const p of miss) if(!W(p.code)) state.watch.push({ code:p.code, name:p.name, addedAt: Date.now(), fromAssets:true });
+  for(const p of miss) if(!W(p.code)) state.watch.push({ code:p.code, name:p.name, mk:p.mk||'kr', sym:p.sym||'', addedAt: Date.now(), fromAssets:true });
   save(); closeModal(); showTab('home');
   busy.refreshAll = true; render();
   for(const p of miss) await refreshStock(p.code, {quiet:true});
@@ -1224,27 +1412,29 @@ function assetCard(){
   const A = state.assets;
   if(A.mode === 'off'){
     const local = readLocalAssets();
-    if(!local || !local.holdings.some(h=>h.cat==='kr')) return '';
+    if(!local || !local.holdings.some(h=>h.cat==='kr'||h.cat==='us')) return '';
     return `<div class="card"><h2>📊 우리집 자산 연동</h2>
-      <p class="desc">이 폰의 <b>우리집 자산</b> 앱에 국내주식 <b>${local.holdings.filter(h=>h.cat==='kr'&&!h.hide).length}개</b>가 담겨 있습니다.
+      <p class="desc">이 폰의 <b>우리집 자산</b> 앱에 주식 <b>${local.holdings.filter(h=>(h.cat==='kr'||h.cat==='us')&&!h.hide).length}개</b>(국내·미국)가 담겨 있습니다.
       연동하면 보유 수량·평단가가 붙어서 <b>내 계좌 기준 손익·비중</b>으로 보여 드립니다.</p>
       <div class="btn-row"><button class="btn sm" data-act="linkLocal">🔗 이 폰의 자산 앱과 연동</button><button class="btn sm ghost" data-act="settings">다른 폰이에요</button></div></div>`;
   }
   const t = assetTotals();
   if(!t) return `<div class="card"><h2>📊 우리집 자산</h2><p class="desc">${esc(A.err||'보유 자료를 읽지 못했어요.')}</p><div class="btn-row"><button class="btn sm ghost" data-act="reloadAssets">다시 읽기</button></div></div>`;
   const miss = missingWatch(), mix = industryMix(), top = mix[0];
-  const day = Object.keys(krPositions()).reduce((sk,c)=>{ const p = positionOf(c); return sk + (has(p?.day)?p.day:0); }, 0);
-  const nonKr = liveHoldings().filter(h=>h.cat!=='kr'&&h.cat!=='debt').length;
+  const day = Object.keys(krPositions()).reduce((sk,c)=>{ const p = positionOf(c); return sk + (has(p?.dayKrw)?p.dayKrw:0); }, 0);
+  const nonKr = liveHoldings().filter(h=>h.cat!=='kr'&&h.cat!=='us'&&h.cat!=='debt').length;
   return `<div class="card">
-    <h2>📊 내 국내주식 <span class="sub">${A.mode==='local'?'이 폰의 자산 앱':'공유 방 '+esc(A.room)} · ${A.at?new Date(A.at).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):''}</span></h2>
+    <h2>📊 내 주식 <span class="sub">${A.mode==='local'?'이 폰의 자산 앱':'공유 방 '+esc(A.room)} · ${A.at?new Date(A.at).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):''}</span></h2>
     <div class="kv">
       <div class="c"><div class="k">평가금액</div><div class="v">${won(t.kr)}</div></div>
       <div class="c"><div class="k">손익</div><div class="v ${cls(t.krPlRate)}">${has(t.krPl)?(t.krPl>0?'+':'')+fmt(t.krPl):'–'}</div></div>
       <div class="c"><div class="k">수익률</div><div class="v ${cls(t.krPlRate)}">${pct(t.krPlRate)}</div></div>
     </div>
     <p class="tiny muted mt">오늘 ${has(day)&&day!==0?`<b class="${cls(day)}">${day>0?'+':''}${fmt(day)}원</b>`:'변동 없음'}
-      ${t.total>0?` · 전체 자산 ${won(t.total)} 중 <b>${(t.kr/t.total*100).toFixed(0)}%</b>`:''}${nonKr?` · 국내주식이 아닌 ${nonKr}개는 이 앱이 추적하지 않습니다`:''}</p>
-    ${top && top.pct>=40 ? `<div class="note mt">⚠️ 국내주식의 <b>${top.pct.toFixed(0)}%</b>가 <b>${esc(top.industry)}</b> 한 곳에 있습니다 (${esc(top.names.slice(0,3).join(', '))}). 같은 뉴스에 같이 움직입니다.</div>` : ''}
+      ${t.total>0?` · 전체 자산 ${won(t.total)} 중 <b>${(t.kr/t.total*100).toFixed(0)}%</b>`:''}${t.nUs?` · 미국 ${t.nUs}개 포함(환율 ${FX()?fmt(FX())+'원':'모름'})`:''}${nonKr?` · 주식이 아닌 ${nonKr}개는 추적하지 않습니다`:''}
+      ${t.noFx?`<br><b class="up">환율을 몰라 미국주식 ${t.noFx}개는 합계에서 빠졌습니다</b> — 자산 앱을 한 번 열어 환율을 받아 주세요`:''}
+      ${t.unknown?`<br>값을 모르는 자산 ${t.unknown}개는 전체 합계에서 빠졌습니다 (아직 시세를 못 받은 것)`:''}</p>
+    ${top && top.pct>=40 ? `<div class="note mt">⚠️ 주식의 <b>${top.pct.toFixed(0)}%</b>가 <b>${esc(top.industry)}</b> 한 곳에 있습니다 (${esc(top.names.slice(0,3).join(', '))}). 같은 뉴스에 같이 움직입니다.</div>` : ''}
     ${miss.length ? `<div class="btn-row"><button class="btn sm" data-act="importHold">＋ 안 담긴 보유 종목 ${miss.length}개 담기</button></div>` : ''}
     <div class="btn-row"><button class="btn sm ghost" data-act="reloadAssets">🔄 자산 다시 읽기</button>${mix.length?`<button class="btn sm ghost" data-act="showMix">업종 비중 보기</button>`:''}</div>
   </div>`;
@@ -1255,25 +1445,26 @@ function positionCard(code, sn){
   const w = weightOf(code), d = state.data[code];
   const at = px => has(px) && p.qty>0 ? px*p.qty : NaN;
   const plAt = px => has(px) && p.cost>0 ? px*p.qty - p.cost : NaN;
-  const line = (lab, px, k) => `<tr><td>${lab}</td><td class="num">${won(px)}</td><td class="num">${won(at(px))}</td><td class="num ${cls(plAt(px))}">${has(plAt(px))?(plAt(px)>0?'+':'')+fmt(plAt(px)):'–'}</td><td class="num ${cls(growth(px,p.avg))}">${pct(growth(px,p.avg))}</td></tr>`;
+  const M = v => px$(v, code);
+  const line = (lab, px) => `<tr><td>${lab}</td><td class="num">${M(px)}</td><td class="num">${M(at(px))}</td><td class="num ${cls(plAt(px))}">${has(plAt(px))?(plAt(px)>0?'+':'-')+M(Math.abs(plAt(px))):'–'}</td><td class="num ${cls(growth(px,p.avg))}">${pct(growth(px,p.avg))}</td></tr>`;
   return `<div class="card" style="border-color:var(--soft-d)">
     <h2>💼 내 보유 <span class="sub">${esc(p.accts.join(', ')||p.owners.join(', '))}</span></h2>
     <div class="kv">
       <div class="c"><div class="k">수량</div><div class="v">${fmt(p.qty)}주</div></div>
-      <div class="c"><div class="k">평단가</div><div class="v">${won(p.avg)}</div></div>
-      <div class="c"><div class="k">평가금액</div><div class="v">${won(p.value)}</div></div>
-      <div class="c"><div class="k">손익</div><div class="v ${cls(p.pl)}">${has(p.pl)?(p.pl>0?'+':'')+fmt(p.pl):'–'}</div></div>
+      <div class="c"><div class="k">평단가</div><div class="v">${M(p.avg)}</div></div>
+      <div class="c"><div class="k">평가금액</div><div class="v">${M(p.value)}</div></div>
+      <div class="c"><div class="k">손익</div><div class="v ${cls(p.pl)}">${has(p.pl)?(p.pl>0?'+':'')+M(Math.abs(p.pl)).replace('-',''):'–'}</div></div>
       <div class="c"><div class="k">수익률</div><div class="v ${cls(p.plRate)}">${pct(p.plRate)}</div></div>
-      <div class="c"><div class="k">국내주식 비중</div><div class="v">${w&&has(w.inKr)?w.inKr.toFixed(0)+'%':'–'}</div></div>
+      <div class="c"><div class="k">주식 내 비중</div><div class="v">${w&&has(w.inKr)?w.inKr.toFixed(0)+'%':'–'}</div></div>
     </div>
-    ${has(p.day)&&p.day!==0?`<p class="tiny muted mt">오늘 <b class="${cls(p.day)}">${p.day>0?'+':''}${fmt(p.day)}원</b>${w&&has(w.inAll)?` · 전체 자산의 ${w.inAll.toFixed(1)}%`:''}</p>`:''}
+    ${has(p.dayKrw)&&p.dayKrw!==0?`<p class="tiny muted mt">오늘 <b class="${cls(p.dayKrw)}">${p.dayKrw>0?'+':''}${fmt(p.dayKrw)}원</b>${w&&has(w.inAll)?` · 전체 자산의 ${w.inAll.toFixed(1)}%`:''}${isUs(code)&&has(p.valueKrw)?` · 원화로 ${won(p.valueKrw)}`:''}</p>`:''}
     <div class="sec-t">시나리오가 맞는다면 내 계좌는</div>
     <div class="tbwrap"><table class="tb"><thead><tr><th></th><th>주가</th><th>평가금액</th><th>손익</th><th>평단대비</th></tr></thead><tbody>
       ${line('Bull', sn.bull)}${line('Base', sn.base)}${line('Bear', sn.bear)}
       ${has(d.integ.target)?line('증권사 목표가', d.integ.target):''}
       ${p.target>0?line('내 목표가', p.target):''}${p.stop>0?line('내 손절가', p.stop):''}
     </tbody></table></div>
-    <p class="tiny muted">평단 ${won(p.avg)} 기준. ${p.target>0||p.stop>0?'내 목표가·손절가는 자산 앱에 적어 둔 값입니다.':'자산 앱에 목표가·손절가를 적어 두면 여기에 같이 나옵니다.'}</p>
+    <p class="tiny muted">평단 ${M(p.avg)} 기준. ${p.target>0||p.stop>0?'내 목표가·손절가는 자산 앱에 적어 둔 값입니다.':'자산 앱에 목표가·손절가를 적어 두면 여기에 같이 나옵니다.'}</p>
   </div>`;
 }
 
@@ -1341,7 +1532,7 @@ function renderHome(){
       return `<button class="item" data-act="open" data-code="${w.code}">
         <div class="dot ${worst ? (worst.impact==='flat'?'flat':worst.impact) : 'flat'}"></div>
         <div class="grow"><div class="nm">${esc(w.name)} ${d?.demo?'<span class="pill gold">샘플</span>':''}${pos?`<span class="pill brand">보유</span>`:''}</div><div class="cd">${w.code}${worst ? ' · ' + esc(worst.title) : (pos&&has(pos.plRate) ? ` · 내 손익 <span class="${cls(pos.plRate)}">${pct(pos.plRate)}</span>` : (state.theses.some(t=>t.code===w.code) ? ' · 논리 저장됨' : ''))}</div></div>
-        <div class="right"><div class="px num">${d ? won(d.basic.price) : '–'}</div><div class="chg num ${cls(c)}">${pct(c)}${has(sc)?` · <b>${sc}</b>점`:''}</div></div>
+        <div class="right"><div class="px num">${d ? px$(d.basic.price, w.code) : '–'}</div><div class="chg num ${cls(c)}">${pct(c)}${has(sc)?` · <b>${sc}</b>점`:''}</div></div>
       </button>`; }).join('')}
     </div>
     <div class="btn-row"><button class="btn sm ghost" data-act="go" data-tab="search">＋ 종목 추가</button><button class="btn sm ghost" data-act="go" data-tab="ai">💬 포트폴리오에 질문</button></div>
@@ -1381,12 +1572,12 @@ function drawSearch(){
   if(!searchRes.length){ box.innerHTML = `<div class="empty">찾은 종목이 없어요.<br><span class="tiny">${searchForeign?'해외 종목만 나왔습니다 — 이 앱은 아직 <b>국내 주식·ETF</b>만 읽습니다.':'6자리 코드를 직접 넣어도 됩니다'}</span></div>`; return; }
   const fb = $('#sforeign');
   if(fb) fb.innerHTML = searchForeign ? `<p class="tiny muted mt">해외 종목 ${searchForeign}개는 뺐습니다 — 이 앱은 아직 국내 주식·ETF만 읽습니다.</p>` : '';
-  box.innerHTML = searchRes.map(r => `<button class="item" data-act="pick" data-code="${r.code}" data-name="${esc(r.name)}">
-    <div class="grow"><div class="nm">${esc(r.name)}</div><div class="cd">${r.code} ${esc(r.market||'')}</div></div>
+  box.innerHTML = searchRes.map(r => `<button class="item" data-act="pick" data-code="${r.code}" data-name="${esc(r.name)}" data-mk="${r.mk||'kr'}" data-sym="${esc(r.sym||'')}">
+    <div class="grow"><div class="nm">${esc(r.name)} ${r.mk==='us'?'<span class="pill brand">🇺🇸</span>':''}</div><div class="cd">${esc(r.code)} ${esc(r.market||'')}</div></div>
     <div class="pill ${W(r.code)?'flat':'brand'}">${W(r.code)?'담김':'＋ 담기'}</div></button>`).join('');
 }
-async function addWatch(code, name){
-  if(!W(code)){ state.watch.push({ code, name: name||code, addedAt: Date.now() }); save(); }
+async function addWatch(code, name, mk, sym){
+  if(!W(code)){ state.watch.push({ code, name: name||code, mk: mk||'kr', sym: sym||'', addedAt: Date.now() }); save(); }
   state.ui.code = code;
   showTab('stock');
   await refreshStock(code);
@@ -1398,9 +1589,12 @@ async function addWatch(code, name){
 async function refreshStock(code, opts={}){
   busy['r'+code] = true; if(!opts.quiet) render();
   try{
-    const d = state.ui.demo ? demoStock(code) : await fetchStock(code);
+    const w = W(code);
+    const d = state.ui.demo ? demoStock(code)
+      : (w?.mk === 'us' ? await fetchStockUs(code, w.sym) : await fetchStock(code));
     if(!d.basic.name && W(code)) d.basic.name = W(code).name;
     state.data[code] = d;
+    if(w && d.sym && !w.sym){ w.sym = d.sym; }
     const sc = computeScore(d), sn = scenarios(d, state.ui.adj?.[code]);
     const snap = makeSnap(d, sc, sn);
     const arr = state.snaps[code] = state.snaps[code] || [];
@@ -1427,13 +1621,13 @@ function markSeen(code){
 }
 
 /* ---------- 종목 ---------- */
-function finTable(fin, keys){
+function finTable(fin, keys, us){
   if(!fin?.cols?.length) return `<p class="tiny muted mt">재무 데이터가 없어요.</p>`;
   const cols = fin.cols.slice(-6);
-  return `<div class="tbwrap"><table class="tb"><thead><tr><th>(억원)</th>${cols.map(c=>`<th>${esc(c.title).replace('.12','')}</th>`).join('')}</tr></thead><tbody>
+  return `<div class="tbwrap"><table class="tb"><thead><tr><th>${us?'(백만$)':'(억원)'}</th>${cols.map(c=>`<th>${esc(c.title).replace('.12','')}</th>`).join('')}</tr></thead><tbody>
     ${keys.map(([k,label]) => { const row = fin.table[k]; if(!row) return ''; const isPct = /률|ROE/.test(label), isX = /PER|PBR/.test(label);
       return `<tr><td>${esc(label)}</td>${cols.map(c => { const v = row[c.key]; return `<td class="num ${c.est?'muted':''}">${!has(v)?'–': isPct ? v.toFixed(1)+'%' : isX ? v.toFixed(1) : fmt(v)}</td>`; }).join('')}</tr>`; }).join('')}
-  </tbody></table></div><p class="tiny muted">회색 열은 증권사 추정(E). 억원 · EPS/BPS/배당은 원.</p>`;
+  </tbody></table></div><p class="tiny muted">회색 열은 증권사 추정(E). ${us?'백만 달러 · EPS 는 달러.':'억원 · EPS/BPS/배당은 원.'}</p>`;
 }
 function renderStock(){
   const el = $('#tab-stock'); const code = state.ui.code;
@@ -1458,18 +1652,18 @@ function renderStock(){
   const subs = [['growth','성장성'],['profit','수익성'],['value','밸류에이션'],['health','재무건전성'],['momentum','모멘텀']];
   el.innerHTML = `
   <div class="card">
-    <div class="row"><div class="grow"><h2 style="font-size:19px">${esc(d.basic.name||w.name)} ${d.demo?'<span class="pill gold">샘플</span>':''}</h2><div class="tiny muted">${code} · ${esc(d.basic.market||'')} ${I.industry?'· '+esc(I.industry):''}</div></div>
-      <div class="right"><div class="b num" style="font-size:20px">${won(d.basic.price)}</div><div class="num ${cls(c)} small">${pct(c)}</div></div></div>
+    <div class="row"><div class="grow"><h2 style="font-size:19px">${esc(d.basic.name||w.name)} ${d.demo?'<span class="pill gold">샘플</span>':''}</h2><div class="tiny muted">${isUs(code)?'🇺🇸 ':''}${esc(code)} · ${esc(d.basic.market||'')} ${I.industry?'· '+esc(I.industry):''}</div></div>
+      <div class="right"><div class="b num" style="font-size:20px">${px$(d.basic.price, code)}</div><div class="num ${cls(c)} small">${pct(c)}</div></div></div>
     <div class="kv">
-      <div class="c"><div class="k">시가총액</div><div class="v">${has(I.marketCap)? (I.marketCap>=10000? (I.marketCap/10000).toFixed(1)+'조':fmt(I.marketCap)+'억') : '–'}</div></div>
+      <div class="c"><div class="k">시가총액</div><div class="v">${capS(I.marketCap, isUs(code))}</div></div>
       <div class="c"><div class="k">PER</div><div class="v">${has(I.per)?I.per.toFixed(1)+'배':'–'}</div></div>
       <div class="c"><div class="k">PBR</div><div class="v">${has(I.pbr)?I.pbr.toFixed(2)+'배':'–'}</div></div>
-      <div class="c"><div class="k">목표가 컨센서스</div><div class="v">${won(I.target)}</div></div>
+      <div class="c"><div class="k">목표가 컨센서스</div><div class="v">${px$(I.target, code)}</div></div>
       <div class="c"><div class="k">배당수익률</div><div class="v">${has(I.divYield)?I.divYield.toFixed(2)+'%':'–'}</div></div>
       <div class="c"><div class="k">52주 위치</div><div class="v">${has(sc.s._mas.pos52)?sc.s._mas.pos52.toFixed(0)+'%':'–'}</div></div>
     </div>
     <div class="btn-row"><button class="btn sm ghost" data-act="refresh" data-code="${code}" ${busy['r'+code]?'disabled':''}>${busy['r'+code]?'<span class="spin dark"></span>':'🔄'} 새로고침</button><button class="btn sm ghost" data-act="askAbout" data-code="${code}">💬 AI에게 질문</button><button class="btn sm warn" data-act="unwatch" data-code="${code}">빼기</button></div>
-    <p class="tiny muted mt">${new Date(d.t).toLocaleString('ko-KR')} · ${d.demo?'샘플 데이터(실제 아님)':'네이버증권'}${d.errs.length?` · 일부 누락: ${esc(d.errs.slice(0,2).join(', '))}`:''}</p>
+    <p class="tiny muted mt">${new Date(d.t).toLocaleString('ko-KR')} · ${d.demo?'샘플 데이터(실제 아님)':(isUs(code)?'야후 파이낸스':'네이버증권')}${d.errs.length?` · 일부 누락: ${esc(d.errs.slice(0,2).join(', '))}`:''}</p>
   </div>
 
   ${positionCard(code, sn)}
@@ -1489,15 +1683,17 @@ function renderStock(){
 
   <div class="card">
     <h2>적정가치 시나리오 <span class="sub">EPS × PER</span></h2>
-    <p class="desc">기준 EPS <b>${fmt(sn.epsBase)}원</b> (${sn.epsSrc}) · 쓰는 PER ${sn.perLo.toFixed(1)}~${sn.perHi.toFixed(1)}배 (기준 ${sn.perAvg.toFixed(1)}배)${has(sn.perNow)?` · 지금 ${sn.perNow.toFixed(1)}배`:''}
-      <br><span class="tiny">과거 PER 은 이익이 급감한 해에 크게 튀어서, 그 회사 PER 중앙값·동일업종 PER·지금 PER 을 함께 보고 범위를 정합니다.</span></p>
+    <p class="desc">기준 EPS <b>${isUs(code)? usd(sn.epsBase) : fmt(sn.epsBase)+'원'}</b> (${sn.epsSrc}) · 쓰는 PER ${sn.perLo.toFixed(1)}~${sn.perHi.toFixed(1)}배 (기준 ${sn.perAvg.toFixed(1)}배)${has(sn.perNow)?` · 지금 ${sn.perNow.toFixed(1)}배`:''}
+      <br><span class="tiny">${sn.noHist
+        ? '이 종목은 <b>과거 PER 기록이 없어</b> 지금 PER 을 기준으로 잡았습니다. 그래서 Base 는 현재가와 비슷할 수밖에 없고, 위아래 폭만 참고하시면 됩니다. 증권사 목표가와 견줘 보세요.'
+        : '과거 PER 은 이익이 급감한 해에 크게 튀어서, 그 회사 PER 중앙값·동일업종 PER·지금 PER 을 함께 보고 범위를 정합니다.'}</span></p>
     ${sn.note?`<div class="note mt">${esc(sn.note)}</div>`:''}
     <div class="scen">
-      <div class="c bull"><div class="t up">Bull</div><div class="p">${won(sn.bull)}</div><div class="d">EPS ${sn.adj.epsBull>0?'+':''}${sn.adj.epsBull}% × ${sn.adj.perBull}배<br>${pct(sn.upBull)}</div></div>
-      <div class="c base"><div class="t">Base</div><div class="p">${won(sn.base)}</div><div class="d">EPS 그대로 × ${sn.adj.perBase}배<br>${pct(sn.upBase)}</div></div>
-      <div class="c bear"><div class="t down">Bear</div><div class="p">${won(sn.bear)}</div><div class="d">EPS ${sn.adj.epsBear}% × ${sn.adj.perBear}배<br>${pct(sn.upBear)}</div></div>
+      <div class="c bull"><div class="t up">Bull</div><div class="p">${px$(sn.bull, code)}</div><div class="d">EPS ${sn.adj.epsBull>0?'+':''}${sn.adj.epsBull}% × ${sn.adj.perBull}배<br>${pct(sn.upBull)}</div></div>
+      <div class="c base"><div class="t">Base</div><div class="p">${px$(sn.base, code)}</div><div class="d">EPS 그대로 × ${sn.adj.perBase}배<br>${pct(sn.upBase)}</div></div>
+      <div class="c bear"><div class="t down">Bear</div><div class="p">${px$(sn.bear, code)}</div><div class="d">EPS ${sn.adj.epsBear}% × ${sn.adj.perBear}배<br>${pct(sn.upBear)}</div></div>
     </div>
-    ${has(I.target)?`<p class="tiny muted mt">증권사 목표가 컨센서스 ${won(I.target)} (지금 대비 ${pct(growth(I.target, d.basic.price))}) 와 비교해 보세요.</p>`:''}
+    ${has(I.target)?`<p class="tiny muted mt">증권사 목표가 컨센서스 ${px$(I.target, code)} (지금 대비 ${pct(growth(I.target, d.basic.price))}) 와 비교해 보세요.</p>`:''}
     <details class="mt"><summary>가정 바꿔 보기 (영업이익이 20% 떨어지면?)</summary>
       <div class="slider"><span>Bull EPS</span><input type="range" min="-50" max="100" step="5" value="${sn.adj.epsBull}" data-adj="epsBull" data-code="${code}"><span class="v num">${sn.adj.epsBull>0?'+':''}${sn.adj.epsBull}%</span></div>
       <div class="slider"><span>Bull PER</span><input type="range" min="3" max="80" step="0.5" value="${sn.adj.perBull}" data-adj="perBull" data-code="${code}"><span class="v num">${sn.adj.perBull}배</span></div>
@@ -1522,7 +1718,7 @@ function renderStock(){
 
   <div class="card">
     <h2>재무 <span class="sub"><button class="btn xs ghost" data-act="finQ" data-v="0" ${!q?'style="background:var(--brand);color:#fff"':''}>연간</button> <button class="btn xs ghost" data-act="finQ" data-v="1" ${q?'style="background:var(--brand);color:#fff"':''}>분기</button></span></h2>
-    ${finTable(q ? d.quarter : d.annual, FIN_ROWS.filter(([k])=>['revenue','op','ni','opm','roe','debt','eps','per','pbr','dps'].includes(k)))}
+    ${finTable(q ? d.quarter : d.annual, FIN_ROWS.filter(([k])=>['revenue','op','ni','opm','roe','debt','eps','per','pbr','dps'].includes(k)), isUs(code))}
   </div>
 
   <div class="card">
@@ -1579,7 +1775,7 @@ function renderThesis(){
     <p class="desc">매수할 때 이유를 적어 두면, 나중에 결과와 견줘 <b>내 판단 습관</b>을 볼 수 있습니다.</p>
     ${stat ? `<div class="kv"><div class="c"><div class="k">기록</div><div class="v">${stat.n}건</div></div><div class="c"><div class="k">현재 수익 중</div><div class="v">${stat.win}/${stat.n}</div></div><div class="c"><div class="k">평균 수익률</div><div class="v ${cls(stat.avg)}">${pct(stat.avg)}</div></div></div>` : ''}
     <div class="list">${j.map(x => { const cur = state.data[x.code]?.basic.price, r = growth(cur, x.price); return `<div class="item" style="cursor:default"><div class="grow"><div class="nm">${esc(x.name)} <span class="tiny muted">${iso(x.t)}</span></div><div class="cd">"${esc(x.reason)}" · ${esc(x.horizon||'')} ${x.expect?'· 기대 '+esc(x.expect):''}</div>${x.stop?`<div class="cd">손절 조건: ${esc(x.stop)}</div>`:''}</div>
-      <div class="right"><div class="px num">${won(x.price)}</div><div class="chg num ${cls(r)}">${has(r)?'지금 '+pct(r):'–'}</div><button class="btn xs ghost mt" data-act="delJournal" data-id="${x.id}">삭제</button></div></div>`; }).join('')}</div>
+      <div class="right"><div class="px num">${px$(x.price, x.code)}</div><div class="chg num ${cls(r)}">${has(r)?'지금 '+pct(r):'–'}</div><button class="btn xs ghost mt" data-act="delJournal" data-id="${x.id}">삭제</button></div></div>`; }).join('')}</div>
     <div class="btn-row"><button class="btn sm" data-act="newJournal">＋ 매수 기록</button><button class="btn sm ghost" data-act="reviewJournal" ${busy.review?'disabled':''}>${busy.review?'<span class="spin dark"></span> 복기 중':'🧠 AI 복기'}</button></div>
     ${state.ui.review?`<div class="msg ai mt" style="max-width:100%">${esc(state.ui.review.text)}<div class="src">${state.ui.review.date} · ${esc(state.ui.review.model)}</div></div>`:''}
   </div>`;
@@ -1702,6 +1898,11 @@ async function runDiag(){
       return { ok: n>0, s: n ? `됨 — 항목 ${n}개 · 열 ${f.cols.length}개` : '왔지만 표를 못 읽었어요(형식이 다름)' }; });
     await step('뉴스', NV.news('005930'), j => { const n = parseNews(j).length; return { ok: n>0, s: n ? `됨 — ${n}건` : '왔지만 기사를 못 읽었어요' }; });
     await step('일봉(차트)', NV.chart('005930'), j => { const n = parseChart(j).length; return { ok: n>0, s: n ? `됨 — ${n}일치` : '왔지만 못 읽었어요' }; });
+    await step('🇺🇸 미국 시세(야후)', YH.chart('NVDA'), j => { const c = parseYhChart(j);
+      return { ok: c.basic.price>0, s: `됨 — 엔비디아 ${usd(c.basic.price)} · 일봉 ${c.chart.length}일치` }; });
+    await step('🇺🇸 미국 재무(야후)', YH.quote('NVDA'), j => { const q = parseYhQuote(j);
+      const n = Object.keys(q.annual.table).length;
+      return { ok: n>0 || has(q.integ.per), s: n ? `됨 — 항목 ${n}개 · PER ${has(q.integ.per)?q.integ.per.toFixed(1):'?'}` : (has(q.integ.per) ? '일부만 — PER 은 읽힘' : '왔지만 못 읽었어요') }; });
     if(!diag.rows.some(r=>r.n==='일봉(차트)' && r.ok)){
       try{ const n = parseChartXml(await relayText(NV.chart2('005930'))).length; dRow('일봉(예비 경로)', n ? `됨 — ${n}일치` : '못 읽었어요', '', n>0); }
       catch(e){ dRow('일봉(예비 경로)', '막힘 — ' + e.message, '', false); }
@@ -1799,7 +2000,7 @@ function openJournal(){
   openModal(`<div class="mhead"><h3>📓 매수 기록</h3><button class="x" data-act="close">✕</button></div>
     <div class="f"><label>종목</label><select id="jCode">${state.watch.map(w=>`<option value="${w.code}" ${state.ui.code===w.code?'selected':''}>${esc(w.name)}</option>`).join('')}</select></div>
     <div class="row"><div class="f grow"><label>매수가 (원)</label><input id="jPrice" type="number" inputmode="numeric" value="${Math.round(pos0?.avg || state.data[state.ui.code]?.basic.price || 0)||''}"></div><div class="f grow"><label>수량</label><input id="jQty" type="number" inputmode="numeric" value="${pos0?.qty||''}" placeholder="30"></div></div>
-    ${pos0?`<p class="tiny muted">자산 앱의 평단 ${won(pos0.avg)} · ${fmt(pos0.qty)}주를 채워 두었습니다.</p>`:''}
+    ${pos0?`<p class="tiny muted">자산 앱의 평단 ${px$(pos0.avg, state.ui.code)} · ${fmt(pos0.qty)}주를 채워 두었습니다.</p>`:''}
     <div class="f"><label>투자 이유 (한 문장)</label><input id="jReason" placeholder="예: HBM 성장"></div>
     <div class="row"><div class="f grow"><label>목표 보유기간</label><input id="jH" placeholder="2년"></div><div class="f grow"><label>기대 수익률</label><input id="jE" placeholder="+40%"></div></div>
     <div class="f"><label>손절(논리 포기) 조건</label><input id="jStop" placeholder="예: HBM 점유율 하락, 영업이익 추정 -20%"></div>
@@ -1824,7 +2025,7 @@ document.addEventListener('click', async e => {
     case 'importHold': importHoldings(); break;
     case 'showMix': { const mix = industryMix(), t = assetTotals();
       openModal(`<div class="mhead"><h3>업종 비중</h3><button class="x" data-act="close">✕</button></div>
-        <p class="tiny muted">국내주식 ${won(t.kr)} 기준. 데이터를 받아 온 종목만 셉니다.</p>
+        <p class="tiny muted">주식 ${won(t.kr)}(국내+미국, 원화 환산) 기준. 데이터를 받아 온 종목만 셉니다.</p>
         ${mix.map(x=>`<div class="mt"><div class="row"><span class="grow b">${esc(x.industry)}</span><span class="num b">${x.pct.toFixed(0)}%</span></div>
           <div class="bar"><i style="width:${x.pct}%;background:${x.pct>=40?'var(--up)':'var(--brand)'}"></i></div>
           <div class="tiny muted">${esc(x.names.join(', '))} · ${won(x.value)}</div></div>`).join('')}
@@ -1841,7 +2042,7 @@ document.addEventListener('click', async e => {
     case 'copyDiag': try{ await navigator.clipboard.writeText(diagText()); toast('복사했어요'); }catch(_){ toast('길게 눌러 복사해 주세요'); } break;
     case 'closeRefresh': closeModal(); refreshAll(); break;
     case 'search': doSearch(); break;
-    case 'pick': addWatch(code, b.dataset.name); break;
+    case 'pick': addWatch(code, b.dataset.name, b.dataset.mk, b.dataset.sym); break;
     case 'open': state.ui.code = code; showTab('stock'); if(!state.data[code]) refreshStock(code); break;
     case 'refresh': resetRelays(); refreshStock(code); break;
     case 'refreshAll': refreshAll(); break;
@@ -1920,9 +2121,9 @@ document.addEventListener('input', e => {
   r.parentElement.querySelector('.v').textContent = /eps/.test(r.dataset.adj) ? ((+r.value>0?'+':'')+r.value+'%') : (r.value+'배');
   const cards = document.querySelectorAll('.scen .c');
   if(cards.length===3){
-    cards[0].innerHTML = `<div class="t up">Bull</div><div class="p">${won(sn.bull)}</div><div class="d">EPS ${sn.adj.epsBull>0?'+':''}${sn.adj.epsBull}% × ${sn.adj.perBull}배<br>${pct(sn.upBull)}</div>`;
-    cards[1].innerHTML = `<div class="t">Base</div><div class="p">${won(sn.base)}</div><div class="d">EPS 그대로 × ${sn.adj.perBase}배<br>${pct(sn.upBase)}</div>`;
-    cards[2].innerHTML = `<div class="t down">Bear</div><div class="p">${won(sn.bear)}</div><div class="d">EPS ${sn.adj.epsBear}% × ${sn.adj.perBear}배<br>${pct(sn.upBear)}</div>`;
+    cards[0].innerHTML = `<div class="t up">Bull</div><div class="p">${px$(sn.bull, code)}</div><div class="d">EPS ${sn.adj.epsBull>0?'+':''}${sn.adj.epsBull}% × ${sn.adj.perBull}배<br>${pct(sn.upBull)}</div>`;
+    cards[1].innerHTML = `<div class="t">Base</div><div class="p">${px$(sn.base, code)}</div><div class="d">EPS 그대로 × ${sn.adj.perBase}배<br>${pct(sn.upBase)}</div>`;
+    cards[2].innerHTML = `<div class="t down">Bear</div><div class="p">${px$(sn.bear, code)}</div><div class="d">EPS ${sn.adj.epsBear}% × ${sn.adj.perBear}배<br>${pct(sn.upBear)}</div>`;
   }
   clearTimeout(window._adjT); window._adjT = setTimeout(save, 400);
 });
