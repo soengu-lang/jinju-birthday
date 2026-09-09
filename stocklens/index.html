@@ -335,43 +335,66 @@ function relayList(){
   const f = mine.includes('{url}') ? u => mine.replace('{url}', encodeURIComponent(u)) : u => mine.replace(/\/+$/,'') + '/' + u;
   return [{ n:'내 중계', f }, ...RELAYS];
 }
-let relayBad = new Set(), relayDead = false;
-function resetRelays(){ relayBad = new Set(); relayDead = false; }
+/* 경로별 실패 횟수와 최근 시도 기록 — 🩺 시세 점검에서 그대로 보여 줍니다 */
+let relayFail = {}, relayLog = [];
+function resetRelays(){ relayFail = {}; relayLog = []; }
+const myRelay = () => String(state.settings.relayUrl||'').trim();
+const isMine = i => !!myRelay() && i === 0;
+function logRelay(name, url, msg, ok){
+  relayLog.unshift({ t: Date.now(), name, url: String(url).replace(/^https?:\/\//,'').slice(0,70), msg, ok });
+  if(relayLog.length > 40) relayLog.pop();
+}
+const allDead = () => relayList().every((_,i) => (relayFail[i]||0) >= 2);
 async function getText(url, ms=8000){
   const ac = new AbortController(); const t = setTimeout(()=>ac.abort(), ms);
   let r;
   try{ r = await fetch(url, { signal:ac.signal, cache:'no-store' }); }
-  catch(e){ const err = new Error('연결 실패'); err.net = true; throw err; }
+  catch(e){ const err = new Error(ac.signal.aborted ? `시간 초과(${ms/1000}초)` : '연결 실패'); err.net = true; throw err; }
   finally{ clearTimeout(t); }
   if(!r.ok){ const err = new Error('HTTP '+r.status); err.http = r.status; throw err; }
-  return await r.text();
+  const txt = await r.text();
+  if(!txt || !txt.trim()){ const err = new Error('빈 응답'); err.empty = true; throw err; }
+  return txt;
 }
+/* 중계를 돌아가며 시도합니다.
+   · 내 중계(구글 스크립트)는 느릴 수 있어 넉넉히 기다리고 한 번 더 시도합니다
+   · 공개 중계는 두 번 실패하면 이번 새로고침 동안 건너뜁니다 */
 async function relayText(url){
-  if(relayDead) throw new Error('데이터 서버에 닿지 못했어요');
+  if(allDead()) throw new Error('중계 서버에 모두 닿지 못했어요');
   const L = relayList();
   const first = Math.min(state.settings.relay|0, L.length-1);
-  const order = [first, ...L.map((_,i)=>i).filter(i=>i!==first)].filter(i=>!relayBad.has(i));
-  if(!order.length){ relayDead = true; throw new Error('데이터 서버에 닿지 못했어요'); }
-  let netFail = 0, lastErr = null;
+  let order = [first, ...L.map((_,i)=>i).filter(i=>i!==first)].filter(i => isMine(i) || (relayFail[i]||0) < 2);
+  if(!order.length) order = [0];
+  let lastErr = null, mineErr = null;
   for(const i of order){
-    try{
-      let txt = await getText(L[i].f(url));
-      if(L[i].wrap){ txt = JSON.parse(txt)[L[i].wrap]; }
-      if(state.settings.relay !== i){ state.settings.relay = i; save(); }
-      return txt;
-    }catch(e){
-      lastErr = e;
-      if(e.net || e.http===403 || e.http===429 || e.http>=500){ relayBad.add(i); netFail++; }
+    const tries = isMine(i) ? 2 : 1, ms = isMine(i) ? 20000 : 8000;
+    for(let k=0; k<tries; k++){
+      try{
+        let txt = await getText(L[i].f(url), ms);
+        if(L[i].wrap){ txt = JSON.parse(txt)[L[i].wrap]; if(!txt) throw new Error('중계가 빈 내용을 줬어요'); }
+        logRelay(L[i].n, url, 'OK', true);
+        relayFail[i] = 0;
+        if(state.settings.relay !== i){ state.settings.relay = i; save(); }
+        return txt;
+      }catch(e){
+        lastErr = e; logRelay(L[i].n, url, e.message, false);
+        if(isMine(i)) mineErr = new Error('내 중계가 막혔어요 (' + e.message + ')');
+        if(k === tries-1) relayFail[i] = (relayFail[i]||0) + 1;
+      }
     }
   }
-  if(netFail >= order.length) relayDead = true;
-  throw lastErr || new Error('가져오지 못했어요');
+  throw mineErr || lastErr || new Error('가져오지 못했어요');
 }
-async function relayJSON(url){ const t = await relayText(url); try{ return JSON.parse(t); }catch(e){ throw new Error('응답이 JSON이 아니에요'); } }
+async function relayJSON(url){
+  const t = await relayText(url);
+  try{ return JSON.parse(t); }
+  catch(e){ throw new Error(/^\s*</.test(t) ? '네이버가 아닌 페이지가 왔어요(중계가 막힘)' : '응답이 JSON이 아니에요'); }
+}
 
 /* ---------- 네이버 증권 (모바일 API) ---------- */
 const NV = {
   basic: c => `https://m.stock.naver.com/api/stock/${c}/basic`,
+  polling: c => `https://polling.finance.naver.com/api/realtime/domestic/stock/${c}`,
   integ: c => `https://m.stock.naver.com/api/stock/${c}/integration`,
   annual: c => `https://m.stock.naver.com/api/stock/${c}/finance/annual`,
   quarter: c => `https://m.stock.naver.com/api/stock/${c}/finance/quarter`,
@@ -449,23 +472,46 @@ function parseInteg(j){
   return out;
 }
 /* 재무제표: rowList[{title, columns:{'2023.12':{value}}}], trTitleList 로 열 순서 */
+/* [키, 화면에 쓸 이름, 네이버가 쓰는 이름들]
+   '영업이익률'이 '영업이익'으로 잘못 들어가지 않도록 이름이 정확히 같은 것을 먼저 찾습니다 */
 const FIN_ROWS = [
-  ['revenue','매출액'],['op','영업이익'],['ni','당기순이익'],['opm','영업이익률'],['npm','순이익률'],['roe','ROE'],['debt','부채비율'],
-  ['quick','당좌비율'],['reserve','유보율'],['eps','EPS'],['per','PER'],['bps','BPS'],['pbr','PBR'],['dps','주당배당금'],['divy','배당수익률'],
+  ['revenue','매출액',      ['매출액','수익(매출액)','매출','영업수익']],
+  ['op',     '영업이익',    ['영업이익','영업이익(발표기준)']],
+  ['ni',     '당기순이익',  ['당기순이익','당기순이익(지배)','지배주주순이익']],
+  ['opm',    '영업이익률',  ['영업이익률']],
+  ['npm',    '순이익률',    ['순이익률']],
+  ['roe',    'ROE',        ['ROE(%)','ROE','자기자본이익률']],
+  ['debt',   '부채비율',    ['부채비율']],
+  ['quick',  '당좌비율',    ['당좌비율']],
+  ['reserve','유보율',      ['자본유보율','유보율']],
+  ['eps',    'EPS',        ['EPS(원)','EPS']],
+  ['per',    'PER',        ['PER(배)','PER']],
+  ['bps',    'BPS',        ['BPS(원)','BPS']],
+  ['pbr',    'PBR',        ['PBR(배)','PBR']],
+  ['dps',    '주당배당금',  ['현금DPS(원)','주당배당금','DPS(원)','DPS']],
+  ['divy',   '배당수익률',  ['현금배당수익률','배당수익률']],
 ];
+function finKey(title){
+  const t = String(title||'').replace(/\s/g,'');
+  if(!t) return null;
+  for(const [k,,alias] of FIN_ROWS) if(alias.includes(t)) return k;      /* 이름이 똑같은 것 먼저 */
+  let best = null, len = 0;                                             /* 없으면 가장 길게 겹치는 것 */
+  for(const [k,,alias] of FIN_ROWS) for(const a of alias)
+    if(t.startsWith(a) && a.length > len){ best = k; len = a.length; }
+  return best;
+}
 function parseFinance(j){
   const fi = j?.financeInfo || j || {};
   const rows = fi.rowList || fi.rows || [];
   let cols = (fi.trTitleList || fi.titleList || []).map(t => ({ key: t.key || t.code || t.title, title: t.title || t.key, est: /E|예상|추정/.test(String(t.title||t.key)) }));
   const table = {};
   for(const r of rows){
-    const title = String(r.title || r.name || '').replace(/\s/g,'');
-    const hit = FIN_ROWS.find(([,k]) => title.startsWith(k.replace(/\s/g,'')));
-    if(!hit) continue;
+    const key = finKey(r.title || r.name);
+    if(!key || table[key]) continue;              /* 같은 항목이 두 줄이면 먼저 나온 것을 씁니다 */
     const vals = {};
     const colsObj = r.columns || r.values || {};
     for(const [ck, cv] of Object.entries(colsObj)){ vals[ck] = num(cv?.value ?? cv); }
-    table[hit[0]] = vals;
+    table[key] = vals;
     if(!cols.length) cols = Object.keys(colsObj).map(k => ({ key:k, title:k, est:/E/.test(k) }));
   }
   /* 열 키가 trTitleList 와 다를 수 있어 title 로도 맞춰 봅니다 */
@@ -500,18 +546,32 @@ function parseNews(j){
 function decodeEnt(s){ const t = document.createElement('textarea'); t.innerHTML = String(s).replace(/<[^>]+>/g,''); return t.value; }
 
 /* 한 종목의 데이터를 전부 모아 옵니다. 하나가 막혀도 나머지는 살립니다 */
+/* 시세는 두 곳을 차례로 — 한 곳이 막혀도 다른 곳에서 받아 옵니다 */
+async function fetchPrice(code){
+  const errs = [];
+  for(const u of [NV.basic(code), NV.polling(code)]){
+    try{
+      const b = parseBasic(await relayJSON(u));
+      if(has(b.price) && b.price > 0) return b;
+      errs.push('시세 값이 비어 있어요');
+    }catch(e){ errs.push(e.message); }
+  }
+  const err = new Error(errs[0] || '연결 실패'); err.relay = true; err.errs = errs; throw err;
+}
 async function fetchStock(code){
   const errs = [];
-  const tryGet = async (fn) => { try{ return await fn(); }catch(e){ errs.push(e.message); return null; } };
-  const [basic, integ, annual, quarter, news, chart] = await Promise.all([
-    tryGet(async()=>parseBasic(await relayJSON(NV.basic(code)))),
-    tryGet(async()=>parseInteg(await relayJSON(NV.integ(code)))),
-    tryGet(async()=>parseFinance(await relayJSON(NV.annual(code)))),
-    tryGet(async()=>parseFinance(await relayJSON(NV.quarter(code)))),
-    tryGet(async()=>parseNews(await relayJSON(NV.news(code)))),
-    tryGet(async()=>{ try{ const c = parseChart(await relayJSON(NV.chart(code))); if(c.length) return c; }catch(e){} return parseChartXml(await relayText(NV.chart2(code))); }),
+  const tryGet = async (name, fn) => { try{ return await fn(); }catch(e){ errs.push(name+' — '+e.message); return null; } };
+  /* ① 시세 먼저. 이게 되면 중계가 살아 있다는 뜻이라 나머지를 한꺼번에 부릅니다 */
+  let basic;
+  try{ basic = await fetchPrice(code); }
+  catch(e){ const err = new Error('시세를 못 가져왔어요 — ' + e.message); err.relay = true; throw err; }
+  const [integ, annual, quarter, news, chart] = await Promise.all([
+    tryGet('투자지표', async()=>parseInteg(await relayJSON(NV.integ(code)))),
+    tryGet('연간 재무', async()=>parseFinance(await relayJSON(NV.annual(code)))),
+    tryGet('분기 재무', async()=>parseFinance(await relayJSON(NV.quarter(code)))),
+    tryGet('뉴스', async()=>parseNews(await relayJSON(NV.news(code)))),
+    tryGet('일봉', async()=>{ try{ const c = parseChart(await relayJSON(NV.chart(code))); if(c.length) return c; }catch(e){} return parseChartXml(await relayText(NV.chart2(code))); }),
   ]);
-  if(!basic || !has(basic.price)) throw new Error('시세를 못 가져왔어요 (' + (errs[0]||'연결 실패') + ')');
   return { code, t: Date.now(), basic, integ: integ||{}, annual: annual||{cols:[],table:{}}, quarter: quarter||{cols:[],table:{}}, news: news||[], chart: chart||[], errs, demo:false };
 }
 
@@ -528,6 +588,9 @@ function interp(x, pts){
   return pts[pts.length-1][1];
 }
 const avg = a => { const b = a.filter(has); return b.length ? b.reduce((s,v)=>s+v,0)/b.length : NaN; };
+/* 중앙값 — 한 해만 크게 튄 값에 휘둘리지 않습니다 */
+const median = a => { const b = a.filter(has).sort((x,y)=>x-y); if(!b.length) return NaN;
+  const m = b.length>>1; return b.length%2 ? b[m] : (b[m-1]+b[m])/2; };
 
 /* 연간 재무표에서 실적(A) 열과 추정(E) 열을 나눠 시계열로 */
 function series(fin, key){
@@ -567,7 +630,7 @@ function computeScore(d){
   /* 밸류에이션: PER vs 자기 과거 평균, PER vs 업종, PBR, 배당 */
   {
     const perNow = has(I.per) ? I.per : last(per.a);
-    const perHist = avg(per.a.map(x=>x.v).filter(v=>v>0 && v<200));
+    const perHist = median(per.a.map(x=>x.v).filter(v=>v>0 && v<200));
     const perE = has(I.perE) ? I.perE : (eps.e.length && eps.e[0].v>0 ? price/eps.e[0].v : NaN);
     const rel = (has(perNow) && has(perHist) && perNow>0) ? perNow/perHist : NaN;
     const relInd = (has(perNow) && has(I.indPer) && I.indPer>0 && perNow>0) ? perNow/I.indPer : NaN;
@@ -575,7 +638,7 @@ function computeScore(d){
     const parts = [ interp(rel, [[0.5,90],[0.8,72],[1,55],[1.3,40],[2,20]]), interp(relInd, [[0.5,85],[0.8,68],[1,52],[1.5,35],[2.5,18]]),
       interp(pbrNow, [[0.5,85],[1,68],[2,52],[4,35],[8,18]]), interp(perE, [[5,90],[10,72],[15,58],[25,42],[40,25],[80,10]]), interp(I.divYield, [[0,45],[2,55],[4,68],[6,80]]) ];
     s.value = Math.round(avg(parts));
-    why.value = [ has(perNow)&&`PER ${perNow.toFixed(1)}배` + (has(perHist)?` (과거 평균 ${perHist.toFixed(1)}배)`:''), has(perE)&&`추정 PER ${perE.toFixed(1)}배`, has(I.indPer)&&`동일업종 PER ${I.indPer.toFixed(1)}배`, has(pbrNow)&&`PBR ${pbrNow.toFixed(2)}배`, has(I.divYield)&&`배당수익률 ${I.divYield.toFixed(2)}%` ].filter(Boolean);
+    why.value = [ has(perNow)&&`PER ${perNow.toFixed(1)}배` + (has(perHist)?` (과거 중앙값 ${perHist.toFixed(1)}배)`:''), has(perE)&&`추정 PER ${perE.toFixed(1)}배`, has(I.indPer)&&`동일업종 PER ${I.indPer.toFixed(1)}배`, has(pbrNow)&&`PBR ${pbrNow.toFixed(2)}배`, has(I.divYield)&&`배당수익률 ${I.divYield.toFixed(2)}%` ].filter(Boolean);
     if(has(perNow) && perNow < 0) why.value.push('적자여서 PER 로 평가하기 어려움');
   }
   /* 재무건전성: 부채비율, 당좌비율, 순이익 흑자 여부 */
@@ -613,9 +676,15 @@ function scenarios(d, adj={}){
   const eps = series(A,'eps'), per = series(A,'per');
   const epsA = last(eps.a), epsE = has(I.epsE) ? I.epsE : (eps.e.length ? eps.e[0].v : NaN);
   const base = has(epsE) ? epsE : epsA;
+  /* 이익이 급감한 해에는 PER 이 수십 배로 튑니다. 평균 대신 중앙값을 쓰고,
+     동일업종 PER · 지금 PER 과 함께 견줘서 범위를 다듬습니다 */
   const hist = per.a.map(x=>x.v).filter(v=>v>0 && v<150);
-  const perAvg = hist.length ? avg(hist) : (has(I.indPer) ? I.indPer : (has(I.per)&&I.per>0 ? I.per : 12));
-  const perLo = hist.length ? Math.min(...hist) : perAvg*0.7, perHi = hist.length ? Math.max(...hist) : perAvg*1.3;
+  const medHist = median(hist);
+  const perNow = (has(base) && base>0) ? price/base : NaN;
+  const anchors = [medHist, (has(I.indPer)&&I.indPer>0) ? I.indPer : NaN, perNow].filter(has);
+  const perAvg = anchors.length ? median(anchors) : 12;
+  const perHi = hist.length ? Math.min(Math.max(...hist), perAvg*1.4) : perAvg*1.4;
+  const perLo = hist.length ? Math.max(Math.min(...hist), perAvg*0.7) : perAvg*0.7;
   const a = Object.assign({ epsBull: 15, epsBear: -20, perBull: +perHi.toFixed(1), perBase: +perAvg.toFixed(1), perBear: +perLo.toFixed(1) }, adj);
   const px = (e, p) => (has(e) && e>0) ? Math.round(e*p) : NaN;
   const out = {
@@ -623,6 +692,7 @@ function scenarios(d, adj={}){
     bull: px(base*(1+a.epsBull/100), a.perBull), base: px(base, a.perBase), bear: px(base*(1+a.epsBear/100), a.perBear),
     target: I.target,
   };
+  out.perNow = perNow;
   out.upBull = growth(out.bull, price); out.upBase = growth(out.base, price); out.upBear = growth(out.bear, price);
   if(has(base) && base <= 0) out.note = '이익이 적자(또는 없음)라 EPS×PER 방식이 맞지 않습니다. PBR·매출 기준으로 따로 봐야 합니다.';
   return out;
@@ -836,7 +906,7 @@ function dataPack(code){
     시세: { 현재가: d.basic.price, 전일대비: pct(growth(d.basic.price, d.basic.prev)), 시가총액_억원: d.integ.marketCap, '52주최고': d.integ.high52, '52주최저': d.integ.low52,
       PER: d.integ.per, PBR: d.integ.pbr, 추정EPS: d.integ.epsE, 동일업종PER: d.integ.indPer, 배당수익률: d.integ.divYield, 목표주가컨센서스: d.integ.target, 투자의견평균_5만점: d.integ.recomm, 외국인비율: d.integ.foreignRatio },
     점수모델: { 총점: sc.s.total, 성장성: sc.s.growth, 수익성: sc.s.profit, 밸류에이션: sc.s.value, 재무건전성: sc.s.health, 모멘텀: sc.s.momentum, 근거: sc.why, 가중치:'성장25 수익25 밸류20 재무15 모멘텀15' },
-    시나리오: { 방식:'EPS × PER', 기준EPS: sn.epsBase, EPS출처: sn.epsSrc, 과거PER_평균: +sn.perAvg.toFixed(1), 과거PER_최저: +sn.perLo.toFixed(1), 과거PER_최고: +sn.perHi.toFixed(1),
+    시나리오: { 방식:'EPS × PER', 기준EPS: sn.epsBase, EPS출처: sn.epsSrc, 기준PER: +sn.perAvg.toFixed(1), 낮은PER: +sn.perLo.toFixed(1), 높은PER: +sn.perHi.toFixed(1), 지금PER: has(sn.perNow)?+sn.perNow.toFixed(1):null,
       Bull: { 가격: sn.bull, EPS조정: sn.adj.epsBull+'%', PER: sn.adj.perBull, 상승여력: pct(sn.upBull) }, Base: { 가격: sn.base, PER: sn.adj.perBase, 상승여력: pct(sn.upBase) }, Bear: { 가격: sn.bear, EPS조정: sn.adj.epsBear+'%', PER: sn.adj.perBear, 상승여력: pct(sn.upBear) }, 참고: sn.note||'' },
     리스크모니터: rk.map(r=>({ 항목:r.name, 등급_5만점:r.lv, 근거:r.why })),
     재무_억원: fin,
@@ -1182,6 +1252,13 @@ function renderHome(){
     </div>
     ${state.brief ? `<div class="msg ai mt" style="max-width:100%">${esc(state.brief.text)}<div class="src">${state.brief.date} · ${esc(state.brief.model||'')}</div></div>` : ''}
   </div>
+  ${(() => { const none = state.watch.length && state.watch.every(w => !state.data[w.code]); if(!none) return '';
+    return `<div class="card" style="border-color:#f3c9c5">
+      <h2>📡 시세를 못 가져왔어요</h2>
+      <p class="desc">${esc(state.ui.lastErr || '중계 서버에 닿지 못했습니다.')}<br>
+        서버가 없는 앱이라 <b>중계</b>를 거쳐 네이버증권을 읽는데, 공개 중계가 막히면 이렇게 됩니다.
+        <b>구글 스크립트 중계</b>를 한 번 만들어 두면 거의 안 막힙니다 (3분, 무료).</p>
+      <div class="btn-row"><button class="btn sm" data-act="diag">🩺 시세 점검</button><button class="btn sm ghost" data-act="settings">⚙️ 중계 만들기</button><button class="btn sm ghost" data-act="refreshAll">🔄 다시 시도</button></div></div>`; })()}
   ${assetCard()}
   ${alerts.length ? `<div class="card" style="border-color:#f3c9c5">
     <h2>🚨 투자 논리 점검 필요</h2>
@@ -1298,7 +1375,7 @@ function renderStock(){
   if(!d){
     el.innerHTML = `<div class="card"><h2>${esc(w.name)} <span class="sub">${code}</span></h2>
       <div class="empty">${busy['r'+code] ? '<span class="spin dark"></span> 데이터 가져오는 중' : `아직 데이터가 없어요<br><span class="tiny">${esc(state.ui.lastErr||'')}</span>`}</div>
-      <div class="btn-row"><button class="btn sm" data-act="refresh" data-code="${code}">🔄 다시 가져오기</button><button class="btn sm ghost" data-act="demoOne" data-code="${code}">🧪 샘플로 보기</button><button class="btn sm warn" data-act="unwatch" data-code="${code}">빼기</button></div></div>`;
+      <div class="btn-row"><button class="btn sm" data-act="refresh" data-code="${code}">🔄 다시 가져오기</button><button class="btn sm ghost" data-act="diag">🩺 왜 안 되는지</button><button class="btn sm ghost" data-act="demoOne" data-code="${code}">🧪 샘플로 보기</button><button class="btn sm warn" data-act="unwatch" data-code="${code}">빼기</button></div></div>`;
     return;
   }
   const sc = computeScore(d), adj = state.ui.adj?.[code], sn = scenarios(d, adj), rk = riskMonitor(d, sc, sn);
@@ -1341,7 +1418,8 @@ function renderStock(){
 
   <div class="card">
     <h2>적정가치 시나리오 <span class="sub">EPS × PER</span></h2>
-    <p class="desc">기준 EPS <b>${fmt(sn.epsBase)}원</b> (${sn.epsSrc}) · 과거 PER ${sn.perLo.toFixed(1)}~${sn.perHi.toFixed(1)}배, 평균 ${sn.perAvg.toFixed(1)}배</p>
+    <p class="desc">기준 EPS <b>${fmt(sn.epsBase)}원</b> (${sn.epsSrc}) · 쓰는 PER ${sn.perLo.toFixed(1)}~${sn.perHi.toFixed(1)}배 (기준 ${sn.perAvg.toFixed(1)}배)${has(sn.perNow)?` · 지금 ${sn.perNow.toFixed(1)}배`:''}
+      <br><span class="tiny">과거 PER 은 이익이 급감한 해에 크게 튀어서, 그 회사 PER 중앙값·동일업종 PER·지금 PER 을 함께 보고 범위를 정합니다.</span></p>
     ${sn.note?`<div class="note mt">${esc(sn.note)}</div>`:''}
     <div class="scen">
       <div class="c bull"><div class="t up">Bull</div><div class="p">${won(sn.bull)}</div><div class="d">EPS ${sn.adj.epsBull>0?'+':''}${sn.adj.epsBull}% × ${sn.adj.perBull}배<br>${pct(sn.upBull)}</div></div>
@@ -1487,6 +1565,78 @@ async function sendChat(q){
   busy.chat = false; save(); renderAI();
 }
 
+/* ============================================================
+   🩺 시세 점검 — 어디서 막혔는지 하나씩 짚어 줍니다
+   (자산 앱의 '시세 점검'과 같은 생각. 결과를 복사해서 보내 주시면 고칠 수 있습니다)
+   ============================================================ */
+let diag = { running:false, rows:[], done:false, ok:false };
+const dRow = (n, s, tip, ok) => { diag.rows.push({ n, s, tip:tip||'', ok }); drawDiag(); };
+function openDiag(){
+  diag = { running:false, rows:[], done:false, ok:false };
+  openModal(`<div class="mhead"><h3>🩺 시세 점검</h3><button class="x" data-act="close">✕</button></div>
+    <p class="desc">삼성전자(005930)를 시험 삼아 불러 보면서 <b>어디서 막히는지</b> 하나씩 확인합니다. 20~40초쯤 걸립니다.</p>
+    <div id="diagBox"></div>
+    <div class="btn-row"><button class="btn" data-act="runDiag">점검 시작</button></div>`);
+}
+function drawDiag(){
+  const box = $('#diagBox'); if(!box) return;
+  box.innerHTML = `${diag.rows.map(r=>`<div class="risk"><span>${r.ok===true?'🟢':r.ok===false?'🔴':'⚪'}</span>
+      <div class="grow"><div class="small b">${esc(r.n)}</div><div class="tiny muted">${esc(r.s)}${r.tip?' · '+esc(r.tip):''}</div></div></div>`).join('')}
+    ${diag.running?`<p class="tiny muted mt"><span class="spin dark"></span> 확인하는 중…</p>`:''}
+    ${diag.done?`<div class="${diag.ok?'ok':'err'} mt">${diag.ok
+      ? '시세를 받아오는 길이 열려 있습니다. 홈에서 <b>🔄 새로고침</b>을 눌러 주세요.'
+      : '어느 길로도 네이버에 닿지 못했습니다. <b>구글 스크립트 중계</b>를 만들면 대부분 해결됩니다 (⚙️ → 📡 데이터, 3분).'}</div>
+      <div class="btn-row"><button class="btn sm ghost" data-act="copyDiag">📋 결과 복사</button>${diag.ok?`<button class="btn sm" data-act="closeRefresh">새로고침 하러 가기</button>`:`<button class="btn sm" data-act="settings">⚙️ 중계 만들기</button>`}</div>`:''}`;
+}
+function diagText(){
+  return 'StockLens 시세 점검 ' + new Date().toLocaleString('ko-KR') + '\n'
+    + diag.rows.map(r=>`${r.ok===true?'OK ':r.ok===false?'X  ':'-  '}${r.n}: ${r.s}${r.tip?' ('+r.tip+')':''}`).join('\n');
+}
+async function runDiag(){
+  if(diag.running) return;
+  diag = { running:true, rows:[], done:false, ok:false }; drawDiag();
+  resetRelays();
+  const mine = myRelay();
+  dRow('중계 주소', mine ? (/script\.google\.com/.test(mine) ? '구글 스크립트 있음' : '직접 넣은 주소 있음') : '없음 — 공개 중계만 씁니다',
+       mine ? mine.replace('?url={url}','').slice(0,60) : '공개 중계는 자주 막힙니다', mine ? true : undefined);
+  /* 인터넷 자체가 되는지 — 이 앱이 있는 곳을 불러 봅니다 */
+  try{ await getText('manifest.json?t=' + Date.now(), 8000); dRow('인터넷', '됨', '', true); }
+  catch(e){ dRow('인터넷', '안 됨 — ' + e.message, '와이파이나 데이터를 확인해 주세요', false); }
+  /* 경로마다 시세를 불러 봅니다 */
+  const L = relayList(), test = NV.basic('005930');
+  let good = -1;
+  for(let i=0;i<L.length;i++){
+    try{
+      let txt = await getText(L[i].f(test), isMine(i) ? 20000 : 8000);
+      if(L[i].wrap) txt = JSON.parse(txt)[L[i].wrap];
+      const j = JSON.parse(txt), b = parseBasic(j);
+      if(has(b.price) && b.price>0){ dRow(L[i].n, '됨 — 삼성전자 ' + won(b.price), '', true); if(good<0) good = i; }
+      else dRow(L[i].n, '응답은 왔는데 시세가 없어요', JSON.stringify(j).slice(0,60), false);
+    }catch(e){ dRow(L[i].n, '막힘 — ' + e.message, '', false); }
+  }
+  /* 시세가 되면 나머지 자료도 형태가 맞는지 봅니다 */
+  if(good >= 0){
+    state.settings.relay = good; save();
+    const get = async u => { let t = await getText(L[good].f(u), isMine(good)?20000:8000); if(L[good].wrap) t = JSON.parse(t)[L[good].wrap]; return JSON.parse(t); };
+    const step = async (name, u, check) => {
+      try{ const j = await get(u); const r = check(j); dRow(name, r.s, r.tip||'', r.ok); }
+      catch(e){ dRow(name, '막힘 — ' + e.message, '', false); }
+    };
+    await step('투자지표·컨센서스', NV.integ('005930'), j => { const I = parseInteg(j);
+      const got = ['PER','PBR','목표주가'].filter((_,k)=>has([I.per,I.pbr,I.target][k]));
+      return { ok: got.length>0, s: got.length ? '됨 — ' + got.join(', ') + ' 읽힘' : '왔지만 숫자를 못 읽었어요(형식이 다름)' }; });
+    await step('연간 재무', NV.annual('005930'), j => { const f = parseFinance(j); const n = Object.keys(f.table).length;
+      return { ok: n>0, s: n ? `됨 — 항목 ${n}개 · 열 ${f.cols.length}개` : '왔지만 표를 못 읽었어요(형식이 다름)' }; });
+    await step('뉴스', NV.news('005930'), j => { const n = parseNews(j).length; return { ok: n>0, s: n ? `됨 — ${n}건` : '왔지만 기사를 못 읽었어요' }; });
+    await step('일봉(차트)', NV.chart('005930'), j => { const n = parseChart(j).length; return { ok: n>0, s: n ? `됨 — ${n}일치` : '왔지만 못 읽었어요' }; });
+    if(!diag.rows.some(r=>r.n==='일봉(차트)' && r.ok)){
+      try{ const n = parseChartXml(await relayText(NV.chart2('005930'))).length; dRow('일봉(예비 경로)', n ? `됨 — ${n}일치` : '못 읽었어요', '', n>0); }
+      catch(e){ dRow('일봉(예비 경로)', '막힘 — ' + e.message, '', false); }
+    }
+  }
+  diag.running = false; diag.done = true; diag.ok = good >= 0; drawDiag();
+}
+
 /* ---------- 모달 ---------- */
 function openModal(html){ $('#modal-root').innerHTML = `<div class="modal-bg" data-act="closeBg"><div class="modal">${html}</div></div>`; }
 function closeModal(){ $('#modal-root').innerHTML = ''; }
@@ -1517,6 +1667,8 @@ function openSettings(){
     <div class="sec-t">📡 데이터 (시세·재무·뉴스)</div>
     <p class="tiny muted">서버가 없어서 공개 중계를 거쳐 네이버증권을 읽습니다. 공개 중계는 자주 막히니 <b>내 구글 스크립트 중계</b>를 한 번 만들어 두면 안정적입니다. (우리집 자산 앱에서 만든 주소가 있으면 자동으로 씁니다)</p>
     <div class="f"><label>내 중계 주소</label><input id="sRelay" value="${esc(s.relayUrl)}" placeholder="https://script.google.com/macros/s/…/exec"></div>
+    <p class="tiny muted">${s.relayUrl ? (/script\.google\.com/.test(s.relayUrl) ? '구글 스크립트 중계를 쓰고 있습니다.' : '직접 넣은 주소를 쓰고 있습니다.') + (readLocalAssets()?.sync && !state.ui.relayTyped ? ' (자산 앱에서 물려받았을 수 있어요)' : '') : '아직 없습니다 — 공개 중계만 쓰면 시세가 자주 막힙니다.'}</p>
+    <div class="btn-row"><button class="btn sm ghost" data-act="diag">🩺 시세 점검 — 어디서 막히는지 보기</button></div>
     <details class="mt"><summary>구글 스크립트 중계 만드는 법 (3분)</summary>
       <div class="note mt"><b>1</b> <a href="https://script.new" target="_blank" rel="noopener">script.new</a> 로 새 스크립트<br><b>2</b> 내용을 다 지우고 아래 코드 붙여넣기<br><b>3</b> 배포 → 새 배포 → 유형 <b>웹 앱</b> → 액세스 <b>모든 사용자</b> → 배포<br><b>4</b> 나온 웹 앱 URL 을 위 칸에 붙여넣기</div>
       <textarea readonly style="min-height:120px;font-size:10px;font-family:ui-monospace,monospace;margin-top:8px" onclick="this.select()">${esc(GAS_CODE)}</textarea>
@@ -1607,6 +1759,10 @@ document.addEventListener('click', async e => {
           <div class="bar"><i style="width:${x.pct}%;background:${x.pct>=40?'var(--up)':'var(--brand)'}"></i></div>
           <div class="tiny muted">${esc(x.names.join(', '))} · ${won(x.value)}</div></div>`).join('')}
         <p class="tiny muted mt2">한 업종에 40% 넘게 몰려 있으면 같은 뉴스에 함께 움직입니다.</p>`); break; }
+    case 'diag': openDiag(); break;
+    case 'runDiag': runDiag(); break;
+    case 'copyDiag': try{ await navigator.clipboard.writeText(diagText()); toast('복사했어요'); }catch(_){ toast('길게 눌러 복사해 주세요'); } break;
+    case 'closeRefresh': closeModal(); refreshAll(); break;
     case 'search': doSearch(); break;
     case 'pick': addWatch(code, b.dataset.name); break;
     case 'open': state.ui.code = code; showTab('stock'); if(!state.data[code]) refreshStock(code); break;
