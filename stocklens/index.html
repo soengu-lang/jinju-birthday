@@ -246,6 +246,25 @@ pre{white-space:pre-wrap;word-break:break-all;background:#f3f1ea;border-radius:1
 <div id="modal-root"></div>
 <div id="toast"></div>
 
+<!-- 맨 먼저 실행되는 감시기 — 아래 코드가 아예 못 읽히는 경우까지 화면에 보여 줍니다 (옛 문법만 씁니다) -->
+<script>
+window.addEventListener('error', function(ev){
+  try{
+    var el = document.getElementById('tab-' + ((window.state && state.ui && state.ui.tab) || 'home')) || document.getElementById('tab-home');
+    if(!el || el.innerHTML.replace(/\s/g,'') !== '') return;      /* 이미 뭔가 그려졌으면 그대로 둡니다 */
+    var msg = String((ev && ev.message) || '알 수 없는 오류');
+    var at = String((ev && ev.filename) || '').split('/').pop() + ' ' + ((ev && ev.lineno) || '') + ':' + ((ev && ev.colno) || '');
+    el.innerHTML = '<div class="card" style="border-color:#f3c9c5">'
+      + '<h2>⚠️ 앱을 여는 중 문제가 생겼어요</h2>'
+      + '<p class="desc">아래 글자를 그대로 찍어서 보내 주시면 고칠 수 있습니다.</p>'
+      + '<div class="err">' + msg.replace(/</g,'&lt;') + '<br><span class="tiny">' + at + '</span></div>'
+      + '<div class="btn-row"><button class="btn sm" onclick="location.reload()">다시 열기</button>'
+      + '<button class="btn sm ghost" onclick="try{localStorage.removeItem(\'stockLens.v1\')}catch(e){};location.reload()">기록 지우고 열기</button></div>'
+      + '<p class="tiny muted mt">기록 지우고 열기는 이 앱의 관심종목·논리·일지를 지웁니다. 자산 앱은 건드리지 않습니다.</p></div>';
+  }catch(e){}
+});
+</script>
+
 <script>
 /* ============================================================
    StockLens AI — 단일 파일 앱
@@ -1290,8 +1309,8 @@ async function loadAssets(opts={}){
     await autoImport();
   }catch(e){ A.err = e.message; save(); if(!opts.quiet) toast(e.message); }
 }
-const assetsOn = () => state.assets?.mode !== 'off' && (state.assets?.holdings||[]).length>0;
-const liveHoldings = () => (state.assets?.holdings||[]).filter(h => !h.hide);
+const assetsOn = () => !state.ui?.safe && state.assets && state.assets.mode !== 'off' && (state.assets.holdings||[]).length>0;
+const liveHoldings = () => (state.assets?.holdings||[]).filter(h => h && !h.hide);
 
 /* 같은 종목이 계좌 여러 곳에 있으면 한 줄로 합칩니다 (국내·미국 모두) */
 const FX = () => +state.assets?.fx || 0;
@@ -1331,7 +1350,7 @@ function positionOf(code){
 }
 /* 자산 앱 한 줄의 원화 평가액 — 자산 앱 calc() 과 같은 규칙 */
 function maValue(h){
-  const A = state.assets, q = +h.qty||0;
+  const A = state.assets || {}, q = +h.qty||0;
   if(h.cat === 'debt') return 0;
   if(h.cat === 'kr' && h.code && state.data[pad6(h.code)]) return state.data[pad6(h.code)].basic.price * q;
   if(h.cat === 'us'){                                   /* 우리가 받아 온 달러 시세 × 환율 */
@@ -1408,7 +1427,45 @@ function showTab(t){
   document.querySelectorAll('nav.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab===t));
   render(); window.scrollTo(0,0);
 }
-function render(){ ({home:renderHome, search:renderSearch, stock:renderStock, thesis:renderThesis, ai:renderAI})[state.ui.tab](); }
+let lastCrash = null;
+/* 한 조각이 터져도 화면 전체가 비지 않게 — 그 자리에만 이유를 적습니다 */
+function safe(label, fn){
+  try{ return fn(); }
+  catch(e){
+    lastCrash = { where: label, msg: String(e && e.message || e), stack: String(e && e.stack || '').split('\n').slice(0,4).join('\n'), t: Date.now() };
+    console.error('[StockLens]', label, e);
+    return `<div class="err mt">⚠️ <b>${esc(label)}</b> 부분을 그리다 문제가 생겨 건너뛰었습니다 — ${esc(lastCrash.msg)}
+      <div class="btn-row"><button class="btn xs ghost" data-act="copyCrash">📋 오류 복사</button></div></div>`;
+  }
+}
+function crashHtml(e, where){
+  lastCrash = { where, msg: String(e && e.message || e), stack: String(e && e.stack || '').split('\n').slice(0,5).join('\n'), t: Date.now() };
+  console.error('[StockLens]', where, e);
+  return `<div class="card" style="border-color:#f3c9c5">
+    <h2>⚠️ 화면을 그리다 멈췄어요</h2>
+    <p class="desc">${esc(where)}에서 문제가 생겼습니다. 아래 오류를 복사해서 보내 주시면 고칠 수 있습니다.</p>
+    <div class="err">${esc(lastCrash.msg)}</div>
+    <pre class="tiny mt">${esc(lastCrash.stack)}</pre>
+    <div class="btn-row"><button class="btn sm" data-act="copyCrash">📋 오류 복사</button><button class="btn sm ghost" data-act="safeMode">🛟 안전 모드</button></div>
+    <p class="tiny muted mt">안전 모드는 자산 연동과 최근 기능을 끄고 최소한의 화면만 그립니다. 담아 둔 종목·논리·일지는 지워지지 않습니다.</p>
+    <div class="btn-row"><button class="btn xs ghost" data-act="settings">⚙️ 설정</button><button class="btn xs warn" data-act="reset">전부 지우기</button></div>
+  </div>`;
+}
+function render(){
+  const fn = ({home:renderHome, search:renderSearch, stock:renderStock, thesis:renderThesis, ai:renderAI})[state.ui.tab];
+  const el = $('#tab-' + state.ui.tab);
+  try{ fn(); }
+  catch(e){ if(el) el.innerHTML = crashHtml(e, state.ui.tab + ' 화면'); }
+}
+/* 화면 밖(비동기)에서 터진 것도 놓치지 않습니다 */
+addEventListener('error', ev => {
+  const el = $('#tab-' + state.ui.tab);
+  if(el && !el.innerHTML.trim()) el.innerHTML = crashHtml(ev.error || { message: ev.message + ' @' + (ev.filename||'') + ':' + (ev.lineno||'') }, '앱 시작');
+});
+addEventListener('unhandledrejection', ev => {
+  const el = $('#tab-' + state.ui.tab);
+  if(el && !el.innerHTML.trim()) el.innerHTML = crashHtml(ev.reason || {message:'알 수 없는 오류'}, '데이터 가져오기');
+});
 const W = code => state.watch.find(w=>w.code===code);
 const chgOf = code => { const d = state.data[code]; return d ? growth(d.basic.price, d.basic.prev) : NaN; };
 const cls = v => !has(v) || Math.abs(v)<0.005 ? 'flat' : v>0 ? 'up' : 'down';
@@ -1557,7 +1614,8 @@ async function fetchGoldPrice(fx){
 /* 주식이 아닌 자산의 시세를 받아 옵니다 (하루에 한 번 어제 값을 남겨 둡니다) */
 async function refreshOther(){
   if(!assetsOn()) return;
-  const A = state.assets, hs = liveHoldings();
+  const A = state.assets; if(!A) return;
+  const hs = liveHoldings();
   const px2 = A.px2 = A.px2 || {};
   const fx = await fetchFxRate();
   if(fx > 0){ A.fx = fx; px2['fx:USD'] = { p: fx, at: Date.now(), src:'환율' }; }
@@ -1576,7 +1634,7 @@ async function refreshOther(){
 const otherPrev = () => { const h = state.assets?.hist || []; return h.length > 1 ? h[h.length-2] : null; };
 /* 자산 한 줄의 지금 시세 (우리가 받은 것 → 자산 앱 캐시 → 직접 적은 값) */
 function priceOfHolding(h){
-  const A = state.assets, px2 = A.px2 || {};
+  const A = state.assets || {}, px2 = A.px2 || {};
   const code = String(h.code || h.sym || '').toUpperCase();
   if(h.cat === 'coin' && px2['coin:'+code]) return px2['coin:'+code];
   if(h.cat === 'gold' && px2['gold:GOLD']) return px2['gold:GOLD'];
@@ -1616,7 +1674,7 @@ function assetMix(){
 /* 주식이 아닌 자산에서 오늘 눈에 띄게 움직인 것 */
 function otherChanges(){
   if(!assetsOn()) return [];
-  const out = [], prev = otherPrev(), A = state.assets, px2 = A.px2 || {};
+  const out = [], prev = otherPrev(), A = state.assets || {}, px2 = A.px2 || {};
   const add = (impact, level, title, detail) => out.push({ impact, level, title, detail, kind:'asset', code:'' });
   for(const h of liveHoldings()){
     if(h.cat !== 'coin') continue;
@@ -1637,7 +1695,7 @@ function otherChanges(){
 function renderHome(){
   const el = $('#tab-home');
   if(!state.watch.length){
-    el.innerHTML = `${assetCard()}
+    el.innerHTML = `${safe('자산 요약', assetCard)}
     <div class="card">
       <h2>👋 처음이시죠</h2>
       <p class="desc">이 앱은 <b>종목을 찍어 주지 않습니다.</b><br>관심 종목을 넣으면 재무데이터로 점수를 매기고, 내가 적은 <b>투자 논리</b>가 맞는지 데이터가 바뀔 때마다 검증합니다.</p>
@@ -1652,8 +1710,10 @@ function renderHome(){
   }
   /* 변화 모으기 */
   const all = [];
-  for(const w of state.watch){ const ch = detectChangesFor(w.code); ch.forEach(c => all.push(Object.assign({code:w.code, name:w.name}, c))); }
-  otherChanges().forEach(c => all.push(Object.assign({ name:'' }, c)));      /* 코인·금·환율 */
+  for(const w of state.watch){
+    try{ detectChangesFor(w.code).forEach(c => all.push(Object.assign({code:w.code, name:w.name}, c))); }catch(e){ console.error('변화 감지', w.code, e); }
+  }
+  try{ otherChanges().forEach(c => all.push(Object.assign({ name:'' }, c))); }catch(e){ console.error('코인·금·환율 변화', e); }
   const rank = {high:3, mid:2, low:1};
   const wOf = c => weightOf(c.code)?.inKr || 0;     /* 많이 들고 있는 종목의 변화를 위로 */
   all.sort((a,b)=> (rank[b.level]-rank[a.level]) || (wOf(b)-wOf(a)));
@@ -1684,8 +1744,8 @@ function renderHome(){
         서버가 없는 앱이라 <b>중계</b>를 거쳐 네이버증권을 읽는데, 공개 중계가 막히면 이렇게 됩니다.
         <b>구글 스크립트 중계</b>를 한 번 만들어 두면 거의 안 막힙니다 (3분, 무료).</p>
       <div class="btn-row"><button class="btn sm" data-act="relaySetup">📡 중계 만들기 (3분)</button><button class="btn sm ghost" data-act="diag">🩺 시세 점검</button><button class="btn sm ghost" data-act="refreshAll">🔄 다시 시도</button></div></div>`; })()}
-  ${assetCard()}
-  ${mixCard()}
+  ${safe('자산 요약', assetCard)}
+  ${safe('자산 구성', mixCard)}
   ${alerts.length ? `<div class="card" style="border-color:#f3c9c5">
     <h2>🚨 투자 논리 점검 필요</h2>
     ${alerts.map(t => `<div class="chg-item"><div class="ico">🧭</div><div class="grow"><div class="t">${esc(t.title)} <span class="tiny muted">· ${esc(W(t.code)?.name||t.code)}</span></div>
@@ -1843,7 +1903,7 @@ function renderStock(){
     <p class="tiny muted mt">${new Date(d.t).toLocaleString('ko-KR')} · ${d.demo?'샘플 데이터(실제 아님)':(isUs(code)?'야후 파이낸스':'네이버증권')}${d.errs.length?` · 일부 누락: ${esc(d.errs.slice(0,2).join(', '))}`:''}</p>
   </div>
 
-  ${positionCard(code, sn)}
+  ${safe('내 보유', ()=>positionCard(code, sn))}
   <div class="card">
     <h2>AI SCORE <span class="sub">계산 모델 · 데이터 커버리지 ${sc.s.coverage}%</span></h2>
     <div class="score-hero mt"><div class="score-big">${has(sc.s.total)?sc.s.total:'–'}<small> / 100</small></div>
@@ -2217,6 +2277,9 @@ document.addEventListener('click', async e => {
           <div class="bar"><i style="width:${x.pct}%;background:${x.pct>=40?'var(--up)':'var(--brand)'}"></i></div>
           <div class="tiny muted">${esc(x.names.join(', '))} · ${won(x.value)}</div></div>`).join('')}
         <p class="tiny muted mt2">한 업종에 40% 넘게 몰려 있으면 같은 뉴스에 함께 움직입니다.</p>`); break; }
+    case 'copyCrash': { const t = lastCrash ? `StockLens 오류\n${lastCrash.where}\n${lastCrash.msg}\n${lastCrash.stack}\n${navigator.userAgent}` : '오류 기록이 없어요';
+      try{ await navigator.clipboard.writeText(t); toast('복사했어요 — 붙여넣어 보내 주세요'); }catch(_){ alert(t); } break; }
+    case 'safeMode': { state.assets.mode = 'off'; state.ui.demo = false; state.ui.safe = true; save(); toast('안전 모드로 열었어요'); render(); break; }
     case 'diag': openDiag(); break;
     case 'relaySetup': openRelaySetup(); break;
     case 'testRelay': testRelay(); break;
@@ -2317,8 +2380,11 @@ document.addEventListener('input', e => {
 document.querySelectorAll('nav.tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
 
 /* ---------- 시작 ---------- */
-load();
-showTab(state.ui.tab && TABS.includes(state.ui.tab) ? state.ui.tab : 'home');
+/* 저장된 기록이 이상해도 앱이 안 열리는 일이 없게 합니다 */
+try{ load(); }
+catch(e){ console.error('저장된 기록 읽기', e); toast('저장된 기록을 읽지 못해 초기값으로 엽니다'); }
+try{ showTab(state.ui.tab && TABS.includes(state.ui.tab) ? state.ui.tab : 'home'); }
+catch(e){ const el = $('#tab-home'); if(el){ el.classList.remove('hidden'); el.innerHTML = crashHtml(e, '앱 시작'); } }
 (async () => {
   await loadAssets({quiet:true});
   if(state.assets.mode !== 'off'){ render(); refreshOther().then(render); }
