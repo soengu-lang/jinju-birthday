@@ -150,6 +150,25 @@ section.tab{padding-top:4px}
   background:#fff;border-radius:12px;padding:11px 12px;font-size:13.5px;font-weight:700;margin-top:7px}
 .sheet .opt small{display:block;font-size:11px;color:var(--muted);font-weight:500;margin-top:2px}
 
+.logrow{display:flex;gap:11px;align-items:flex-start;background:var(--card);border:1px solid var(--line);
+  border-radius:var(--r);padding:11px;box-shadow:var(--shadow);margin-bottom:10px}
+.logrow img{width:84px;height:auto;border-radius:9px;border:1px solid var(--line);flex:none;background:#fff}
+.logrow .info{flex:1;min-width:0}
+.logrow .ttl{font-size:14px;font-weight:900;letter-spacing:-.02em}
+.logrow .dt{font-size:11px;color:var(--muted);margin-top:2px}
+.logrow .sum{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px}
+.logrow .sum span{font-size:10.5px;font-weight:800;border-radius:6px;padding:2px 6px}
+.logrow .acts{display:flex;gap:6px;margin-top:8px}
+.logrow .acts button{border:1px solid var(--line);border-radius:8px;padding:5px 8px;font-size:11.5px;font-weight:700;color:var(--brand);background:#fff}
+.logdetail{margin-top:9px;border-top:1px dashed var(--line);padding-top:9px}
+.logdetail h4{font-size:12.5px;font-weight:900;margin-top:8px}
+.logdetail ul{list-style:none;margin-top:4px}
+.logdetail li{font-size:12px;line-height:1.65;padding-left:11px;position:relative;color:#3a4150}
+.logdetail li::before{content:'·';position:absolute;left:2px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:11px}
+.chips button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 11px;
+  font-size:12px;font-weight:700;color:var(--muted)}
+.chips button.on{background:var(--brand);border-color:var(--brand);color:#fff}
 .dict h3{font-size:14.5px;font-weight:900;margin-top:2px}
 .dict p{font-size:12.8px;line-height:1.85;color:#3a4150;margin-top:7px}
 .dict p b{color:var(--ink);font-weight:800}
@@ -176,6 +195,7 @@ footer{text-align:center;font-size:11px;color:var(--muted);line-height:1.8;paddi
 
 <nav class="tabs"><div class="wrap tabs-in">
   <button id="tabRead" class="on">차트 읽기</button>
+  <button id="tabLog">기록</button>
   <button id="tabDict">지표 사전</button>
 </div></nav>
 
@@ -266,6 +286,9 @@ footer{text-align:center;font-size:11px;color:var(--muted);line-height:1.8;paddi
   <div id="results"></div>
 </section>
 
+<!-- ============ 기록 ============ -->
+<section class="tab hidden" id="secLog"></section>
+
 <!-- ============ 지표 사전 ============ -->
 <section class="tab hidden" id="secDict"></section>
 
@@ -295,6 +318,7 @@ const S = {
   pendingScale:null,              // 'a' | 'b'
   roles:{},                       // key -> {c:[r,g,b], pt:{x,y}}
   barMaxCol:null,                 // 이 열보다 오른쪽은 캔들로 세지 않음 (현재가 딱지 등)
+  panes:[],                       // 아래 칸 (거래량·RSI·MACD·스토캐스틱)
   mas:[],                         // [{id, period, c, pt}]
   scale:{a:null, b:null},         // {y, v}
   tol:52,
@@ -667,9 +691,10 @@ function paintRoles(){
     const m = S.mas.find(x=>x.id===inp.dataset.per);
     if(m){ m.period = Math.max(1, Math.round(+inp.value || 1)); S.mas.sort((a,b)=>a.period-b.period); paintRoles(); save(); }
   });
-  const ready = S.mas.some(m=>m.c) || (S.roles.bbBand) || (S.roles.cloudUp || S.roles.cloudDown || S.roles.tenkan || S.roles.kijun);
+  const ready = S.mas.some(m=>m.c) || S.roles.bbBand || S.roles.cloudUp || S.roles.cloudDown
+             || S.roles.tenkan || S.roles.kijun || (S.roles.candleUp && S.roles.candleDown);
   $('#btnRun').disabled = !ready;
-  $('#runNote').textContent = ready ? '' : '이평선·볼린저·일목 중 하나라도 색을 찍으면 읽을 수 있습니다.';
+  $('#runNote').textContent = ready ? '' : '캔들이나 이평선·볼린저·일목 중 하나라도 색을 찍으면 읽을 수 있습니다.';
 }
 $('#btnAddMa').onclick = ()=>{
   const nextP = [5,20,60,120].find(p => !S.mas.some(m=>m.period===p)) || 20;
@@ -1070,6 +1095,7 @@ function analyze(){
     return A.bars.length-1-k;
   };
   A.lb = Math.max(3, Math.round(n * (A.bars ? Math.min(0.25, Math.max(0.08, 10/A.bars.length)) : 0.12)));
+  A.lbBars = () => A.bars ? (Math.max(1, A.barsAgo(Math.max(0, A.nowI - A.lb))) + '봉') : '구간';
 
   A.classify = (f, pc) => {
     let d = Math.abs(f) < 1.0 ? 'flat' : (f > 0 ? 'up' : 'down');
@@ -1298,6 +1324,7 @@ function analyze(){
       edu: '구름 색은 <b>따뜻한 색(붉은 계열)을 양운</b>으로 보고 읽었습니다 — 국내 증권사 기본 설정 기준이라, 색을 바꿔 쓰신다면 반대로 보셔야 합니다. ' +
         '<b>일목균형표</b>는 전환선(9), 기준선(26), 선행스팬1·2, 후행스팬으로 이뤄집니다. 선행스팬 1과 2 사이를 칠한 것이 <b>구름</b>이고, 26칸 앞에 미리 그려지기 때문에 차트 오른쪽 끝에 <b>앞으로의 구름</b>이 먼저 보입니다. 선행1이 위면 <b>양운</b>, 선행2가 위면 <b>음운</b>이라 하고, 색이 바뀌는 자리를 <b>구름 전환</b>이라고 부릅니다. 전환선이 기준선 위로 올라간 상태를 <b>호전</b>, 아래로 내려간 상태를 <b>역전</b>이라고 합니다.'});
   }
+  paneCards(A);
   return A;
 }
 
@@ -1407,6 +1434,83 @@ function matchLine(y, bars, tpls){
   return res[0] || null;
 }
 
+/* 가격 칸 아래에 있는 거래량·보조지표 칸 찾기 */
+function findPanes(O1, pal, W, H, bars, up, dn){
+  const out = [], px0 = S.crop.x0, px1 = Math.min(W-1, S.barMaxCol), wide = px1-px0+1;
+  if(wide < 40) return out;
+  /* 바탕색과 가로 눈금선은 빼고 센다 — 안 그러면 그림 전체가 한 덩어리가 된다 */
+  const nk = pal.length, per = [], tot = new Int32Array(nk), wideRow = new Int32Array(nk);
+  for(let y=0; y<H; y++){
+    const c = new Int32Array(nk), row = y*W;
+    for(let x=px0; x<=px1; x++){ const k = O1.own[row+x]; if(k) c[k-1]++; }
+    for(let k=0;k<nk;k++){ tot[k] += c[k]; if(c[k] > wide*0.5) wideRow[k]++; }
+    per.push(c);
+  }
+  const skip = new Uint8Array(nk), area = wide*H;
+  for(let k=0;k<nk;k++) if(tot[k] > area*0.12 || wideRow[k] > H*0.04) skip[k] = 1;
+  const rows = new Int32Array(H);
+  for(let y=0; y<H; y++){
+    let n = 0;
+    for(let k=0;k<nk;k++) if(!skip[k]) n += per[y][k];
+    rows[y] = n;
+  }
+  const bands = [];
+  let st = -1, gap = 0;
+  for(let y=0; y<H; y++){
+    if(rows[y] >= 2){ if(st < 0) st = y; gap = 0; }
+    else if(st >= 0){ gap++; if(gap > 12){ bands.push([st, y-gap]); st = -1; } }
+  }
+  if(st >= 0) bands.push([st, H-1]);
+
+  bands.filter(b => {
+    if(b[0] <= S.crop.y1 + 2 || b[1]-b[0] <= 24) return false;
+    let tot = 0;
+    for(let y=b[0]; y<=b[1]; y++) tot += rows[y];
+    return tot > wide*0.6;                                   /* 내용이 어느 정도 있는 칸만 */
+  }).forEach(b => {
+    const rect = {x0:px0, y0:b[0], x1:px1, y1:b[1]};
+    const P = buildOwner(pal.map(c => ({c, t2:44*44})), rect);
+    const iu = pal.findIndex(c => dist2(c, up) < 1), id = pal.findIndex(c => dist2(c, dn) < 1);
+    /* 거래량: 캔들 색 막대가 칸 바닥에 나란히 붙어 있다 */
+    const cu = iu >= 0 ? runsOf(P, iu) : null, cd2 = id >= 0 ? runsOf(P, id) : null;
+    let base = -1, onBase = 0, barsSeen = 0;
+    if(cu || cd2){
+      for(let x=0; x<rect.x1-rect.x0+1; x++){
+        const rs = (cu ? cu[x] : []).concat(cd2 ? cd2[x] : []);
+        rs.forEach(r => { if(r[1] > base) base = r[1]; });
+      }
+      bars.forEach(bar => {
+        const rs = [];
+        for(let x=Math.round(bar.i0); x<=Math.round(bar.i1); x++){
+          if(cu && cu[x]) rs.push.apply(rs, cu[x]);
+          if(cd2 && cd2[x]) rs.push.apply(rs, cd2[x]);
+        }
+        if(!rs.length) return;
+        barsSeen++;
+        if(Math.max.apply(null, rs.map(r=>r[1])) >= base-5) onBase++;
+      });
+    }
+    if(barsSeen > bars.length*0.5 && onBase > barsSeen*0.7){
+      out.push({kind:'vol', y0:b[0], y1:b[1], base});   /* runsOf 는 이미 그림 전체 기준 y 를 준다 */
+      return;
+    }
+    /* 보조지표: 가늘게 이어지는 선이 있는 칸 */
+    const thick = Math.max(4, Math.round((b[1]-b[0])*0.06));
+    const cols = [];
+    pal.forEach((c,k) => {
+      if(k === iu || k === id) return;
+      const runs = runsOf(P, k);
+      let any = 0, thin = 0;
+      runs.forEach(rs => { if(!rs.length) return; any++;
+        if(rs.every(r => runLen(r) <= thick)) thin++; });
+      if(any > (rect.x1-rect.x0)*0.5 && thin > any*0.7) cols.push({c, any});
+    });
+    if(cols.length) out.push({kind:'osc', y0:b[0], y1:b[1],
+      colors: cols.sort((a,b2)=> b2.any - a.any).slice(0,3).map(o => o.c)});
+  });
+  return out.slice(0, 4);
+}
+
 function autoRead(){
   const W = S.W, H = S.H, full = {x0:0, y0:0, x1:W-1, y1:H-1};
   const fail = why => ({ok:false, why});
@@ -1478,14 +1582,14 @@ function autoRead(){
   const bs0 = cd0.bars;
   const pitch = Math.max(2, cd0.pitch || median(bs0.slice(1).map((b,i)=> b.cx - bs0[i].cx)) || 5);
   const medH0 = median(bs0.map(b => b.low-b.high+1));
-  let real = bs0.filter(b => (b.low-b.high+1) >= Math.max(3, medH0*0.15));
+  let real = bs0.filter(b => (b.low-b.high+1) >= Math.max(3, medH0*0.1));
   if(real.length < 10) return fail('봉을 세지 못했습니다');
   /* 캔들은 일정한 간격으로 늘어서 있다 — 그 규칙이 이어지는 가장 긴 구간만 남긴다.
      (현재가 딱지·눈금·차트 안 글씨는 간격이 제멋대로라 여기서 걸러진다) */
   const seq = [[real[0]]];
   for(let i=1;i<real.length;i++){
     const d = real[i].cx - real[i-1].cx, k = Math.round(d/pitch);
-    if(k >= 1 && k <= 2 && Math.abs(d - k*pitch) <= pitch*0.35) seq[seq.length-1].push(real[i]);
+    if(k >= 1 && k <= 4 && Math.abs(d - k*pitch) <= pitch*0.35) seq[seq.length-1].push(real[i]);
     else seq.push([real[i]]);
   }
   real = seq.sort((a,b)=> b.length - a.length)[0];
@@ -1650,11 +1754,256 @@ function autoRead(){
       }
     }
   }
+  S.panes = findPanes(O1, pal, W, H, bars, up, dn);
+  if(S.panes.length) found.push({label:'아래 칸 ' + S.panes.length + '개', c:[120,120,140], side:true});
   S.mas.sort((a,b)=> a.period - b.period);
   const dbg = grids.map(g => ({c:g.item.v.c, kind:'눈금', tall:0, dens:+g.item.dens.toFixed(1), any:+g.item.any.toFixed(2), grid:g.gi.lines}))
     .concat(fills.map(f => ({c:f.v.c, kind:'면', tall:+f.tall.toFixed(2), dens:+f.dens.toFixed(1), any:+f.any.toFixed(2), grid:f.grid})))
     .concat(lines.map(f => ({c:f.v.c, kind:'선', tall:+f.tall.toFixed(2), dens:+f.dens.toFixed(1), any:+f.any.toFixed(2), two:+f.two.toFixed(2), grid:f.grid, done:!!f.done})));
   return {ok:true, found, bars: bars.length, pitch, chips: chips.length, pal: pal.length, dbg};
+}
+
+/* ═════════════════════════════════════════════
+   아래 칸 읽기 — 거래량과 보조지표(RSI·MACD·스토캐스틱)
+   캔들에서 뽑은 값으로 지표를 직접 계산해 그려진 선과 맞춰 봅니다.
+   ═════════════════════════════════════════════ */
+function sma(a, n){
+  const o = new Array(a.length).fill(null);
+  let s = 0, c = 0;
+  for(let i=0;i<a.length;i++){
+    if(a[i] == null){ s = 0; c = 0; continue; }
+    s += a[i]; c++;
+    if(c > n){ s -= a[i-n]; c = n; }
+    if(c === n) o[i] = s/n;
+  }
+  return o;
+}
+function ema(a, n){
+  const o = new Array(a.length).fill(null), k = 2/(n+1);
+  let e = null;
+  for(let i=0;i<a.length;i++){ if(a[i] == null) continue;
+    e = e == null ? a[i] : a[i]*k + e*(1-k); o[i] = e; }
+  return o;
+}
+function rsiOf(v, n){
+  const o = new Array(v.length).fill(null);
+  let au = 0, ad = 0;
+  for(let i=1;i<v.length;i++){
+    const d = v[i]-v[i-1], u = Math.max(0,d), w = Math.max(0,-d);
+    if(i <= n){ au += u/n; ad += w/n; if(i === n) o[i] = 100 - 100/(1 + au/(ad || 1e-9)); }
+    else { au = (au*(n-1)+u)/n; ad = (ad*(n-1)+w)/n; o[i] = 100 - 100/(1 + au/(ad || 1e-9)); }
+  }
+  return o;
+}
+function stochOf(v, hi, lo, n, sm){
+  const k = new Array(v.length).fill(null);
+  for(let i=n-1;i<v.length;i++){
+    let h = -Infinity, l = Infinity;
+    for(let j=i-n+1;j<=i;j++){ if(hi[j] > h) h = hi[j]; if(lo[j] < l) l = lo[j]; }
+    k[i] = (v[i]-l)/((h-l) || 1e-9)*100;
+  }
+  return sm > 1 ? sma(k, sm) : k;
+}
+/* 그려진 선과 계산값을 견줘 눈금(값↔픽셀)까지 찾아낸다 */
+function fitSeries(y, bars, vals){
+  const xs = [], ys = [];
+  for(let i=0;i<bars.length;i++){
+    const v = vals[i]; if(v == null || !isFinite(v)) continue;
+    const yy = y[Math.round(bars[i].cx)]; if(yy == null) continue;
+    xs.push(v); ys.push(yy);
+  }
+  const n = xs.length;
+  if(n < 20) return null;
+  const mx = xs.reduce((a,b)=>a+b,0)/n, my = ys.reduce((a,b)=>a+b,0)/n;
+  let sxy = 0, sxx = 0, syy = 0;
+  for(let i=0;i<n;i++){ const dx = xs[i]-mx, dy = ys[i]-my; sxy += dx*dy; sxx += dx*dx; syy += dy*dy; }
+  if(sxx <= 0 || syy <= 0) return null;
+  const a = sxy/sxx, r = sxy/Math.sqrt(sxx*syy);
+  return {a, b: my - a*mx, r, n};
+}
+function oscCandidates(bars){
+  const v = bars.map(b => -b.close), hi = bars.map(b => -b.high), lo = bars.map(b => -b.low);
+  const out = [];
+  [14, 9].forEach(n => out.push({key:'rsi', p:n, label:'RSI(' + n + ')', v: rsiOf(v, n), pct:true}));
+  [[5,1],[9,1],[12,1],[14,1],[5,3],[9,3],[12,5],[14,3],[10,6]].forEach(([n,sm]) => {
+    const k = stochOf(v, hi, lo, n, sm);
+    out.push({key:'k', p:n+(sm>1?','+sm:''), label:'스토캐스틱 %K', v:k, pct:true});
+    out.push({key:'d', p:n+(sm>1?','+sm:''), label:'스토캐스틱 %D', v:sma(k, sm >= 5 ? 5 : 3), pct:true});
+  });
+  const e12 = ema(v,12), e26 = ema(v,26);
+  const macd = v.map((_,i)=> (e12[i]==null||e26[i]==null) ? null : e12[i]-e26[i]);
+  out.push({key:'macd', p:'12,26', label:'MACD', v:macd});
+  out.push({key:'sig', p:'9', label:'MACD 시그널', v:ema(macd,9)});
+  return out;
+}
+
+function paneCards(A){
+  if(!A.bars || !S.panes || !S.panes.length) return;
+  const cands = oscCandidates(A.bars);
+  S.panes.forEach(p => {
+    const rect = {x0:S.crop.x0, y0:p.y0, x1:Math.min(S.crop.x1, S.barMaxCol == null ? S.crop.x1 : S.barMaxCol), y1:p.y1};
+    if(rect.x1 - rect.x0 < 30) return;
+    if(p.kind === 'vol') volCard(A, rect, p);
+    else oscCard(A, rect, p, cands);
+  });
+}
+
+function volCard(A, rect, p){
+  const pal = [{c:S.roles.candleUp.c, t2:44*44}, {c:S.roles.candleDown.c, t2:44*44}];
+  const O = buildOwner(pal, rect);
+  const cu = runsOf(O,0), cd = runsOf(O,1);
+  const base = p.base != null ? p.base : rect.y1;
+  const hs = [], types = [];
+  A.bars.forEach(b => {
+    let top = Infinity, pu = 0, pd = 0;
+    for(let x=Math.round(b.i0); x<=Math.round(b.i1); x++){
+      (cu[x]||[]).forEach(r => { if(r[0] < top) top = r[0]; pu += runLen(r); });
+      (cd[x]||[]).forEach(r => { if(r[0] < top) top = r[0]; pd += runLen(r); });
+    }
+    if(!isFinite(top)){ hs.push(null); types.push(null); return; }
+    hs.push(Math.max(0, base - top)); types.push(pu >= pd ? 'up' : 'down');
+  });
+  const got = hs.filter(v => v != null);
+  if(got.length < 10) return;
+  const last = hs[hs.length-1];
+  const recent = got.slice(-20), med = median(recent);
+  const ratio = med > 0 ? last/med : 1;
+  const a5 = got.slice(-5), b20 = got.slice(-25, -5);
+  const avg = x => x.reduce((s,v)=>s+v,0)/(x.length||1);
+  const trend = b20.length >= 5 ? avg(a5)/(avg(b20) || 1) : 1;
+  let mi = 0; hs.forEach((v,i)=>{ if(v != null && v > (hs[mi]||0)) mi = i; });
+  const facts = [
+    '마지막 봉 거래량은 최근 20봉 중간값의 <b>' + fmt(ratio*100, 0) + '%</b>' +
+      (ratio > 1.8 ? ' → <b>크게 늘어난 날</b>' : ratio > 1.2 ? ' → 조금 많은 편' :
+       ratio < 0.5 ? ' → <b>크게 줄어든 날</b>' : ratio < 0.8 ? ' → 조금 적은 편' : ' → 보통'),
+    '최근 5봉 평균이 그 앞 20봉 평균의 <b>' + fmt(trend*100, 0) + '%</b>' +
+      (trend > 1.2 ? ' → <b>늘어나는 중</b>' : trend < 0.8 ? ' → <b>줄어드는 중</b>' : ' → 비슷'),
+    '가장 큰 거래량은 <b>약 ' + (A.bars.length-1-mi) + '봉 전</b>입니다',
+    '마지막 봉은 ' + (types[types.length-1] === 'up' ? '<b class="u">오른 날</b>' : '<b class="d">내린 날</b>') + '의 거래량입니다'
+  ];
+  A.cards.push({t:'거래량', badge:'flat',
+    badgeText: ratio > 1.8 ? '평소보다 많음' : ratio < 0.5 ? '평소보다 적음' : '평소 수준',
+    facts,
+    mean: '거래량은 <b>방향을 말해 주는 지표가 아니라 관심의 크기</b>입니다. ' +
+      '값이 움직일 때 거래량이 함께 늘면 그 움직임에 참여한 사람이 많았다는 뜻이고, ' +
+      '거래량 없이 움직였다면 적은 손바뀜으로 생긴 값이라는 뜻으로 읽습니다.',
+    edu: '<b>거래량</b>은 그 기간에 사고팔린 주식 수입니다. 국내 차트는 오른 날을 빨강, 내린 날을 파랑으로 칠합니다. ' +
+      '거래량이 갑자기 크게 늘어난 자리는 <b>사람들의 생각이 갈린 자리</b>로 보고, 나중에 그 가격대를 눈여겨보는 경우가 많습니다.'});
+}
+
+function oscCard(A, rect, p, cands){
+  const pal = p.colors.map(c => ({c, t2:44*44}));
+  const O = buildOwner(pal, rect);
+  const thick = Math.max(4, Math.round((rect.y1-rect.y0)*0.08));
+  const got = [];
+  p.colors.forEach((c,i) => {
+    const ln = lineFrom(runsOf(O, i), thick);
+    if(ln.cover < 0.75) return;
+    let best = null;
+    cands.forEach(cd => {
+      const f = fitSeries(ln.y, A.bars, cd.v);
+      if(!f || f.a >= 0 || f.r > -0.93) return;
+      if(cd.pct){                                   /* 0~100 짜리는 눈금이 말이 돼야 한다 */
+        const vs = A.bars.map(b => { const y = ln.y[Math.round(b.cx)]; return y == null ? null : (y - f.b)/f.a; })
+                         .filter(v => v != null);
+        if(!vs.length) return;
+        const lo = Math.min.apply(null, vs), hi = Math.max.apply(null, vs);
+        if(lo < -25 || hi > 125) return;
+      }
+      if(!best || f.r < best.f.r) best = {cd, f};
+    });
+    if(!best) return;
+    const fam = best.cd.key === 'rsi' ? 'rsi'
+              : (best.cd.key === 'k' || best.cd.key === 'd') ? 'stoch' : 'macd';
+    let rough = 0, cnt = 0;
+    for(let j=1;j<A.bars.length;j++){
+      const y1 = ln.y[Math.round(A.bars[j].cx)], y0 = ln.y[Math.round(A.bars[j-1].cx)];
+      if(y1 != null && y0 != null){ rough += Math.abs(y1-y0); cnt++; }
+    }
+    got.push({c, y:ln.y, cd:best.cd, f:best.f, fam, rough: cnt ? rough/cnt : 0});
+  });
+  if(!got.length) return;
+  /* 같은 지표의 두 선은 '더 출렁이는 쪽'이 원래 선, 매끈한 쪽이 평균선(시그널·%D) */
+  const famOf = f => got.filter(g => g.fam === f).sort((a,b)=> b.rough - a.rough);
+  const val = (g, col) => { const y = g.y[col]; return y == null ? null : (y - g.f.b)/g.f.a; };
+  const now = A.nowI;
+  const dirOf = g => {
+    const a = Math.max(0, now - A.lb), v0 = val(g, a), v1 = val(g, now);
+    if(v0 == null || v1 == null) return null;
+    const d = v1 - v0, sc = g.cd.pct ? 3 : Math.abs(v0)*0.05 + 1e-9;
+    return {d: Math.abs(d) < sc ? 'flat' : (d > 0 ? 'up' : 'down'), delta:d};
+  };
+
+  const rsi = famOf('rsi')[0];
+  if(rsi){
+    const v = val(rsi, now), dd = dirOf(rsi);
+    const zone = v >= 70 ? '<b class="u">70 위</b> — 교과서에서 <b>과매수 구간</b>이라 부르는 자리' :
+                 v <= 30 ? '<b class="d">30 아래</b> — 교과서에서 <b>과매도 구간</b>이라 부르는 자리' :
+                 v >= 50 ? '50 위 (가운데보다 높은 쪽)' : '50 아래 (가운데보다 낮은 쪽)';
+    A.cards.push({t:'RSI', badge: v >= 55 ? 'up' : v <= 45 ? 'down' : 'flat',
+      facts: ['지금 값은 <b>약 ' + fmt(v, 0) + '</b> / 100 <span style="color:var(--muted)">(' + rsi.cd.label + '로 읽음)</span>',
+              zone,
+              '최근 ' + A.lbBars() + ' 동안 ' + (dd ? tag(dd.d, DIRW[dd.d]) : '-')],
+      mean: '오른 폭과 내린 폭을 견줘 <b>어느 쪽 힘이 더 셌는지</b>를 0~100으로 나타낸 값입니다. ' +
+        '70 위·30 아래를 과매수·과매도라고 부르지만, <b>추세가 셀 때는 한쪽에 오래 머무릅니다</b>. ' +
+        '그 자체로 방향이 바뀐다는 뜻은 아닙니다.',
+      edu: '<b>RSI</b>는 정해진 기간(보통 14) 동안 오른 날의 평균 상승폭과 내린 날의 평균 하락폭을 견줍니다. ' +
+        '값이 클수록 그동안 오른 힘이 셌다는 뜻입니다.'});
+    A.dirs.push(v >= 55 ? 'up' : v <= 45 ? 'down' : 'flat');
+  }
+
+  const st = famOf('stoch');
+  if(st.length){
+    const k = st[0], d = st[1] || null;
+    const kv = val(k, now), dv = d ? val(d, now) : null;
+    const facts = ['%K는 <b>약 ' + fmt(kv,0) + '</b>' + (dv != null ? ' · %D는 <b>약 ' + fmt(dv,0) + '</b>' : '')];
+    facts.push(kv >= 80 ? '<b class="u">80 위</b> — 과매수 구간이라 부르는 자리' :
+               kv <= 20 ? '<b class="d">20 아래</b> — 과매도 구간이라 부르는 자리' : '20~80 사이');
+    if(d){
+      facts.push('%K가 %D <b>' + (kv > dv ? '위' : '아래') + '</b>에 있습니다');
+      const x = A.crossOf(k.y, d.y);
+      if(x && x.frac < 0.6) facts.push('%K가 %D를 ' + (x.bars != null ? '약 <b>' + x.bars + '봉 전</b>' : '최근에') + ' ' +
+        (x.up ? '<b class="u">위로</b>' : '<b class="d">아래로</b>') + ' 지나갔습니다');
+    }
+    const dd = dirOf(k);
+    if(dd) facts.push('%K는 최근 ' + A.lbBars() + ' 동안 ' + tag(dd.d, DIRW[dd.d]));
+    const bd = dv != null ? (kv > dv ? 'up' : 'down') : (kv >= 50 ? 'up' : 'down');
+    A.cards.push({t:'스토캐스틱', badge: bd, facts,
+      mean: '요즘 값이 <b>최근 고점과 저점 사이 어디쯤</b>에서 끝나는지를 0~100으로 본 것입니다. ' +
+        '80 위는 최근 범위의 위쪽에서, 20 아래는 아래쪽에서 끝나고 있다는 뜻입니다. ' +
+        '오르는 흐름이 셀 때는 80 위에 계속 붙어 있기도 합니다.',
+      edu: '<b>스토캐스틱</b>의 %K는 (지금 값 − 최근 최저) ÷ (최근 최고 − 최근 최저) × 100이고, ' +
+        '%D는 %K를 며칠 평균 낸 선입니다. 두 선이 엇갈리는 자리를 흔히 봅니다.'});
+    A.dirs.push(bd);
+  }
+
+  const mm = famOf('macd');
+  if(mm.length){
+    const md = mm[0], sg = mm[1] || null;
+    const mv = val(md, now), sv = sg ? val(sg, now) : null;
+    const above0 = md.y[now] < md.f.b;
+    const facts = ['MACD 선이 <b>0선 ' + (above0 ? '<b class="u">위</b>' : '<b class="d">아래</b>') + '</b>에 있습니다'];
+    if(sg){
+      facts.push('MACD가 시그널 <b>' + (mv > sv ? '위' : '아래') + '</b>에 있습니다');
+      const x = A.crossOf(md.y, sg.y);
+      if(x && x.frac < 0.6) facts.push('MACD가 시그널을 ' + (x.bars != null ? '약 <b>' + x.bars + '봉 전</b>' : '최근에') + ' ' +
+        (x.up ? '<b class="u">위로</b>' : '<b class="d">아래로</b>') + ' 지나갔습니다');
+      const a = Math.max(0, now - A.lb);
+      const hNow = Math.abs(mv - sv), hPast = Math.abs(val(md,a) - val(sg,a));
+      if(isFinite(hNow) && isFinite(hPast))
+        facts.push('두 선의 벌어진 정도(막대그래프)는 최근 ' + A.lbBars() + ' 동안 ' +
+          (hNow > hPast*1.1 ? '<b>커지는 중</b>' : hNow < hPast*0.9 ? '<b>줄어드는 중</b>' : '<b>비슷</b>'));
+    }
+    const dd = dirOf(md);
+    if(dd) facts.push('MACD 선은 최근 ' + A.lbBars() + ' 동안 ' + tag(dd.d, DIRW[dd.d]));
+    const bd = sv != null ? (mv > sv ? 'up' : 'down') : (above0 ? 'up' : 'down');
+    A.cards.push({t:'MACD', badge: bd, facts,
+      mean: '짧은 기간 평균과 긴 기간 평균이 <b>얼마나 벌어져 있는지</b>를 그린 것입니다. ' +
+        '0선 위는 짧은 평균이 긴 평균보다 위에 있다는 뜻이고, 시그널선과 엇갈리는 자리를 흔히 봅니다.',
+      edu: '<b>MACD</b>는 12일 지수이동평균 − 26일 지수이동평균이고, 그 값을 다시 9일 평균 낸 것이 <b>시그널선</b>입니다. ' +
+        '둘의 차이를 막대그래프(히스토그램)로 그립니다.'});
+    A.dirs.push(bd);
+  }
 }
 
 /* ─────────────────────────────────────────────
@@ -1712,10 +2061,13 @@ function renderResult(A){
     '<p class="note">이 앱은 그림의 <b>색만 보고</b> 선을 따라갑니다. 값을 계산해서 얻은 게 아니라 화면에서 읽은 것이라, ' +
     '선이 겹치거나 색이 비슷하면 조금씩 어긋날 수 있습니다.</p></div>';
 
-  html += '<div class="rcard"><button class="btn ghost" id="btnCopy">결과를 글로 복사하기</button>' +
-    '<p class="note">가족·친구에게 보내거나 메모에 붙여넣을 수 있습니다.</p></div>';
+  html += '<div class="rcard"><button class="btn" id="btnSaveLog">📌 기록에 담기</button>' +
+    '<div class="btn-row"><button class="btn ghost" id="btnCopy">결과를 글로 복사하기</button></div>' +
+    '<p class="note">담아 두면 <b>기록</b> 칸에서 언제든 다시 볼 수 있습니다. 이 폰 안에만 저장됩니다.</p></div>';
 
+  S.lastA = A;
   $('#results').innerHTML = html;
+  $('#btnSaveLog').onclick = openSaveSheet;
   $('#btnCopy').onclick = ()=>{
     const txt = A.cards.map(c => '[' + c.t + '] ' + (BADGE[c.badge]||BADGE.flat)[1] + '\n' +
       c.facts.map(f => ' · ' + strip(f)).join('\n') + '\n → ' + strip(c.mean || '')).join('\n\n') +
@@ -1783,6 +2135,131 @@ function runAuto(){
 }
 
 /* ─────────────────────────────────────────────
+   기록 — 읽은 결과를 담아 두고 나중에 다시 보기
+   ───────────────────────────────────────────── */
+const LOG = 'chart-reader:log';
+function loadLog(){ try{ return JSON.parse(localStorage.getItem(LOG) || '[]'); }catch(e){ return []; } }
+function saveLog(arr){
+  for(let i=0;i<8;i++){
+    try{ localStorage.setItem(LOG, JSON.stringify(arr)); return true; }
+    catch(e){ if(arr.length < 2) return false; arr.pop(); }        /* 자리가 모자라면 오래된 것부터 */
+  }
+  return false;
+}
+function thumbURL(){
+  const c = S.crop, sw = c.x1-c.x0+1, sh = c.y1-c.y0+1;
+  const w = Math.min(220, sw), h = Math.max(1, Math.round(sh*w/sw));
+  const cv2 = document.createElement('canvas'); cv2.width = w; cv2.height = h;
+  const g = cv2.getContext('2d');
+  g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+  g.fillStyle = '#fff'; g.fillRect(0,0,w,h);
+  g.drawImage(work, c.x0, c.y0, sw, sh, 0, 0, w, h);
+  try{ return cv2.toDataURL('image/jpeg', 0.55); }catch(e){ return ''; }
+}
+function logTitles(){
+  const t = [];
+  loadLog().forEach(e => { if(e.title && t.indexOf(e.title) < 0) t.push(e.title); });
+  return t;
+}
+function openSaveSheet(){
+  const A = S.lastA;
+  if(!A) return;
+  const names = logTitles().slice(0, 8);
+  const today = new Date();
+  sheet.innerHTML =
+    '<h3>📌 이 결과를 기록에 담기</h3>' +
+    '<p style="font-size:12px;color:var(--muted);margin-top:6px">종목 이름을 적어 두면 나중에 <b>같은 종목끼리 모아</b> 볼 수 있습니다.</p>' +
+    '<div style="margin-top:10px"><input id="logName" type="text" placeholder="예: SK하이닉스" value=""></div>' +
+    (names.length ? '<div class="chips" style="margin-top:9px">' +
+      names.map(n => '<button data-nm="' + esc(n) + '">' + esc(n) + '</button>').join('') + '</div>' : '') +
+    '<button class="btn" id="logOk" style="margin-top:12px">담기</button>' +
+    '<button class="opt" data-k="cancel" style="justify-content:center;color:var(--muted)">닫기</button>';
+  sheet.querySelectorAll('[data-nm]').forEach(b => b.onclick = ()=>{ $('#logName').value = b.dataset.nm; });
+  sheet.querySelector('[data-k="cancel"]').onclick = closeSheet;
+  $('#logOk').onclick = ()=>{
+    const nm = ($('#logName').value || '').trim() ||
+      (today.getMonth()+1) + '월 ' + today.getDate() + '일 차트';
+    const up = A.dirs.filter(d=>d==='up').length, dn = A.dirs.filter(d=>d==='down').length,
+          fl = A.dirs.filter(d=>d==='flat').length;
+    const entry = {
+      id: 'e' + Date.now(), at: Date.now(), title: nm, thumb: thumbURL(), cal: !!A.cal,
+      sum: {up, dn, fl}, bars: A.bars ? A.bars.length : null,
+      cards: A.cards.map(c => ({t:c.t, badge:c.badge, badgeText:c.badgeText || null,
+                                facts: c.facts.map(strip)}))
+    };
+    const arr = loadLog();
+    arr.unshift(entry);
+    const ok = saveLog(arr);
+    closeSheet();
+    paintLog();
+    const btn = $('#btnSaveLog');
+    if(btn){ btn.textContent = ok ? '기록에 담았습니다 ✓' : '자리가 모자라 담지 못했습니다';
+      setTimeout(()=>{ if($('#btnSaveLog')) $('#btnSaveLog').textContent = '📌 기록에 담기'; }, 1800); }
+  };
+  sheetBg.classList.add('on'); sheet.classList.add('on');
+  setTimeout(()=>{ const i = $('#logName'); if(i) i.focus(); }, 220);
+}
+
+let logFilter = null, logOpen = {};
+function paintLog(){
+  const arr = loadLog(), box = $('#secLog');
+  if(!arr.length){
+    box.innerHTML = '<div class="card"><h2><span class="step">📌</span>기록</h2>' +
+      '<p class="desc">아직 담아 둔 것이 없습니다.<br>차트를 읽은 뒤 결과 아래 <b>📌 기록에 담기</b>를 누르면 여기에 쌓입니다.<br><br>' +
+      '같은 종목을 여러 날 담아 두면 <b>지표가 어떻게 달라졌는지</b> 죽 훑어볼 수 있습니다.</p></div>';
+    return;
+  }
+  const titles = [];
+  arr.forEach(e => { if(titles.indexOf(e.title) < 0) titles.push(e.title); });
+  if(logFilter && titles.indexOf(logFilter) < 0) logFilter = null;
+  const list = logFilter ? arr.filter(e => e.title === logFilter) : arr;
+  const B = {up:['up','위'], down:['down','아래'], flat:['flat','중립']};
+  box.innerHTML =
+    '<div class="card"><h2><span class="step">📌</span>기록 <span style="font-size:12px;font-weight:700;color:var(--muted)">' + arr.length + '개</span></h2>' +
+    '<p class="desc">담아 둔 결과입니다. 눌러서 자세히 보고, 필요 없으면 지우면 됩니다. ' +
+    '이 기록은 <b>이 폰 안에만</b> 있습니다.</p></div>' +
+    (titles.length > 1 ? '<div class="chips"><button class="' + (logFilter?'':'on') + '" data-f="">전체</button>' +
+      titles.map(t => '<button class="' + (logFilter===t?'on':'') + '" data-f="' + esc(t) + '">' + esc(t) + '</button>').join('') + '</div>' : '') +
+    list.map(e => {
+      const d = new Date(e.at);
+      const when = d.getFullYear() + '.' + (d.getMonth()+1) + '.' + d.getDate() + ' ' +
+        String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+      const open = !!logOpen[e.id];
+      return '<div class="logrow">' +
+        (e.thumb ? '<img src="' + e.thumb + '" alt="">' : '') +
+        '<div class="info"><div class="ttl">' + esc(e.title) + '</div>' +
+        '<div class="dt">' + when + (e.bars ? ' · 약 ' + e.bars + '봉' : '') + '</div>' +
+        '<div class="sum">' +
+          '<span class="badge up">위 ' + e.sum.up + '</span>' +
+          '<span class="badge down">아래 ' + e.sum.dn + '</span>' +
+          '<span class="badge flat">중립 ' + e.sum.fl + '</span></div>' +
+        '<div class="acts">' +
+          '<button data-o="' + e.id + '">' + (open ? '접기' : '자세히') + '</button>' +
+          '<button data-r="' + e.id + '">이름</button>' +
+          '<button data-x="' + e.id + '" style="color:var(--muted)">지움</button></div>' +
+        (open ? '<div class="logdetail">' + e.cards.map(c =>
+            '<h4>' + esc(c.t) + ' <span style="font-weight:700;color:var(--muted)">' +
+            esc(c.badgeText || (B[c.badge]||B.flat)[1]) + '</span></h4><ul>' +
+            c.facts.map(f => '<li>' + esc(f) + '</li>').join('') + '</ul>').join('') + '</div>' : '') +
+        '</div></div>';
+    }).join('');
+  box.querySelectorAll('[data-f]').forEach(b => b.onclick = ()=>{ logFilter = b.dataset.f || null; paintLog(); });
+  box.querySelectorAll('[data-o]').forEach(b => b.onclick = ()=>{
+    logOpen[b.dataset.o] = !logOpen[b.dataset.o]; paintLog(); });
+  box.querySelectorAll('[data-r]').forEach(b => b.onclick = ()=>{
+    const arr2 = loadLog(), e = arr2.find(x => x.id === b.dataset.r);
+    if(!e) return;
+    const nm = prompt('이름을 적어 주세요', e.title);
+    if(nm == null) return;
+    e.title = nm.trim() || e.title; saveLog(arr2); paintLog();
+  });
+  box.querySelectorAll('[data-x]').forEach(b => b.onclick = ()=>{
+    if(!confirm('이 기록을 지울까요?')) return;
+    saveLog(loadLog().filter(x => x.id !== b.dataset.x)); paintLog();
+  });
+}
+
+/* ─────────────────────────────────────────────
    지표 사전
    ───────────────────────────────────────────── */
 $('#secDict').innerHTML = `
@@ -1843,6 +2320,49 @@ $('#secDict').innerHTML = `
 </div>
 
 <div class="card dict">
+  <h3>📊 거래량</h3>
+  <p>그 기간에 <b>사고팔린 주식 수</b>입니다. 방향을 알려 주는 지표가 아니라 <b>관심의 크기</b>로 읽습니다.
+  값이 움직일 때 거래량이 함께 늘면 그 움직임에 참여한 사람이 많았다는 뜻이고,
+  거래량 없이 움직였다면 적은 손바뀜으로 생긴 값이라는 뜻입니다.
+  국내 차트는 오른 날을 빨강, 내린 날을 파랑으로 칠합니다.</p>
+</div>
+
+<div class="card dict">
+  <h3>🌡️ RSI</h3>
+  <p>정해진 기간(보통 14일) 동안 <b>오른 날의 평균 상승폭과 내린 날의 평균 하락폭</b>을 견줘
+  0~100으로 나타낸 값입니다. 값이 클수록 그동안 오른 힘이 셌다는 뜻입니다.</p>
+  <ul>
+    <li><span class="k">70 위</span> 과매수 구간이라 부릅니다</li>
+    <li><span class="k">30 아래</span> 과매도 구간이라 부릅니다</li>
+    <li><span class="k">50</span> 오른 힘과 내린 힘이 비슷했던 자리</li>
+  </ul>
+  <p>다만 <b>추세가 셀 때는 70 위(또는 30 아래)에 오래 머무릅니다</b>.
+  그 자체로 방향이 바뀐다는 뜻은 아닙니다.</p>
+</div>
+
+<div class="card dict">
+  <h3>〽️ MACD</h3>
+  <p><b>12일 지수이동평균 − 26일 지수이동평균</b>입니다. 짧은 평균과 긴 평균이 얼마나 벌어져 있는지를 그립니다.
+  그 값을 다시 9일 평균 낸 것이 <b>시그널선</b>이고, 둘의 차이를 막대그래프로 그린 것이 <b>히스토그램</b>입니다.</p>
+  <ul>
+    <li><span class="k">0선 위</span> 짧은 평균이 긴 평균보다 위에 있다는 뜻</li>
+    <li><span class="k">시그널 교차</span> MACD가 시그널을 위/아래로 지나가는 자리를 흔히 봅니다</li>
+    <li><span class="k">히스토그램</span> 커지면 두 평균이 더 벌어지는 중, 줄어들면 좁혀지는 중</li>
+  </ul>
+</div>
+
+<div class="card dict">
+  <h3>🎚️ 스토캐스틱</h3>
+  <p>요즘 값이 <b>최근 고점과 저점 사이 어디쯤</b>에서 끝나는지를 0~100으로 본 것입니다.</p>
+  <ul>
+    <li><span class="k">%K</span> (지금 값 − 최근 최저) ÷ (최근 최고 − 최근 최저) × 100</li>
+    <li><span class="k">%D</span> %K를 며칠 평균 낸 선</li>
+    <li><span class="k">80 위 · 20 아래</span> 과매수·과매도 구간이라 부릅니다</li>
+  </ul>
+  <p>오르는 흐름이 셀 때는 80 위에 계속 붙어 있기도 합니다.</p>
+</div>
+
+<div class="card dict">
   <h3>🕯️ 캔들</h3>
   <p>한 칸이 하루(또는 1분·1주 등 정한 기간)입니다. 몸통은 <b>시가와 종가 사이</b>, 위아래 꼬리는 그 기간에 닿았던
   <b>최고·최저</b>입니다. 국내 차트는 <b class="k" style="background:var(--up-s);color:var(--up)">빨강 = 오름</b>,
@@ -1850,9 +2370,18 @@ $('#secDict').innerHTML = `
 </div>
 
 <div class="card dict">
+  <h3>📌 기록</h3>
+  <p>읽은 결과 아래 <b>기록에 담기</b>를 누르면 종목 이름과 함께 저장됩니다.
+  <b>기록</b> 칸에서 담아 둔 것을 죽 훑어보고, 같은 종목끼리 모아 볼 수도 있습니다.
+  같은 종목을 여러 날 담아 두면 <b>지표가 어떻게 달라졌는지</b> 비교하기 좋습니다.</p>
+  <p>기록은 <b>이 폰(브라우저) 안에만</b> 저장됩니다. 어디로도 올라가지 않고,
+  브라우저 저장 공간을 비우면 함께 지워집니다.</p>
+</div>
+
+<div class="card dict">
   <h3>🎯 잘 읽히게 캡처하는 법</h3>
   <ul>
-    <li>거래량·MACD 같은 <b>아래 칸은 잘라내고</b>, 캔들이 그려진 칸만 남기세요</li>
+    <li>거래량·RSI·MACD 같은 <b>아래 칸도 함께</b> 캡처하면 그 칸까지 읽습니다</li>
     <li>오른쪽 <b>가격 눈금과 현재가 딱지</b>는 영역에서 빼는 편이 정확합니다</li>
     <li>선 색이 서로 너무 비슷하면 구분이 어렵습니다 — 증권사 앱에서 색을 바꾸면 훨씬 잘 읽힙니다</li>
     <li>확대해서 캡처할수록 선이 굵게 잡혀서 잘 읽힙니다</li>
@@ -1871,12 +2400,17 @@ $('#secDict').innerHTML = `
 /* ─────────────────────────────────────────────
    탭 · 시작
    ───────────────────────────────────────────── */
-$('#tabRead').onclick = ()=>{ $('#tabRead').classList.add('on'); $('#tabDict').classList.remove('on');
-  $('#secRead').classList.remove('hidden'); $('#secDict').classList.add('hidden'); window.scrollTo({top:0}); };
-$('#tabDict').onclick = ()=>{ $('#tabDict').classList.add('on'); $('#tabRead').classList.remove('on');
-  $('#secDict').classList.remove('hidden'); $('#secRead').classList.add('hidden'); window.scrollTo({top:0}); };
+const TABS = [['tabRead','secRead'], ['tabLog','secLog'], ['tabDict','secDict']];
+TABS.forEach(([tb, sc]) => $('#'+tb).onclick = ()=>{
+  TABS.forEach(([t2, s2]) => {
+    $('#'+t2).classList.toggle('on', t2 === tb);
+    $('#'+s2).classList.toggle('hidden', s2 !== sc);
+  });
+  if(sc === 'secLog') paintLog();
+  window.scrollTo({top:0});
+});
 
-restore(); paintRoles(); setHint();
+restore(); paintRoles(); setHint(); paintLog();
 </script>
 </body>
 </html>
