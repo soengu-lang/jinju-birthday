@@ -292,7 +292,7 @@ let state = {
   chats: {},          /* code('*'=포트폴리오) → [{role,text,t}] */
   seenNews: {},       /* code → {articleId:true} 이미 본 뉴스 */
   brief: null,        /* 오늘의 AI 브리핑 캐시 {date,text} */
-  assets: { mode:'off', room:'', projectId:'', apiKey:'', holdings:[], accts:{}, px:{}, fx:0, at:0, err:'' },   /* 우리집 자산 앱에서 읽어 온 보유 (읽기 전용) */
+  assets: { mode:'off', room:'', projectId:'', apiKey:'', holdings:[], accts:{}, px:{}, px2:{}, hist:[], fx:0, at:0, err:'', auto:true },   /* 우리집 자산 앱에서 읽어 온 보유 (읽기 전용) */
   settings: { provider:'anthropic', apiKey:'', model:'', relayUrl:'', relay:0, effort:'medium' },
   ui: { tab:'home', code:'', demo:false }
 };
@@ -1167,7 +1167,10 @@ function portfolioPack(){
       종목별: Object.keys(krPositions()).map(c => { const p = positionOf(c), w = weightOf(c);
         return { 종목: state.data[c]?.basic.name || p.name, 코드:c, 평가금액: has(p.value)?Math.round(p.value):null, 수익률: pct(p.plRate),
           국내주식내_비중: w&&has(w.inKr)?+w.inKr.toFixed(1):null, 업종: state.data[c]?.integ.industry||'' }; }),
-      업종별_비중: industryMix().map(x=>({ 업종:x.industry, 비중:+x.pct.toFixed(1), 종목:x.names })) }
+      업종별_비중: industryMix().map(x=>({ 업종:x.industry, 비중:+x.pct.toFixed(1), 종목:x.names })),
+      자산_구성: assetMix().map(g=>({ 종류:g.label, 금액:Math.round(g.value), 비중: has(g.pct)?+g.pct.toFixed(1):null, 개수:g.n, 오늘변동: g.day?Math.round(g.day):0 })),
+      원달러환율: has(state.assets.fx)?Math.round(state.assets.fx):null,
+      오늘_주식외_변화: otherChanges().map(c=>({ 제목:c.title, 내용:c.detail })) }
     : '자산 앱을 연동하지 않아 실제 보유 수량·비중을 모릅니다. 비중 질문에는 모른다고 답하세요.';
   return { 관심종목: items, 투자일지: j, 내_자산: 자산 };
 }
@@ -1261,6 +1264,15 @@ async function readCloudAssets(cfg){
   /* 시세 캐시는 공유되지 않습니다 — 국내주식은 이 앱이 직접 가져오고, 나머지는 평가액을 모릅니다 */
   return { holdings: core.holdings, accts: core.accts||{}, px: {}, fx: 0, sync: cfg, at: Date.now() };
 }
+/* 연동해 두면 보유 종목을 알아서 담습니다 — 하나하나 찾아 넣지 않아도 됩니다 */
+async function autoImport(){
+  if(state.assets.mode === 'off' || state.assets.auto === false) return [];
+  const miss = missingWatch();
+  if(!miss.length) return [];
+  for(const p of miss) state.watch.push({ code:p.code, name:p.name, mk:p.mk||'kr', sym:p.sym||'', addedAt: Date.now(), fromAssets:true });
+  save();
+  return miss;
+}
 async function loadAssets(opts={}){
   const A = state.assets;
   if(A.mode === 'off') return;
@@ -1275,6 +1287,7 @@ async function loadAssets(opts={}){
     Object.assign(A, { holdings: got.holdings, accts: got.accts, px: got.px, fx: got.fx, at: got.at, err:'' });
     if(A.mode === 'local' && got.sync?.room && !A.room){ A.room = got.sync.room; A.projectId = got.sync.projectId||''; A.apiKey = got.sync.apiKey||''; }
     save();
+    await autoImport();
   }catch(e){ A.err = e.message; save(); if(!opts.quiet) toast(e.message); }
 }
 const assetsOn = () => state.assets?.mode !== 'off' && (state.assets?.holdings||[]).length>0;
@@ -1325,9 +1338,8 @@ function maValue(h){
     const c = String(h.code || h.sym || '').toUpperCase(), d = state.data[c];
     if(d && has(d.basic.price) && FX() > 0) return d.basic.price * q * FX();
   }
-  if(h.mp !== undefined && h.mp !== null && h.mp !== '') return (+h.mp||0) * q;
-  const c = A.px?.[h.cat + ':' + (h.code || h.sym || h.id)];
-  if(c && +c.p>0) return (+c.p) * q * (c.ccy==='USD' ? (A.fx||0) : 1);
+  const px = priceOfHolding(h);                          /* 코인·금·달러, 직접 적은 값, 자산 앱 캐시 */
+  if(px && +px.p > 0) return (+px.p) * q;
   return NaN;
 }
 /* 전체 자산 합계 — 값을 모르는 줄은 세지 않고 몇 개인지 알려 줍니다 */
@@ -1414,9 +1426,12 @@ function assetCard(){
     const local = readLocalAssets();
     if(!local || !local.holdings.some(h=>h.cat==='kr'||h.cat==='us')) return '';
     return `<div class="card"><h2>📊 우리집 자산 연동</h2>
-      <p class="desc">이 폰의 <b>우리집 자산</b> 앱에 주식 <b>${local.holdings.filter(h=>(h.cat==='kr'||h.cat==='us')&&!h.hide).length}개</b>(국내·미국)가 담겨 있습니다.
-      연동하면 보유 수량·평단가가 붙어서 <b>내 계좌 기준 손익·비중</b>으로 보여 드립니다.</p>
-      <div class="btn-row"><button class="btn sm" data-act="linkLocal">🔗 이 폰의 자산 앱과 연동</button><button class="btn sm ghost" data-act="settings">다른 폰이에요</button></div></div>`;
+      <p class="desc">이 폰의 <b>우리집 자산</b> 앱에 <b>${local.holdings.filter(h=>!h.hide).length}개</b>가 담겨 있습니다
+      (주식 ${local.holdings.filter(h=>(h.cat==='kr'||h.cat==='us')&&!h.hide).length}개, 그 밖에 코인·금·달러·부동산 등).<br>
+      연동을 누르면 <b>보유 주식을 알아서 다 담고</b>, 수량·평단이 붙어 내 계좌 기준 손익·비중으로 보여 드립니다.
+      코인·금·달러도 시세를 받아 <b>자산 구성</b>에 함께 나옵니다. 하나하나 찾아 넣지 않으셔도 됩니다.</p>
+      <div class="btn-row"><button class="btn" data-act="linkLocal">🔗 자산 앱과 연동하기</button></div>
+      <div class="btn-row"><button class="btn sm ghost" data-act="settings">다른 폰·배우자 방으로 연동</button></div></div>`;
   }
   const t = assetTotals();
   if(!t) return `<div class="card"><h2>📊 우리집 자산</h2><p class="desc">${esc(A.err||'보유 자료를 읽지 못했어요.')}</p><div class="btn-row"><button class="btn sm ghost" data-act="reloadAssets">다시 읽기</button></div></div>`;
@@ -1431,7 +1446,7 @@ function assetCard(){
       <div class="c"><div class="k">수익률</div><div class="v ${cls(t.krPlRate)}">${pct(t.krPlRate)}</div></div>
     </div>
     <p class="tiny muted mt">오늘 ${has(day)&&day!==0?`<b class="${cls(day)}">${day>0?'+':''}${fmt(day)}원</b>`:'변동 없음'}
-      ${t.total>0?` · 전체 자산 ${won(t.total)} 중 <b>${(t.kr/t.total*100).toFixed(0)}%</b>`:''}${t.nUs?` · 미국 ${t.nUs}개 포함(환율 ${FX()?fmt(FX())+'원':'모름'})`:''}${nonKr?` · 주식이 아닌 ${nonKr}개는 추적하지 않습니다`:''}
+      ${t.total>0?` · 전체 자산 ${won(t.total)} 중 <b>${(t.kr/t.total*100).toFixed(0)}%</b>`:''}${t.nUs?` · 미국 ${t.nUs}개 포함(환율 ${FX()?fmt(FX())+'원':'모름'})`:''}${nonKr?` · 코인·금·달러 등 ${nonKr}개는 아래 자산 구성에서`:''}
       ${t.noFx?`<br><b class="up">환율을 몰라 미국주식 ${t.noFx}개는 합계에서 빠졌습니다</b> — 자산 앱을 한 번 열어 환율을 받아 주세요`:''}
       ${t.unknown?`<br>값을 모르는 자산 ${t.unknown}개는 전체 합계에서 빠졌습니다 (아직 시세를 못 받은 것)`:''}</p>
     ${top && top.pct>=40 ? `<div class="note mt">⚠️ 주식의 <b>${top.pct.toFixed(0)}%</b>가 <b>${esc(top.industry)}</b> 한 곳에 있습니다 (${esc(top.names.slice(0,3).join(', '))}). 같은 뉴스에 같이 움직입니다.</div>` : ''}
@@ -1439,6 +1454,36 @@ function assetCard(){
     <div class="btn-row"><button class="btn sm ghost" data-act="reloadAssets">🔄 자산 다시 읽기</button>${mix.length?`<button class="btn sm ghost" data-act="showMix">업종 비중 보기</button>`:''}</div>
   </div>`;
 }
+/* 홈 — 우리집 자산 전체 구성 (주식이 아닌 것까지) */
+function mixCard(){
+  if(!assetsOn()) return '';
+  const mix = assetMix(), t = assetTotals();
+  if(!mix.length || !t) return '';
+  const day = mix.reduce((s,g)=>s + (has(g.day)?g.day:0), 0);
+  const bar = ['#274b6d','#3f7d4f','#c9862b','#8a5aa8','#2f8f8a','#b5573f','#7c8390','#5a6dab'];
+  const shown = mix.filter(g=>g.cat!=='debt' && g.value>0);
+  return `<div class="card">
+    <h2>🧺 우리집 자산 <span class="sub">${state.assets.at?new Date(state.assets.at).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):''}</span></h2>
+    <div class="kv">
+      <div class="c"><div class="k">전체</div><div class="v">${won(t.total)}</div></div>
+      <div class="c"><div class="k">순자산</div><div class="v">${won(t.net)}</div></div>
+      <div class="c"><div class="k">오늘</div><div class="v ${cls(day)}">${day?((day>0?'+':'')+fmt(day)):'–'}</div></div>
+    </div>
+    <div class="row mt" style="height:12px;border-radius:6px;overflow:hidden;gap:0">
+      ${shown.map((g,i)=>`<div style="width:${(g.pct||0).toFixed(1)}%;background:${bar[i%bar.length]}" title="${esc(g.label)}"></div>`).join('')}
+    </div>
+    <div class="list" style="gap:0;margin-top:8px">
+      ${mix.map((g,i)=>`<div class="risk"><span>${g.emo}</span><div class="grow">
+        <div class="small b">${esc(g.label)} <span class="tiny muted">${g.n}개${g.unknown?` · ${g.unknown}개 시세 모름`:''}</span></div>
+        ${g.cat!=='debt'&&has(g.pct)?`<div class="bar" style="height:5px;margin-top:3px"><i style="width:${g.pct.toFixed(1)}%;background:${bar[i%bar.length]}"></i></div>`:''}</div>
+        <div class="right"><div class="small b num">${won(g.value)}</div>
+        <div class="tiny ${cls(g.day)}">${g.cat!=='debt'&&has(g.pct)?g.pct.toFixed(1)+'%':''}${g.day?` · ${g.day>0?'+':''}${fmt(g.day)}`:''}</div></div></div>`).join('')}
+    </div>
+    <p class="tiny muted mt">코인은 업비트, 환율은 공개 환율, 금은 국제 시세를 원/g 으로 환산해 이 앱이 직접 받아 옵니다.
+      ${has(state.assets.fx)?`원/달러 ${fmt(state.assets.fx)}원.`:''} 부동산·예적금처럼 시세가 없는 것은 자산 앱에 적어 둔 금액을 씁니다.</p>
+  </div>`;
+}
+
 /* 종목 — 내 보유 카드 */
 function positionCard(code, sn){
   const p = positionOf(code); if(!p) return '';
@@ -1468,6 +1513,126 @@ function positionCard(code, sn){
   </div>`;
 }
 
+/* ============================================================
+   4.6 주식이 아닌 자산 — 코인·금·달러도 함께 봅니다
+   ------------------------------------------------------------
+   자산 앱과 같은 출처를 씁니다. 업비트·환율은 브라우저에서 바로 열려서
+   중계가 막혀 있어도 대개 붙습니다.
+   ============================================================ */
+const OZ_G = 31.1034768;
+const CATS = { kr:'국내주식', us:'미국주식', coin:'코인', gold:'금', fx:'달러·외화', real:'부동산', cash:'예적금·현금', etc:'연금·펀드·기타', debt:'대출' };
+const CAT_EMO = { kr:'🇰🇷', us:'🇺🇸', coin:'🪙', gold:'🥇', fx:'💵', real:'🏠', cash:'💰', etc:'💼', debt:'💳' };
+
+async function fetchFxRate(){
+  for(const f of [
+    async()=>+(JSON.parse(await getText('https://open.er-api.com/v6/latest/USD', 8000))?.rates?.KRW),
+    async()=>+(JSON.parse(await getText('https://api.frankfurter.app/latest?from=USD&to=KRW', 8000))?.rates?.KRW),
+    async()=>{ const j = JSON.parse(await getText('https://quotation-api-cdn.dunamu.com/v1/forex/recent?codes=FRX.KRWUSD', 8000));
+      return +(Array.isArray(j) ? j[0]?.basePrice : j?.basePrice); },
+    async()=>num((await relayJSON('https://m.stock.naver.com/api/marketindex/exchange/FX_USDKRW'))?.closePrice),
+  ]){ try{ const v = await f(); if(v > 0) return v; }catch(e){} }
+  return NaN;
+}
+async function fetchCoinPrices(codes){
+  if(!codes.length) return {};
+  const u = 'https://api.upbit.com/v1/ticker?markets=' + encodeURIComponent(codes.map(c=>'KRW-'+c).join(','));
+  let arr;
+  try{ arr = JSON.parse(await getText(u, 8000)); }catch(e){ arr = await relayJSON(u); }
+  const out = {};
+  (arr||[]).forEach(t => { const c = String(t.market||'').replace('KRW-','');
+    out[c] = { p: +t.trade_price, prev: +(t.prev_closing_price || t.trade_price), src:'업비트' }; });
+  return out;
+}
+async function fetchGoldPrice(fx){
+  const per = x => x * (fx||0) / OZ_G;                     /* 달러/트로이온스 → 원/g */
+  try{
+    const c = parseYhChart(await relayJSON(YH.chart('GC=F')));
+    return { p: per(c.basic.price), prev: per(c.basic.prev), src:'국제 금시세' };
+  }catch(e){
+    const j = await relayJSON('https://m.stock.naver.com/api/marketindex/metals/CMDT_GC');
+    const p = num(j?.closePrice); if(!(p>0)) throw new Error('금 시세 없음');
+    return { p: per(p), prev: per(p), src:'네이버 금' };
+  }
+}
+/* 주식이 아닌 자산의 시세를 받아 옵니다 (하루에 한 번 어제 값을 남겨 둡니다) */
+async function refreshOther(){
+  if(!assetsOn()) return;
+  const A = state.assets, hs = liveHoldings();
+  const px2 = A.px2 = A.px2 || {};
+  const fx = await fetchFxRate();
+  if(fx > 0){ A.fx = fx; px2['fx:USD'] = { p: fx, at: Date.now(), src:'환율' }; }
+  const coins = [...new Set(hs.filter(h=>h.cat==='coin').map(h=>String(h.code||h.sym||'').toUpperCase()).filter(Boolean))];
+  if(coins.length){ try{ const m = await fetchCoinPrices(coins);
+    for(const [c,q] of Object.entries(m)) px2['coin:'+c] = Object.assign({ at: Date.now() }, q); }catch(e){} }
+  if(hs.some(h=>h.cat==='gold')){ try{ const g = await fetchGoldPrice(A.fx); px2['gold:GOLD'] = Object.assign({ at: Date.now() }, g); }catch(e){} }
+  /* 어제와 견주려고 하루 한 줄씩 남깁니다 */
+  const day = today(), hist = A.hist = A.hist || [];
+  const row = { date: day, fx: A.fx, gold: px2['gold:GOLD']?.p, coin: Object.fromEntries(Object.entries(px2).filter(([k])=>k.startsWith('coin:')).map(([k,v])=>[k.slice(5), v.p])) };
+  if(hist.length && hist[hist.length-1].date === day) hist[hist.length-1] = row; else hist.push(row);
+  if(hist.length > 60) hist.splice(0, hist.length-60);
+  save();
+}
+/* 어제(마지막으로 다른 날) 기록 */
+const otherPrev = () => { const h = state.assets?.hist || []; return h.length > 1 ? h[h.length-2] : null; };
+/* 자산 한 줄의 지금 시세 (우리가 받은 것 → 자산 앱 캐시 → 직접 적은 값) */
+function priceOfHolding(h){
+  const A = state.assets, px2 = A.px2 || {};
+  const code = String(h.code || h.sym || '').toUpperCase();
+  if(h.cat === 'coin' && px2['coin:'+code]) return px2['coin:'+code];
+  if(h.cat === 'gold' && px2['gold:GOLD']) return px2['gold:GOLD'];
+  if(h.cat === 'fx' && px2['fx:USD']) return px2['fx:USD'];
+  if(h.mp !== undefined && h.mp !== null && h.mp !== '') return { p:+h.mp, prev:+h.mp, src:'직접 입력' };
+  const c = A.px?.[h.cat + ':' + (h.code || h.sym || h.id)];
+  if(c && +c.p > 0) return { p: +c.p * (c.ccy === 'USD' ? (A.fx||0) : 1), prev: +(c.prev||c.p) * (c.ccy === 'USD' ? (A.fx||0) : 1), src:'자산 앱' };
+  return null;
+}
+/* 종류별로 묶은 자산 구성 */
+function assetMix(){
+  if(!assetsOn()) return [];
+  const by = {}, prev = otherPrev();
+  for(const h of liveHoldings()){
+    const cat = h.cat === 'debt' ? 'debt' : h.cat;
+    const g = by[cat] = by[cat] || { cat, label: CATS[cat]||cat, emo: CAT_EMO[cat]||'📦', value:0, day:0, n:0, unknown:0, items:[] };
+    g.n++;
+    if(cat === 'debt'){ g.value -= (+h.loan||0); continue; }
+    const v = maValue(h);
+    if(!has(v)){ g.unknown++; continue; }
+    g.value += v;
+    g.items.push({ name: h.name, value: v });
+    /* 오늘 변동 — 주식은 아래에서 종목 단위로 한 번만 */
+    if(h.cat !== 'kr' && h.cat !== 'us'){
+      const px = priceOfHolding(h);
+      if(px && has(px.prev) && px.prev>0 && has(px.p)) g.day += (px.p - px.prev) * (+h.qty||0);
+    }
+  }
+  for(const code of Object.keys(krPositions())){
+    const p = positionOf(code); if(!p || !has(p.dayKrw)) continue;
+    const g = by[p.mk]; if(g) g.day += p.dayKrw;
+  }
+  const tot = Object.values(by).filter(g=>g.cat!=='debt').reduce((s,g)=>s+g.value, 0);
+  return Object.values(by).map(g => Object.assign(g, { pct: tot>0 ? g.value/tot*100 : NaN }))
+    .sort((a,b)=> Math.abs(b.value) - Math.abs(a.value));
+}
+/* 주식이 아닌 자산에서 오늘 눈에 띄게 움직인 것 */
+function otherChanges(){
+  if(!assetsOn()) return [];
+  const out = [], prev = otherPrev(), A = state.assets, px2 = A.px2 || {};
+  const add = (impact, level, title, detail) => out.push({ impact, level, title, detail, kind:'asset', code:'' });
+  for(const h of liveHoldings()){
+    if(h.cat !== 'coin') continue;
+    const c = String(h.code||h.sym||'').toUpperCase(), q = px2['coin:'+c];
+    if(!q || !(q.prev>0)) continue;
+    const d = growth(q.p, q.prev);
+    if(has(d) && Math.abs(d) >= 5) add(d>0?'up':'down', Math.abs(d)>=10?'high':'mid', `${esc(h.name||c)} ${pct(d)}`, `${won(q.prev)} → ${won(q.p)} (하루)`);
+  }
+  const g = px2['gold:GOLD'], gp = prev?.gold;
+  if(g && has(gp) && gp>0){ const d = growth(g.p, gp); if(has(d) && Math.abs(d) >= 3) add(d>0?'up':'down','mid', `금 ${pct(d)}`, `1g ${won(gp)} → ${won(g.p)}`); }
+  const fxNow = A.fx, fxPrev = prev?.fx;
+  if(has(fxNow) && has(fxPrev) && fxPrev>0){ const d = growth(fxNow, fxPrev);
+    if(has(d) && Math.abs(d) >= 1.5) add(d>0?'up':'down','mid', `원/달러 ${pct(d)}`, `${fmt(fxPrev)}원 → ${fmt(fxNow)}원 — 미국주식·달러 자산에 영향`); }
+  return out;
+}
+
 /* ---------- 홈 ---------- */
 function renderHome(){
   const el = $('#tab-home');
@@ -1488,6 +1653,7 @@ function renderHome(){
   /* 변화 모으기 */
   const all = [];
   for(const w of state.watch){ const ch = detectChangesFor(w.code); ch.forEach(c => all.push(Object.assign({code:w.code, name:w.name}, c))); }
+  otherChanges().forEach(c => all.push(Object.assign({ name:'' }, c)));      /* 코인·금·환율 */
   const rank = {high:3, mid:2, low:1};
   const wOf = c => weightOf(c.code)?.inKr || 0;     /* 많이 들고 있는 종목의 변화를 위로 */
   all.sort((a,b)=> (rank[b.level]-rank[a.level]) || (wOf(b)-wOf(a)));
@@ -1501,9 +1667,9 @@ function renderHome(){
     ${demoOn ? `<div class="note mt">🧪 <b>샘플 데이터</b>가 섞여 있습니다. 실제 값이 아닙니다. (⚙️에서 끌 수 있어요)</div>` : ''}
     <p class="desc">${top.length ? `관심종목에서 판단에 영향을 줄 만한 변화가 <b>${top.length}개</b> 있습니다.` : all.length ? '작은 변화만 있습니다. 판단을 바꿀 만한 것은 없어요.' : '아직 비교할 이전 기록이 없거나, 어제와 달라진 게 없습니다.<br>내일 다시 열면 그 사이 바뀐 것만 보여 드립니다.'}</p>
     ${top.map(c => `<div class="chg-item"><div class="ico">${impIcon(c)}</div><div class="grow">
-      <div class="t">${esc(c.name)} · ${esc(c.title)}<span class="lv ${c.level}">${levelLabel[c.level]}</span></div>
+      <div class="t">${c.name?esc(c.name)+' · ':''}${esc(c.title)}<span class="lv ${c.level}">${levelLabel[c.level]}</span></div>
       <div class="d">${esc(c.detail)}</div>
-      <div class="mt"><button class="btn xs ghost" data-act="open" data-code="${c.code}">자세히</button></div></div></div>`).join('')}
+      ${c.code?`<div class="mt"><button class="btn xs ghost" data-act="open" data-code="${c.code}">자세히</button></div>`:''}</div></div>`).join('')}
     ${all.length>top.length ? `<p class="tiny muted mt">그 밖의 변화 ${all.length-top.length}건은 종목 화면에서 보실 수 있어요.</p>` : ''}
     <div class="btn-row">
       <button class="btn sm ghost" data-act="refreshAll" ${busy.refreshAll?'disabled':''}>${busy.refreshAll?'<span class="spin dark"></span> 가져오는 중':'🔄 새로고침'}</button>
@@ -1519,24 +1685,32 @@ function renderHome(){
         <b>구글 스크립트 중계</b>를 한 번 만들어 두면 거의 안 막힙니다 (3분, 무료).</p>
       <div class="btn-row"><button class="btn sm" data-act="relaySetup">📡 중계 만들기 (3분)</button><button class="btn sm ghost" data-act="diag">🩺 시세 점검</button><button class="btn sm ghost" data-act="refreshAll">🔄 다시 시도</button></div></div>`; })()}
   ${assetCard()}
+  ${mixCard()}
   ${alerts.length ? `<div class="card" style="border-color:#f3c9c5">
     <h2>🚨 투자 논리 점검 필요</h2>
     ${alerts.map(t => `<div class="chg-item"><div class="ico">🧭</div><div class="grow"><div class="t">${esc(t.title)} <span class="tiny muted">· ${esc(W(t.code)?.name||t.code)}</span></div>
       <div class="d">핵심 가정이나 리스크에 닿는 변화·뉴스가 발견됐습니다. 확신도 ${t.confidence}%</div>
       <div class="mt"><button class="btn xs" data-act="go" data-tab="thesis">점검하러 가기</button></div></div></div>`).join('')}
   </div>` : ''}
-  <div class="card">
-    <h2>관심종목 <span class="sub">${state.watch.length}개</span></h2>
-    <div class="list">
-    ${state.watch.map(w => { const d = state.data[w.code], c = chgOf(w.code), sc = d ? computeScore(d).s.total : NaN; const ch = detectChangesFor(w.code); const worst = ch.find(x=>x.level==='high') || ch.find(x=>x.level==='mid'); const pos = positionOf(w.code);
+  ${(() => {
+    const row = w => { const d = state.data[w.code], c = chgOf(w.code), sc = d ? computeScore(d).s.total : NaN;
+      const ch = detectChangesFor(w.code), worst = ch.find(x=>x.level==='high') || ch.find(x=>x.level==='mid'), pos = positionOf(w.code);
       return `<button class="item" data-act="open" data-code="${w.code}">
         <div class="dot ${worst ? (worst.impact==='flat'?'flat':worst.impact) : 'flat'}"></div>
-        <div class="grow"><div class="nm">${esc(w.name)} ${d?.demo?'<span class="pill gold">샘플</span>':''}${pos?`<span class="pill brand">보유</span>`:''}</div><div class="cd">${w.code}${worst ? ' · ' + esc(worst.title) : (pos&&has(pos.plRate) ? ` · 내 손익 <span class="${cls(pos.plRate)}">${pct(pos.plRate)}</span>` : (state.theses.some(t=>t.code===w.code) ? ' · 논리 저장됨' : ''))}</div></div>
+        <div class="grow"><div class="nm">${esc(w.name)} ${w.mk==='us'?'<span class="pill brand">🇺🇸</span>':''}${d?.demo?'<span class="pill gold">샘플</span>':''}</div>
+          <div class="cd">${esc(w.code)}${worst ? ' · ' + esc(worst.title)
+            : (pos ? ` · ${fmt(pos.qty)}주 · 손익 <span class="${cls(pos.plRate)}">${pct(pos.plRate)}</span>`
+            : (state.theses.some(t=>t.code===w.code) ? ' · 논리 저장됨' : ''))}</div></div>
         <div class="right"><div class="px num">${d ? px$(d.basic.price, w.code) : '–'}</div><div class="chg num ${cls(c)}">${pct(c)}${has(sc)?` · <b>${sc}</b>점`:''}</div></div>
-      </button>`; }).join('')}
-    </div>
-    <div class="btn-row"><button class="btn sm ghost" data-act="go" data-tab="search">＋ 종목 추가</button><button class="btn sm ghost" data-act="go" data-tab="ai">💬 포트폴리오에 질문</button></div>
-  </div>`;
+      </button>`; };
+    const held = state.watch.filter(w => positionOf(w.code)), watch = state.watch.filter(w => !positionOf(w.code));
+    return `<div class="card">
+      <h2>${held.length?'💼 가진 것':'관심종목'} <span class="sub">${held.length?held.length+'개':state.watch.length+'개'}</span></h2>
+      ${held.length ? `<div class="list">${held.map(row).join('')}</div>` : ''}
+      ${!held.length ? `<div class="list">${watch.map(row).join('')}</div>` : ''}
+      ${held.length && watch.length ? `<div class="sec-t">👀 지켜보는 것 <span class="tiny muted">(안 가지고 있음)</span></div><div class="list">${watch.map(row).join('')}</div>` : ''}
+      <div class="btn-row"><button class="btn sm ghost" data-act="go" data-tab="search">＋ 종목 추가</button><button class="btn sm ghost" data-act="go" data-tab="ai">💬 포트폴리오에 질문</button></div>
+    </div>`; })()}`;
 }
 
 /* ---------- 검색 ---------- */
@@ -1610,7 +1784,10 @@ async function refreshAll(){
   if(busy.refreshAll) return;
   busy.refreshAll = true; resetRelays(); render();
   await loadAssets({quiet:true});
+  const added = await autoImport();
   for(const w of state.watch){ await refreshStock(w.code, {quiet:true}); }
+  await refreshOther();
+  if(added.length) toast(`자산 앱에서 ${added.length}개를 새로 담았어요`);
   busy.refreshAll = false; save(); render();
   toast(state.ui.demo ? '샘플 데이터를 다시 만들었어요' : '새로고침 완료');
 }
@@ -1926,7 +2103,7 @@ function openSettings(){
     <p class="tiny muted mt">키는 이 브라우저의 저장소에만 있고, 질문할 때 해당 AI 회사 서버로만 전송됩니다. 다른 곳으로는 가지 않습니다.</p>
     <div class="sec-t">📊 우리집 자산 연동 <span class="tiny muted">(읽기만 합니다)</span></div>
     ${(() => { const A = state.assets, local = readLocalAssets();
-      const n = (A.holdings||[]).filter(h=>h.cat==='kr'&&!h.hide).length;
+      const n = (A.holdings||[]).filter(h=>(h.cat==='kr'||h.cat==='us')&&!h.hide).length;
       return `<div class="f"><label>어디서 읽을까요</label><select id="aMode">
         <option value="off" ${A.mode==='off'?'selected':''}>연동 안 함</option>
         <option value="local" ${A.mode==='local'?'selected':''}>이 폰의 자산 앱${local?` (국내주식 ${local.holdings.filter(h=>h.cat==='kr'&&!h.hide).length}개 있음)`:' (자료 없음)'}</option>
@@ -1936,7 +2113,8 @@ function openSettings(){
         <div class="f"><label>Firebase 프로젝트 ID</label><input id="aPid" value="${esc(A.projectId||local?.sync?.projectId||'')}"></div>
         <div class="f"><label>Firebase API 키</label><input id="aKey" value="${esc(A.apiKey||local?.sync?.apiKey||'')}"></div>
         <p class="tiny muted">자산 앱 ⚙️ → 배우자와 함께 보기 에 있는 값과 같습니다. 이 앱은 그 방을 <b>읽기만</b> 하고 아무것도 쓰지 않습니다.</p></div>
-      ${A.mode!=='off' ? `<p class="tiny muted mt">${A.err ? '⚠️ '+esc(A.err) : `국내주식 ${n}개 · ${A.at?new Date(A.at).toLocaleString('ko-KR'):'아직 안 읽음'}`}</p>` : ''}
+      ${A.mode!=='off' ? `<div class="f"><label><input type="checkbox" id="aAuto" ${A.auto!==false?'checked':''} style="width:auto;margin-right:6px">자산 앱의 보유 종목을 <b>자동으로 담기</b> (새로 산 종목이 생기면 알아서 들어옵니다)</label></div>
+        <p class="tiny muted">${A.err ? '⚠️ '+esc(A.err) : `주식 ${n}개 · 전체 ${(A.holdings||[]).filter(h=>!h.hide).length}개 · ${A.at?new Date(A.at).toLocaleString('ko-KR'):'아직 안 읽음'}`}</p>` : ''}
       <p class="tiny muted mt">보유 수량·평단가를 읽어 오면 <b>내 계좌 기준 손익·비중</b>이 붙고, AI 질문에도 실제 비중이 함께 전달됩니다.</p>`; })()}
     <div class="sec-t">📡 데이터 (시세·재무·뉴스)</div>
     <p class="tiny muted">서버가 없어서 공개 중계를 거쳐 네이버증권을 읽습니다. 공개 중계는 자주 막히니 <b>내 구글 스크립트 중계</b>를 한 번 만들어 두면 안정적입니다. (우리집 자산 앱에서 만든 주소가 있으면 자동으로 씁니다)</p>
@@ -1960,6 +2138,7 @@ function saveSettings(){
   const wasMode = A.mode;
   A.mode = $('#aMode').value;
   if(A.mode === 'cloud'){ A.room = $('#aRoom').value.trim(); A.projectId = $('#aPid').value.trim(); A.apiKey = $('#aKey').value.trim(); }
+  if($('#aAuto')) A.auto = $('#aAuto').checked;
   if(A.mode === 'off'){ A.holdings = []; A.err = ''; }
   const demo = $('#sDemo').checked;
   const changed = demo !== !!state.ui.demo; state.ui.demo = demo;
@@ -2020,8 +2199,16 @@ document.addEventListener('click', async e => {
     case 'copyGas': try{ await navigator.clipboard.writeText(GAS_CODE); toast('복사했어요'); }catch(_){ toast('길게 눌러 복사해 주세요'); } break;
     case 'demo': state.ui.demo = true; for(const [c,n] of [['005930','삼성전자'],['000660','SK하이닉스'],['035420','NAVER']]) if(!W(c)) state.watch.push({code:c,name:n,addedAt:Date.now()}); save(); await refreshAll(); break;
     case 'demoOne': { state.data[code] = demoStock(code); const d = state.data[code]; const sc = computeScore(d); const snap = makeSnap(d, sc, scenarios(d)); (state.snaps[code]=state.snaps[code]||[]).push(snap); if(!state.seenNews[code]){ state.seenNews[code]={}; d.news.forEach(n=>state.seenNews[code][n.id]=1); } save(); render(); break; }
-    case 'linkLocal': state.assets.mode = 'local'; save(); await loadAssets(); render(); if(missingWatch().length) importHoldings(); break;
-    case 'reloadAssets': await loadAssets(); render(); toast(state.assets.err || '자산을 다시 읽었어요'); break;
+    case 'linkLocal': {
+      state.assets.mode = 'local'; state.assets.auto = true; save();
+      await loadAssets(); render();
+      busy.refreshAll = true; render();
+      for(const w of state.watch) await refreshStock(w.code, {quiet:true});
+      await refreshOther();
+      busy.refreshAll = false; save(); render();
+      toast('자산 앱과 연동했어요 — 보유 종목을 모두 담았습니다');
+      break; }
+    case 'reloadAssets': await loadAssets(); await refreshOther(); render(); toast(state.assets.err || '자산을 다시 읽었어요'); break;
     case 'importHold': importHoldings(); break;
     case 'showMix': { const mix = industryMix(), t = assetTotals();
       openModal(`<div class="mhead"><h3>업종 비중</h3><button class="x" data-act="close">✕</button></div>
@@ -2134,7 +2321,7 @@ load();
 showTab(state.ui.tab && TABS.includes(state.ui.tab) ? state.ui.tab : 'home');
 (async () => {
   await loadAssets({quiet:true});
-  if(state.assets.mode !== 'off') render();
+  if(state.assets.mode !== 'off'){ render(); refreshOther().then(render); }
   const stale = state.watch.filter(w => !state.data[w.code] || Date.now() - state.data[w.code].t > 6*3600000);
   if(stale.length){ busy.refreshAll = true; render(); for(const w of stale) await refreshStock(w.code, {quiet:true}); busy.refreshAll = false; save(); render(); }
 })();
