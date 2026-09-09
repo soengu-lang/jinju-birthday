@@ -303,12 +303,63 @@ let toastT; function toast(m){ const t=$('#toast'); t.textContent=m; t.classList
    1. 데이터 가져오기 — 서버가 없어서 공개 중계를 거칩니다
    (우리집 자산 앱과 같은 방식. 구글 앱스 스크립트 중계를 만들면 가장 안정적)
    ============================================================ */
+/* ============================================================
+   📡 시세 중계 만들기 — 한 번만 하면 그 뒤로 손댈 게 없습니다
+   구글이 대신 네이버를 불러 주므로 브라우저 제약(CORS)을 받지 않습니다.
+   ============================================================ */
+function openRelaySetup(){
+  const cur = myRelay();
+  openModal(`<div class="mhead"><h3>📡 시세 중계 만들기</h3><button class="x" data-act="close">✕</button></div>
+    <p class="desc">이 앱은 서버가 없어서 <b>남의 공개 중계</b>를 거쳐 네이버증권을 읽습니다. 그 공개 중계가 자주 막힙니다.<br>
+      <b>내 구글 계정 안에서 도는 중계</b>를 하나 만들어 두면 거의 안 막힙니다. <b>3분, 무료</b>입니다.</p>
+    <div class="note mt" style="line-height:2">
+      <b>1</b> 아래 <b>코드 복사</b>를 누릅니다<br>
+      <b>2</b> <a href="https://script.new" target="_blank" rel="noopener">script.new</a> 를 엽니다 (구글 로그인)<br>
+      <b>3</b> 화면에 있던 내용을 <b>다 지우고</b> 붙여넣습니다<br>
+      <b>4</b> 오른쪽 위 <b>배포</b> → <b>새 배포</b> → 톱니바퀴에서 <b>웹 앱</b><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;액세스 권한을 <b>모든 사용자</b>로 바꾸고 <b>배포</b><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;<span class="tiny">권한 승인 창이 뜨면 허용해 주세요 (내 계정 안에서만 돕니다)</span><br>
+      <b>5</b> 나온 <b>웹 앱 URL</b>을 복사해서 아래에 붙여넣습니다
+    </div>
+    <textarea readonly style="min-height:110px;font-size:10px;font-family:ui-monospace,monospace;margin-top:8px" onclick="this.select()">${esc(GAS_CODE)}</textarea>
+    <div class="btn-row"><button class="btn" data-act="copyGas">📋 코드 복사</button><button class="btn ghost" onclick="window.open('https://script.new','_blank')">script.new 열기</button></div>
+    <div class="f mt2"><label>웹 앱 URL 붙여넣기</label>
+      <input id="rUrl" value="${esc(cur.replace('?url={url}',''))}" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"></div>
+    <div id="rTest"></div>
+    <div class="btn-row"><button class="btn" data-act="testRelay">시험해 보기</button></div>
+    <p class="tiny muted mt">주소를 넣고 <b>시험해 보기</b>를 누르면 삼성전자 시세를 불러 봅니다. 되면 저장할지 물어봅니다.</p>`);
+}
+async function testRelay(){
+  const raw = ($('#rUrl')?.value||'').trim(), box = $('#rTest');
+  if(!raw){ toast('주소를 붙여넣어 주세요'); return; }
+  const u = normRelay(raw);
+  box.innerHTML = `<div class="note mt"><span class="spin dark"></span> 불러 보는 중… (구글 스크립트는 5~15초 걸릴 수 있어요)</div>`;
+  const target = u.includes('{url}') ? u.replace('{url}', encodeURIComponent(NV.basic('005930'))) : u.replace(/\/+$/,'') + '/' + NV.basic('005930');
+  try{
+    const txt = await getText(target, 25000);
+    const b = parseBasic(JSON.parse(txt));
+    if(!(has(b.price) && b.price>0)) throw new Error('시세 값이 없어요');
+    box.innerHTML = `<div class="ok mt">🟢 됐습니다 — 삼성전자 <b>${won(b.price)}</b><br>이 주소를 저장하고 시세를 받아올까요?</div>
+      <div class="btn-row"><button class="btn" data-act="saveRelay">저장하고 시세 받기</button></div>`;
+  }catch(e){
+    const hint = /HTTP 40[13]/.test(e.message) ? '배포할 때 <b>액세스 권한</b>을 “모든 사용자”로 하셨는지 확인해 주세요.'
+      : /시간 초과/.test(e.message) ? '주소가 맞는지, 배포가 끝났는지 확인하고 다시 눌러 보세요.'
+      : /JSON|Unexpected/.test(e.message) ? '주소는 열렸는데 내용이 다릅니다. 코드를 다 지우고 다시 붙여넣었는지 확인해 주세요.'
+      : '주소 끝이 <b>/exec</b> 로 끝나는지 확인해 주세요 (/dev 가 아니라).';
+    box.innerHTML = `<div class="err mt">🔴 안 됩니다 — ${esc(e.message)}<br>${hint}</div>`;
+  }
+}
+
 const RELAYS = [
-  { n:'직접',        f:u=>u },
-  { n:'allorigins',  f:u=>'https://api.allorigins.win/raw?url='+encodeURIComponent(u) },
-  { n:'codetabs',    f:u=>'https://api.codetabs.com/v1/proxy?quote='+encodeURIComponent(u) },
-  { n:'corsproxy',   f:u=>'https://corsproxy.io/?url='+encodeURIComponent(u) },
-  { n:'allorigins2', f:u=>'https://api.allorigins.win/get?url='+encodeURIComponent(u), wrap:'contents' },
+  { n:'직접',           f:u=>u },
+  { n:'allorigins',     f:u=>'https://api.allorigins.win/raw?url='+encodeURIComponent(u) },
+  { n:'codetabs',       f:u=>'https://api.codetabs.com/v1/proxy?quote='+encodeURIComponent(u) },
+  { n:'thingproxy',     f:u=>'https://thingproxy.freeboard.io/fetch/'+u },
+  { n:'whateverorigin', f:u=>'https://whateverorigin.org/get?url='+encodeURIComponent(u), wrap:'contents' },
+  { n:'allorigins2',    f:u=>'https://api.allorigins.win/get?url='+encodeURIComponent(u), wrap:'contents' },
+  { n:'cors.lol',       f:u=>'https://api.cors.lol/?url='+encodeURIComponent(u) },
+  { n:'jina',           f:u=>'https://r.jina.ai/'+u, json:true },
+  { n:'corsproxy',      f:u=>'https://corsproxy.io/?url='+encodeURIComponent(u) },
 ];
 const GAS_CODE = `function doGet(e) {
   var url = e.parameter.url;
@@ -367,11 +418,12 @@ async function relayText(url){
   if(!order.length) order = [0];
   let lastErr = null, mineErr = null;
   for(const i of order){
-    const tries = isMine(i) ? 2 : 1, ms = isMine(i) ? 20000 : 8000;
+    const tries = isMine(i) ? 2 : 1, ms = isMine(i) ? 20000 : 12000;   /* LTE 에서는 8초로 모자랍니다 */
     for(let k=0; k<tries; k++){
       try{
         let txt = await getText(L[i].f(url), ms);
         if(L[i].wrap){ txt = JSON.parse(txt)[L[i].wrap]; if(!txt) throw new Error('중계가 빈 내용을 줬어요'); }
+        if(L[i].json){ const m = txt.match(/[\[{][\s\S]*[\]}]/); if(!m) throw new Error('JSON 을 못 찾았어요'); txt = m[0]; }
         logRelay(L[i].n, url, 'OK', true);
         relayFail[i] = 0;
         if(state.settings.relay !== i){ state.settings.relay = i; save(); }
@@ -1258,7 +1310,7 @@ function renderHome(){
       <p class="desc">${esc(state.ui.lastErr || '중계 서버에 닿지 못했습니다.')}<br>
         서버가 없는 앱이라 <b>중계</b>를 거쳐 네이버증권을 읽는데, 공개 중계가 막히면 이렇게 됩니다.
         <b>구글 스크립트 중계</b>를 한 번 만들어 두면 거의 안 막힙니다 (3분, 무료).</p>
-      <div class="btn-row"><button class="btn sm" data-act="diag">🩺 시세 점검</button><button class="btn sm ghost" data-act="settings">⚙️ 중계 만들기</button><button class="btn sm ghost" data-act="refreshAll">🔄 다시 시도</button></div></div>`; })()}
+      <div class="btn-row"><button class="btn sm" data-act="relaySetup">📡 중계 만들기 (3분)</button><button class="btn sm ghost" data-act="diag">🩺 시세 점검</button><button class="btn sm ghost" data-act="refreshAll">🔄 다시 시도</button></div></div>`; })()}
   ${assetCard()}
   ${alerts.length ? `<div class="card" style="border-color:#f3c9c5">
     <h2>🚨 투자 논리 점검 필요</h2>
@@ -1585,8 +1637,8 @@ function drawDiag(){
     ${diag.running?`<p class="tiny muted mt"><span class="spin dark"></span> 확인하는 중…</p>`:''}
     ${diag.done?`<div class="${diag.ok?'ok':'err'} mt">${diag.ok
       ? '시세를 받아오는 길이 열려 있습니다. 홈에서 <b>🔄 새로고침</b>을 눌러 주세요.'
-      : '어느 길로도 네이버에 닿지 못했습니다. <b>구글 스크립트 중계</b>를 만들면 대부분 해결됩니다 (⚙️ → 📡 데이터, 3분).'}</div>
-      <div class="btn-row"><button class="btn sm ghost" data-act="copyDiag">📋 결과 복사</button>${diag.ok?`<button class="btn sm" data-act="closeRefresh">새로고침 하러 가기</button>`:`<button class="btn sm" data-act="settings">⚙️ 중계 만들기</button>`}</div>`:''}`;
+      : '<b>어느 공개 중계도 살아 있지 않습니다.</b> 이건 이 앱의 문제가 아니라 남의 공짜 중계가 막힌 것이라, 기다려도 잘 안 됩니다.<br>내 구글 계정으로 <b>중계 하나</b>를 만들면 바로 해결됩니다 (3분, 무료).'}</div>
+      <div class="btn-row">${diag.ok?`<button class="btn" data-act="closeRefresh">새로고침 하러 가기</button>`:`<button class="btn" data-act="relaySetup">📡 중계 만들기 (3분)</button>`}<button class="btn sm ghost" data-act="copyDiag">📋 결과 복사</button></div>`:''}`;
 }
 function diagText(){
   return 'StockLens 시세 점검 ' + new Date().toLocaleString('ko-KR') + '\n'
@@ -1596,9 +1648,11 @@ async function runDiag(){
   if(diag.running) return;
   diag = { running:true, rows:[], done:false, ok:false }; drawDiag();
   resetRelays();
-  const mine = myRelay();
+  const mine = myRelay(), maRelay = readLocalAssets(true)?.relayUrl || '';
   dRow('중계 주소', mine ? (/script\.google\.com/.test(mine) ? '구글 스크립트 있음' : '직접 넣은 주소 있음') : '없음 — 공개 중계만 씁니다',
-       mine ? mine.replace('?url={url}','').slice(0,60) : '공개 중계는 자주 막힙니다', mine ? true : undefined);
+       mine ? mine.replace('?url={url}','').slice(0,60) : '공개 중계는 자주 막힙니다. 하나 만들면 거의 안 막힙니다', mine ? true : false);
+  if(!mine) dRow('자산 앱의 중계', maRelay ? '있음 — 가져다 쓰면 됩니다' : '자산 앱에도 없습니다',
+       maRelay ? maRelay.replace('?url={url}','').slice(0,60) : '두 앱 모두 공개 중계에 기대고 있었습니다', !!maRelay);
   /* 인터넷 자체가 되는지 — 이 앱이 있는 곳을 불러 봅니다 */
   try{ await getText('manifest.json?t=' + Date.now(), 8000); dRow('인터넷', '됨', '', true); }
   catch(e){ dRow('인터넷', '안 됨 — ' + e.message, '와이파이나 데이터를 확인해 주세요', false); }
@@ -1612,7 +1666,7 @@ async function runDiag(){
       const j = JSON.parse(txt), b = parseBasic(j);
       if(has(b.price) && b.price>0){ dRow(L[i].n, '됨 — 삼성전자 ' + won(b.price), '', true); if(good<0) good = i; }
       else dRow(L[i].n, '응답은 왔는데 시세가 없어요', JSON.stringify(j).slice(0,60), false);
-    }catch(e){ dRow(L[i].n, '막힘 — ' + e.message, '', false); }
+    }catch(e){ dRow(L[i].n, '막힘 — ' + e.message, L[i].n==='직접' ? '브라우저 보안 때문에 원래 막힙니다(정상)' : '', false); }
   }
   /* 시세가 되면 나머지 자료도 형태가 맞는지 봅니다 */
   if(good >= 0){
@@ -1669,10 +1723,7 @@ function openSettings(){
     <div class="f"><label>내 중계 주소</label><input id="sRelay" value="${esc(s.relayUrl)}" placeholder="https://script.google.com/macros/s/…/exec"></div>
     <p class="tiny muted">${s.relayUrl ? (/script\.google\.com/.test(s.relayUrl) ? '구글 스크립트 중계를 쓰고 있습니다.' : '직접 넣은 주소를 쓰고 있습니다.') + (readLocalAssets()?.sync && !state.ui.relayTyped ? ' (자산 앱에서 물려받았을 수 있어요)' : '') : '아직 없습니다 — 공개 중계만 쓰면 시세가 자주 막힙니다.'}</p>
     <div class="btn-row"><button class="btn sm ghost" data-act="diag">🩺 시세 점검 — 어디서 막히는지 보기</button></div>
-    <details class="mt"><summary>구글 스크립트 중계 만드는 법 (3분)</summary>
-      <div class="note mt"><b>1</b> <a href="https://script.new" target="_blank" rel="noopener">script.new</a> 로 새 스크립트<br><b>2</b> 내용을 다 지우고 아래 코드 붙여넣기<br><b>3</b> 배포 → 새 배포 → 유형 <b>웹 앱</b> → 액세스 <b>모든 사용자</b> → 배포<br><b>4</b> 나온 웹 앱 URL 을 위 칸에 붙여넣기</div>
-      <textarea readonly style="min-height:120px;font-size:10px;font-family:ui-monospace,monospace;margin-top:8px" onclick="this.select()">${esc(GAS_CODE)}</textarea>
-      <button class="btn sm ghost mt" data-act="copyGas">📋 코드 복사</button></details>
+    <div class="btn-row"><button class="btn sm" data-act="relaySetup">📡 중계 만들기 · 시험하기 (3분)</button></div>
     <div class="f mt2"><label><input type="checkbox" id="sDemo" ${state.ui.demo?'checked':''} style="width:auto;margin-right:6px">샘플 데이터 모드 (실제 시세 대신 가짜 값으로 둘러보기)</label></div>
     <div class="btn-row"><button class="btn" data-act="saveSettings">저장</button></div>
     <div class="sec-t">💾 백업</div>
@@ -1760,6 +1811,13 @@ document.addEventListener('click', async e => {
           <div class="tiny muted">${esc(x.names.join(', '))} · ${won(x.value)}</div></div>`).join('')}
         <p class="tiny muted mt2">한 업종에 40% 넘게 몰려 있으면 같은 뉴스에 함께 움직입니다.</p>`); break; }
     case 'diag': openDiag(); break;
+    case 'relaySetup': openRelaySetup(); break;
+    case 'testRelay': testRelay(); break;
+    case 'saveRelay': {
+      state.settings.relayUrl = normRelay($('#rUrl').value); state.settings.relay = 0; resetRelays(); save();
+      closeModal(); toast('중계를 저장했어요 — 시세를 받아옵니다');
+      if(state.watch.length) refreshAll(); else render();
+      break; }
     case 'runDiag': runDiag(); break;
     case 'copyDiag': try{ await navigator.clipboard.writeText(diagText()); toast('복사했어요'); }catch(_){ toast('길게 눌러 복사해 주세요'); } break;
     case 'closeRefresh': closeModal(); refreshAll(); break;
