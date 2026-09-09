@@ -477,16 +477,32 @@ function searchBuiltin(q){
   if(!out.length && /^\d{6}$/.test(q)) out = [{code:q, name:q, market:''}];
   return out;
 }
+/* 네이버 자동완성에는 해외 종목도 섞여 옵니다.
+   이 앱은 아직 국내 주식·ETF만 읽을 수 있어서, 해외로 보이는 것은 걸러 냅니다
+   (중국 A주처럼 6자리 숫자를 쓰는 시장이 있어 코드 모양만으로는 못 가립니다) */
+const FOREIGN = /나스닥|뉴욕|아멕스|나스닥|상해|상하이|심천|선전|홍콩|도쿄|일본|자카르타|인도네시아|인니|베트남|호치민|하노이|대만|싱가포르|런던|프랑크푸르트|인도|NASDAQ|NYSE|AMEX|HKEX|TSE|SSE|SZSE|IDX|HOSE|HNX/i;
+const isKr = x => {
+  const nation = String(x.nationCode || x.nationName || '').trim();
+  if(nation && !/^(KOR|KR|국내|대한민국|한국)$/i.test(nation)) return false;
+  const mk = String(x.typeName || x.typeCode || x.marketType || '');
+  if(mk && FOREIGN.test(mk)) return false;
+  return true;
+};
 async function searchStocks(q){
   q = q.trim(); if(!q) return [];
-  let out = [];
+  let out = [], foreign = 0;
   try{
     const j = await withTimeout(relayJSON(NV.search(q)), 5000);
     const items = j?.items || j?.result?.items || (Array.isArray(j)? j : []);
-    out = items.map(x => ({ code: x.code || x.symbolCode || x.itemCode, name: x.name || x.itemName || x.stockName, market: x.typeName || x.typeCode || x.marketType || '' }))
-      .filter(x => x.code && /^\d{6}$/.test(String(x.code)));
+    for(const x of items){
+      const code = String(x.code || x.symbolCode || x.itemCode || '');
+      if(!/^\d{6}$/.test(code)){ foreign++; continue; }        /* AAPL 같은 글자 코드 = 해외 */
+      if(!isKr(x)){ foreign++; continue; }
+      out.push({ code, name: x.name || x.itemName || x.stockName || code, market: x.typeName || x.typeCode || x.marketType || '' });
+    }
   }catch(e){}
   if(!out.length) out = searchBuiltin(q);
+  searchForeign = foreign;
   return out.slice(0, 15);
 }
 const withTimeout = (pr, ms) => Promise.race([pr, new Promise((_,rej)=>setTimeout(()=>rej(new Error('시간 초과')), ms))]);
@@ -1333,16 +1349,17 @@ function renderHome(){
 }
 
 /* ---------- 검색 ---------- */
-let searchT, searchRes = [], searchQ = '', searchSeq = 0;
+let searchT, searchRes = [], searchQ = '', searchSeq = 0, searchForeign = 0;
 function renderSearch(){
   const el = $('#tab-search');
   el.innerHTML = `<div class="card">
     <h2>🔍 종목 검색</h2>
     <div class="row mt"><input id="q" placeholder="종목명 또는 6자리 코드 (예: 삼성전자, 005930)" value="${esc(searchQ)}" autocomplete="off"><button class="btn sm" data-act="search">찾기</button></div>
     <div id="sres" class="list"></div>
+    <div id="sforeign"></div>
     <div class="sec-t">자주 찾는 종목</div>
     <div class="chips">${BUILTIN.slice(0,12).map(([c,n])=>`<button class="chip" data-act="pick" data-code="${c}" data-name="${esc(n)}">${esc(n)}</button>`).join('')}</div>
-    <p class="tiny muted mt">국내 상장 주식·ETF (네이버증권 데이터). 시세가 안 붙으면 ⚙️에서 <b>구글 스크립트 중계</b>를 만들어 주세요.</p>
+    <p class="tiny muted mt"><b>지금은 국내 상장 주식·ETF만</b> 됩니다 (네이버증권 데이터). 미국 등 해외주식은 아직 읽지 못해서 검색에서 걸러 냅니다.<br>시세가 안 붙으면 ⚙️에서 <b>구글 스크립트 중계</b>를 만들어 주세요.</p>
   </div>`;
   const q = $('#q');
   q.addEventListener('input', () => { searchQ = q.value; clearTimeout(searchT); searchT = setTimeout(doSearch, 350); });
@@ -1361,7 +1378,9 @@ async function doSearch(){
 function drawSearch(){
   const box = $('#sres'); if(!box) return;
   if(!searchQ.trim()){ box.innerHTML = ''; return; }
-  if(!searchRes.length){ box.innerHTML = `<div class="empty">찾은 종목이 없어요.<br><span class="tiny">6자리 코드를 직접 넣어도 됩니다</span></div>`; return; }
+  if(!searchRes.length){ box.innerHTML = `<div class="empty">찾은 종목이 없어요.<br><span class="tiny">${searchForeign?'해외 종목만 나왔습니다 — 이 앱은 아직 <b>국내 주식·ETF</b>만 읽습니다.':'6자리 코드를 직접 넣어도 됩니다'}</span></div>`; return; }
+  const fb = $('#sforeign');
+  if(fb) fb.innerHTML = searchForeign ? `<p class="tiny muted mt">해외 종목 ${searchForeign}개는 뺐습니다 — 이 앱은 아직 국내 주식·ETF만 읽습니다.</p>` : '';
   box.innerHTML = searchRes.map(r => `<button class="item" data-act="pick" data-code="${r.code}" data-name="${esc(r.name)}">
     <div class="grow"><div class="nm">${esc(r.name)}</div><div class="cd">${r.code} ${esc(r.market||'')}</div></div>
     <div class="pill ${W(r.code)?'flat':'brand'}">${W(r.code)?'담김':'＋ 담기'}</div></button>`).join('');
