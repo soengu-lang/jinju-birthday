@@ -855,7 +855,15 @@ function series(fin, key){
 const last = arr => arr.length ? arr[arr.length-1].v : NaN;
 /* growth(지금, 기준) = 기준 대비 몇 % 인가. 순서를 바꾸면 부호가 뒤집힙니다 */
 const growth = (cur, prev) => (has(cur) && has(prev) && prev !== 0) ? (cur-prev)/Math.abs(prev)*100 : NaN;
-function cagr(arr, n){ if(arr.length < n+1) return NaN; const a = arr[arr.length-1-n].v, b = arr[arr.length-1].v; if(!(a>0) || !(b>0)) return NaN; return (Math.pow(b/a, 1/n)-1)*100; }
+/* 연평균 성장률 — 재무 데이터가 없거나 한 해뿐이면 계산하지 않습니다
+   (예전에는 빈 배열이 들어오면 n 이 -1 이 되어 화면이 통째로 멈췄습니다) */
+function cagr(arr, n){
+  n = Math.floor(n);
+  if(!Array.isArray(arr) || !(n >= 1) || arr.length < n + 1) return NaN;
+  const a = arr[arr.length-1-n]?.v, b = arr[arr.length-1]?.v;
+  if(!(a > 0) || !(b > 0)) return NaN;
+  return (Math.pow(b/a, 1/n) - 1) * 100;
+}
 
 function computeScore(d){
   const A = d.annual, why = {}, s = {};
@@ -865,12 +873,13 @@ function computeScore(d){
 
   /* 성장성: 3년 매출 CAGR, 최근 영업이익 증가율, 다음 해 추정 영업이익 증가율 */
   {
-    const r3 = cagr(rev.a, Math.min(3, rev.a.length-1));
+    const yrs = Math.min(3, rev.a.length - 1);
+    const r3 = cagr(rev.a, yrs);
     const g1 = growth(last(op.a), op.a.length>1 ? op.a[op.a.length-2].v : NaN);
     const gE = op.e.length ? growth(op.e[0].v, last(op.a)) : NaN;
     const parts = [interp(r3, [[-10,15],[0,40],[5,55],[10,68],[20,82],[35,95]]), interp(g1, [[-40,15],[-10,35],[0,48],[20,65],[50,80],[100,95]]), interp(gE, [[-30,20],[0,45],[15,65],[40,85],[80,95]])];
     s.growth = Math.round(avg(parts));
-    why.growth = [ has(r3)&&`최근 ${Math.min(3,rev.a.length-1)}년 매출 연평균 ${pct(r3)}`, has(g1)&&`직전 연도 영업이익 ${pct(g1)}`, has(gE)&&`올해 추정 영업이익 ${pct(gE)} (증권사 추정)` ].filter(Boolean);
+    why.growth = [ has(r3)&&`최근 ${yrs}년 매출 연평균 ${pct(r3)}`, has(g1)&&`직전 연도 영업이익 ${pct(g1)}`, has(gE)&&`올해 추정 영업이익 ${pct(gE)} (증권사 추정)` ].filter(Boolean);
   }
   /* 수익성: 영업이익률 수준, ROE, 마진 추세 */
   {
@@ -1908,6 +1917,9 @@ function renderStock(){
     <h2>AI SCORE <span class="sub">계산 모델 · 데이터 커버리지 ${sc.s.coverage}%</span></h2>
     <div class="score-hero mt"><div class="score-big">${has(sc.s.total)?sc.s.total:'–'}<small> / 100</small></div>
       <div class="grow"><div class="bar"><i style="width:${has(sc.s.total)?sc.s.total:0}%"></i></div><p class="tiny muted mt">성장 25 · 수익 25 · 밸류 20 · 재무 15 · 모멘텀 15 가중. 60 이상이면 평균 이상, 40 이하면 근거를 더 봐야 합니다.</p></div></div>
+    ${!has(sc.s.total) ? `<div class="note mt">재무 데이터를 못 받아서 점수를 낼 수 없습니다. 시세만 들어와 있어요.<br>
+      <b>🔄 새로고침</b>을 눌러 보시고, 그래도 안 되면 <b>🩺 시세 점검</b>으로 어디가 막혔는지 보세요.
+      <div class="btn-row"><button class="btn xs" data-act="refresh" data-code="${code}">🔄 새로고침</button><button class="btn xs ghost" data-act="diag">🩺 시세 점검</button></div></div>` : ''}
     <div class="bars">${subs.map(([k,l])=>`<div class="r"><span>${l}</span><div class="bar"><i style="width:${has(sc.s[k])?sc.s[k]:0}%;background:${!has(sc.s[k])?'#ddd':sc.s[k]>=65?'var(--green)':sc.s[k]<40?'var(--up)':'var(--brand)'}"></i></div><span class="v num">${has(sc.s[k])?sc.s[k]:'–'}</span></div>`).join('')}</div>
     <details class="mt"><summary>왜 이 점수인가요?</summary><div class="why"><ul>${subs.map(([k,l])=>(sc.why[k]||[]).length?`<li><b>${l}</b>: ${esc(sc.why[k].join(' · '))}</li>`:'').join('')}</ul></div></details>
   </div>
