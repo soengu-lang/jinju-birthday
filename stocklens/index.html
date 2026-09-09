@@ -1,0 +1,1448 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#274b6d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="StockLens">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-180.png">
+<link rel="manifest" href="manifest.json">
+<title>StockLens AI — 투자 논리를 검증하는 AI 애널리스트</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f4f2ed; --card:#fffdf8; --ink:#1e2430; --muted:#6f7683;
+  --brand:#274b6d; --brand-d:#1c3750; --soft:#e6edf4; --soft-d:#c7d6e5;
+  --up:#d1453b; --up-s:#fdeceb;      /* 국내 관례: 오르는 쪽 = 빨강 */
+  --down:#2f62c4; --down-s:#eaf0fd;  /* 내려가는 쪽 = 파랑 */
+  --flat:#6f7683; --flat-s:#eeeeee;
+  --gold:#c9862b; --gold-s:#fdf2e2;
+  --green:#3f7d4f; --green-s:#e8f3ea;
+  --line:#e5e2d8; --shadow:0 1px 2px rgba(30,36,48,.06), 0 8px 22px rgba(30,36,48,.06);
+  --r:16px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  font-family:'Noto Sans KR',-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;
+  background:var(--bg); color:var(--ink); line-height:1.5;
+  padding-bottom:calc(84px + env(safe-area-inset-bottom));
+  -webkit-font-smoothing:antialiased;
+}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;border:none;background:none}
+input,select,textarea{background:#fff;border:1px solid var(--line);border-radius:10px;padding:9px 11px;width:100%}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--soft-d);outline-offset:1px}
+textarea{min-height:88px;resize:vertical;line-height:1.6}
+.wrap{max-width:640px;margin:0 auto;padding:0 14px}
+.hidden{display:none !important}
+.num{font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)}
+.tiny{font-size:11.5px}
+.small{font-size:12.5px}
+.mt{margin-top:10px}
+.mt2{margin-top:16px}
+.row{display:flex;align-items:center;gap:8px}
+.grow{flex:1;min-width:0}
+.right{text-align:right}
+.center{text-align:center}
+.b{font-weight:800}
+a{color:var(--brand)}
+
+header{background:var(--card);border-bottom:1px solid var(--line);padding-top:env(safe-area-inset-top)}
+.head-in{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0 10px}
+.brand{font-size:11.5px;font-weight:700;color:var(--gold);letter-spacing:.04em}
+h1{font-size:clamp(18px,5vw,22px);font-weight:900;letter-spacing:-.03em;margin-top:1px;white-space:nowrap}
+.head-note{font-size:11px;color:var(--muted);line-height:1.45;text-align:right;max-width:52%}
+.gear{font-size:20px;padding:6px 8px;border-radius:10px}
+.gear:active{background:var(--soft)}
+
+nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--card);
+  border-top:1px solid var(--line);padding:6px 8px calc(6px + env(safe-area-inset-bottom))}
+.tabs-in{display:flex;gap:4px;max-width:640px;margin:0 auto}
+.tabs button{flex:1;padding:6px 2px 4px;border-radius:12px;font-size:10.5px;font-weight:700;color:var(--muted);
+  display:flex;flex-direction:column;align-items:center;gap:1px}
+.tabs button .ic{font-size:20px;line-height:1.2}
+.tabs button.on{color:var(--brand);background:var(--soft)}
+
+section.tab{padding-top:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+  padding:15px;box-shadow:var(--shadow);margin-bottom:12px}
+.card > h2, .card .h2{font-size:15px;font-weight:900;letter-spacing:-.02em;display:flex;align-items:center;gap:7px}
+.card > h2 .sub{font-size:11px;font-weight:500;color:var(--muted);margin-left:auto}
+.desc{font-size:12.5px;color:var(--muted);line-height:1.7;margin-top:6px}
+.desc b{color:var(--ink);font-weight:700}
+.divider{height:1px;background:var(--line);margin:12px 0}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  background:var(--brand);color:#fff;border-radius:12px;padding:11px 14px;font-size:14px;font-weight:800;width:100%}
+.btn:active{background:var(--brand-d)}
+.btn.ghost{background:var(--soft);color:var(--brand)}
+.btn.ghost:active{background:var(--soft-d)}
+.btn.warn{background:var(--up-s);color:var(--up)}
+.btn.sm{padding:7px 11px;font-size:12.5px;width:auto;border-radius:10px;white-space:nowrap}
+.btn.xs{padding:4px 9px;font-size:11.5px;width:auto;border-radius:8px}
+.btn[disabled]{opacity:.45;pointer-events:none}
+.btn-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.btn-row .btn{flex:1}
+
+.pill{display:inline-block;font-size:10.5px;font-weight:800;border-radius:6px;padding:2px 6px;line-height:1.4;vertical-align:1px}
+.pill.up{background:var(--up-s);color:var(--up)}
+.pill.down{background:var(--down-s);color:var(--down)}
+.pill.flat{background:var(--flat-s);color:var(--flat)}
+.pill.gold{background:var(--gold-s);color:var(--gold)}
+.pill.green{background:var(--green-s);color:var(--green)}
+.pill.brand{background:var(--soft);color:var(--brand)}
+.up{color:var(--up)} .down{color:var(--down)} .flat{color:var(--flat)}
+
+/* 리스트 */
+.list{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.item{display:flex;align-items:center;gap:11px;background:#fff;border:1px solid var(--line);
+  border-radius:13px;padding:11px 12px;text-align:left;width:100%}
+.item:active{background:var(--soft)}
+.item .nm{font-size:14.5px;font-weight:800;letter-spacing:-.02em}
+.item .cd{font-size:11px;color:var(--muted)}
+.item .px{font-size:14px;font-weight:800}
+.item .chg{font-size:11.5px}
+.dot{width:10px;height:10px;border-radius:50%;flex:none}
+.dot.up{background:var(--up)} .dot.down{background:var(--down)} .dot.flat{background:#c8c5bb}
+
+/* 점수 */
+.score-hero{display:flex;align-items:center;gap:16px}
+.score-big{font-size:44px;font-weight:900;letter-spacing:-.04em;line-height:1}
+.score-big small{font-size:14px;color:var(--muted);font-weight:700;letter-spacing:0}
+.bar{height:9px;border-radius:6px;background:#ebe8df;overflow:hidden}
+.bar > i{display:block;height:100%;border-radius:6px;background:var(--brand)}
+.bars{display:flex;flex-direction:column;gap:7px;margin-top:12px}
+.bars .r{display:grid;grid-template-columns:78px 1fr 34px;align-items:center;gap:9px;font-size:12.5px}
+.bars .r .v{font-weight:800;text-align:right}
+.why{font-size:12px;color:var(--muted);line-height:1.65;margin-top:8px;padding:9px 11px;background:#faf8f3;border-radius:10px}
+.why li{margin-left:15px}
+
+/* 시나리오 */
+.scen{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+.scen .c{border-radius:12px;padding:10px 8px;text-align:center;border:1px solid var(--line)}
+.scen .c .t{font-size:11px;font-weight:800}
+.scen .c .p{font-size:16px;font-weight:900;margin-top:2px;letter-spacing:-.02em}
+.scen .c .d{font-size:10.5px;color:var(--muted);margin-top:2px;line-height:1.4}
+.scen .bull{background:var(--up-s)} .scen .base{background:#faf8f3} .scen .bear{background:var(--down-s)}
+.slider{display:grid;grid-template-columns:86px 1fr 60px;gap:8px;align-items:center;font-size:12px;margin-top:8px}
+.slider input[type=range]{padding:0;border:none;background:none}
+.slider .v{text-align:right;font-weight:800}
+
+/* 표 */
+table.tb{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+table.tb th,table.tb td{padding:6px 5px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+table.tb th{font-weight:700;color:var(--muted);font-size:11px}
+table.tb td:first-child,table.tb th:first-child{text-align:left;position:sticky;left:0;background:var(--card)}
+.tbwrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+
+/* 변화 */
+.chg-item{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+.chg-item:last-child{border-bottom:none}
+.chg-item .ico{font-size:18px;flex:none;width:24px;text-align:center}
+.chg-item .t{font-size:13.5px;font-weight:800;letter-spacing:-.02em}
+.chg-item .d{font-size:12px;color:var(--muted);line-height:1.55;margin-top:2px}
+.lv{font-size:10px;font-weight:800;border-radius:5px;padding:1px 5px;margin-left:5px;vertical-align:1px}
+.lv.high{background:var(--up-s);color:var(--up)} .lv.mid{background:var(--gold-s);color:var(--gold)} .lv.low{background:var(--flat-s);color:var(--flat)}
+
+/* 리스크 */
+.risk{display:flex;align-items:center;gap:8px;padding:7px 0;font-size:13px;border-bottom:1px solid var(--line)}
+.risk:last-child{border-bottom:none}
+.stars{font-size:11px;letter-spacing:1px;color:var(--gold);margin-left:auto;white-space:nowrap}
+
+/* thesis */
+.assump{display:flex;gap:8px;align-items:flex-start;padding:7px 0;font-size:13px;border-bottom:1px dashed var(--line)}
+.assump:last-child{border-bottom:none}
+.assump .k{flex:none;width:18px;text-align:center}
+.assump .kw{font-size:10.5px;color:var(--muted);margin-top:2px}
+.conf{display:flex;align-items:center;gap:10px;margin-top:10px}
+.conf .bar{flex:1}
+.conf .n{font-size:20px;font-weight:900;letter-spacing:-.03em;min-width:60px;text-align:right}
+
+/* 채팅 */
+.chat{display:flex;flex-direction:column;gap:9px;margin-top:10px}
+.msg{max-width:92%;padding:10px 12px;border-radius:14px;font-size:13.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word}
+.msg.me{align-self:flex-end;background:var(--brand);color:#fff;border-bottom-right-radius:4px}
+.msg.ai{align-self:flex-start;background:#fff;border:1px solid var(--line);border-bottom-left-radius:4px}
+.msg.ai .src{font-size:10.5px;color:var(--muted);margin-top:6px;border-top:1px dashed var(--line);padding-top:5px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.chip{font-size:11.5px;font-weight:700;background:var(--soft);color:var(--brand);border-radius:20px;padding:5px 10px}
+.chip:active{background:var(--soft-d)}
+.ask{display:flex;gap:6px;margin-top:10px;align-items:flex-end}
+.ask textarea{min-height:44px;max-height:120px}
+.ask .btn{width:auto;padding:11px 13px;flex:none}
+
+/* 모달 */
+.modal-bg{position:fixed;inset:0;background:rgba(20,24,32,.45);z-index:50;display:flex;align-items:flex-end;justify-content:center}
+.modal{background:var(--card);border-radius:20px 20px 0 0;width:100%;max-width:640px;max-height:88vh;overflow:auto;
+  padding:16px 16px calc(20px + env(safe-area-inset-bottom))}
+@media(min-width:700px){.modal-bg{align-items:center}.modal{border-radius:20px;max-height:84vh}}
+.mhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.mhead h3{font-size:16px;font-weight:900;letter-spacing:-.02em}
+.mhead .x{font-size:18px;padding:4px 8px;border-radius:8px}
+.f{margin-top:10px}
+.f label{display:block;font-size:11.5px;font-weight:700;color:var(--muted);margin-bottom:4px}
+.note{background:var(--gold-s);border:1px solid #f0dcbb;border-radius:12px;padding:10px 12px;font-size:12px;line-height:1.7;color:#7a5518}
+.note b{font-weight:800}
+.err{background:var(--up-s);border:1px solid #f3c9c5;border-radius:12px;padding:10px 12px;font-size:12px;line-height:1.6;color:#8d2b23}
+.ok{background:var(--green-s);border:1px solid #c7e1cd;border-radius:12px;padding:10px 12px;font-size:12px;line-height:1.6;color:#2c5d3a}
+
+#toast{position:fixed;left:50%;bottom:calc(92px + env(safe-area-inset-bottom));transform:translateX(-50%);
+  background:#1e2430;color:#fff;font-size:12.5px;padding:9px 14px;border-radius:20px;z-index:99;opacity:0;transition:.2s;pointer-events:none;white-space:nowrap}
+#toast.show{opacity:1}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:sp .8s linear infinite;vertical-align:-2px}
+.spin.dark{border-color:var(--brand);border-top-color:transparent}
+@keyframes sp{to{transform:rotate(360deg)}}
+.empty{text-align:center;color:var(--muted);font-size:13px;padding:22px 10px;line-height:1.8}
+.empty .em{font-size:34px}
+.kv{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px}
+.kv .c{background:#faf8f3;border-radius:10px;padding:8px 6px;text-align:center}
+.kv .c .k{font-size:10.5px;color:var(--muted)} .kv .c .v{font-size:13.5px;font-weight:800;margin-top:1px}
+.tagline{font-size:12px;color:var(--muted);line-height:1.7}
+.sec-t{font-size:12px;font-weight:800;color:var(--muted);letter-spacing:.02em;margin:14px 0 4px}
+details summary{cursor:pointer;font-size:12.5px;font-weight:700;color:var(--brand)}
+code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px}
+pre{white-space:pre-wrap;word-break:break-all;background:#f3f1ea;border-radius:10px;padding:10px}
+.newsl{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.newsl a{display:block;font-size:12.5px;line-height:1.5;color:var(--ink);text-decoration:none;padding:6px 0;border-bottom:1px solid var(--line)}
+.newsl a:last-child{border-bottom:none}
+.newsl .m{font-size:10.5px;color:var(--muted)}
+.newsl .new{color:var(--up);font-weight:800;font-size:10px;margin-right:4px}
+</style>
+</head>
+<body>
+<header><div class="wrap head-in">
+  <div>
+    <div class="brand">STOCKLENS AI</div>
+    <h1>투자 논리를 검증하는 AI</h1>
+  </div>
+  <div class="row">
+    <div class="head-note">찍어 주지 않고<br>검증합니다</div>
+    <button class="gear" data-act="settings" title="설정">⚙️</button>
+  </div>
+</div></header>
+
+<main class="wrap">
+  <section class="tab" id="tab-home"></section>
+  <section class="tab hidden" id="tab-search"></section>
+  <section class="tab hidden" id="tab-stock"></section>
+  <section class="tab hidden" id="tab-thesis"></section>
+  <section class="tab hidden" id="tab-ai"></section>
+</main>
+
+<nav class="tabs"><div class="tabs-in">
+  <button data-tab="home" class="on"><span class="ic">🏠</span>홈</button>
+  <button data-tab="search"><span class="ic">🔍</span>검색</button>
+  <button data-tab="stock"><span class="ic">📊</span>종목</button>
+  <button data-tab="thesis"><span class="ic">🧭</span>논리</button>
+  <button data-tab="ai"><span class="ic">💬</span>AI</button>
+</div></nav>
+<div id="modal-root"></div>
+<div id="toast"></div>
+
+<script>
+/* ============================================================
+   StockLens AI — 단일 파일 앱
+   ------------------------------------------------------------
+   원칙: 재무데이터 → 계산 모델 → 점수 → AI 설명.
+   점수·목표가는 아래 순수 함수가 계산하고, AI는 그 결과를 "설명"만 합니다.
+   저장은 이 폰(브라우저)의 localStorage 에만 됩니다.
+   ============================================================ */
+const KEY = 'stockLens.v1';
+const DAY = 86400000;
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = (n, d=0) => (n==null || !isFinite(n)) ? '–' : Number(n).toLocaleString('ko-KR', {maximumFractionDigits:d, minimumFractionDigits:d});
+const pct = (n, d=1) => (n==null || !isFinite(n)) ? '–' : (n>0?'+':'') + Number(n).toFixed(d) + '%';
+const won = n => (n==null || !isFinite(n)) ? '–' : '₩' + fmt(Math.round(n));
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const iso = d => { const x = new Date(d); return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0'); };
+const today = () => iso(Date.now());
+const uid = () => Math.random().toString(36).slice(2,9) + Date.now().toString(36).slice(-3);
+/* "1,234" "12.3%" "-5" 같은 문자열을 숫자로. 못 읽으면 NaN */
+function num(v){
+  if(v==null) return NaN;
+  if(typeof v === 'number') return v;
+  const s = String(v).replace(/,/g,'').replace(/%/g,'').replace(/[^\d.\-]/g,'');
+  if(s==='' || s==='-' || s==='.') return NaN;
+  return Number(s);
+}
+const has = v => v!=null && isFinite(v);
+
+/* ---------- 상태 ---------- */
+let state = {
+  watch: [],          /* [{code,name,addedAt,market}] */
+  data: {},           /* code → 마지막으로 받은 원본 데이터(가공 후) */
+  snaps: {},          /* code → [{t, ...핵심지표}] 날짜별 스냅샷(변화 감지용) */
+  theses: [],         /* [{id,code,title,text,assumptions:[{text,keywords}],risks:[...],confidence,createdAt,history:[{t,conf,reason}],lastChecked}] */
+  journal: [],        /* 투자일지 */
+  chats: {},          /* code('*'=포트폴리오) → [{role,text,t}] */
+  seenNews: {},       /* code → {articleId:true} 이미 본 뉴스 */
+  brief: null,        /* 오늘의 AI 브리핑 캐시 {date,text} */
+  settings: { provider:'anthropic', apiKey:'', model:'', relayUrl:'', relay:0, effort:'medium' },
+  ui: { tab:'home', code:'', demo:false }
+};
+function load(){
+  try{ const s = JSON.parse(localStorage.getItem(KEY)||'null'); if(s) state = Object.assign(state, s, {settings:Object.assign(state.settings, s.settings||{}), ui:Object.assign(state.ui, s.ui||{})}); }catch(e){}
+  /* 우리집 자산 앱에서 만든 중계 주소가 있으면 그대로 물려받습니다 */
+  if(!state.settings.relayUrl){
+    try{ const ma = JSON.parse(localStorage.getItem('myAssets.v1')||'null'); if(ma?.relayUrl) state.settings.relayUrl = ma.relayUrl; }catch(e){}
+  }
+}
+function save(){ try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){ toast('저장 공간이 부족해요'); } }
+let toastT; function toast(m){ const t=$('#toast'); t.textContent=m; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),2200); }
+
+/* ============================================================
+   1. 데이터 가져오기 — 서버가 없어서 공개 중계를 거칩니다
+   (우리집 자산 앱과 같은 방식. 구글 앱스 스크립트 중계를 만들면 가장 안정적)
+   ============================================================ */
+const RELAYS = [
+  { n:'직접',        f:u=>u },
+  { n:'allorigins',  f:u=>'https://api.allorigins.win/raw?url='+encodeURIComponent(u) },
+  { n:'codetabs',    f:u=>'https://api.codetabs.com/v1/proxy?quote='+encodeURIComponent(u) },
+  { n:'corsproxy',   f:u=>'https://corsproxy.io/?url='+encodeURIComponent(u) },
+  { n:'allorigins2', f:u=>'https://api.allorigins.win/get?url='+encodeURIComponent(u), wrap:'contents' },
+];
+const GAS_CODE = `function doGet(e) {
+  var url = e.parameter.url;
+  if (!url) return ContentService.createTextOutput('{"error":"no url"}')
+    .setMimeType(ContentService.MimeType.JSON);
+  var r = UrlFetchApp.fetch(url, {
+    muteHttpExceptions: true,
+    followRedirects: true,
+    headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.naver.com/' }
+  });
+  return ContentService.createTextOutput(r.getContentText())
+    .setMimeType(ContentService.MimeType.JSON);
+}`;
+function normRelay(u){
+  u = String(u||'').trim();
+  if(!u) return '';
+  if(u.includes('{url}')) return u;
+  if(/script\.google\.com/.test(u)) return u.replace(/[?#].*$/,'') + '?url={url}';
+  return u;
+}
+function relayList(){
+  const mine = String(state.settings.relayUrl||'').trim();
+  if(!mine) return RELAYS;
+  const f = mine.includes('{url}') ? u => mine.replace('{url}', encodeURIComponent(u)) : u => mine.replace(/\/+$/,'') + '/' + u;
+  return [{ n:'내 중계', f }, ...RELAYS];
+}
+let relayBad = new Set(), relayDead = false;
+function resetRelays(){ relayBad = new Set(); relayDead = false; }
+async function getText(url, ms=8000){
+  const ac = new AbortController(); const t = setTimeout(()=>ac.abort(), ms);
+  let r;
+  try{ r = await fetch(url, { signal:ac.signal, cache:'no-store' }); }
+  catch(e){ const err = new Error('연결 실패'); err.net = true; throw err; }
+  finally{ clearTimeout(t); }
+  if(!r.ok){ const err = new Error('HTTP '+r.status); err.http = r.status; throw err; }
+  return await r.text();
+}
+async function relayText(url){
+  if(relayDead) throw new Error('데이터 서버에 닿지 못했어요');
+  const L = relayList();
+  const first = Math.min(state.settings.relay|0, L.length-1);
+  const order = [first, ...L.map((_,i)=>i).filter(i=>i!==first)].filter(i=>!relayBad.has(i));
+  if(!order.length){ relayDead = true; throw new Error('데이터 서버에 닿지 못했어요'); }
+  let netFail = 0, lastErr = null;
+  for(const i of order){
+    try{
+      let txt = await getText(L[i].f(url));
+      if(L[i].wrap){ txt = JSON.parse(txt)[L[i].wrap]; }
+      if(state.settings.relay !== i){ state.settings.relay = i; save(); }
+      return txt;
+    }catch(e){
+      lastErr = e;
+      if(e.net || e.http===403 || e.http===429 || e.http>=500){ relayBad.add(i); netFail++; }
+    }
+  }
+  if(netFail >= order.length) relayDead = true;
+  throw lastErr || new Error('가져오지 못했어요');
+}
+async function relayJSON(url){ const t = await relayText(url); try{ return JSON.parse(t); }catch(e){ throw new Error('응답이 JSON이 아니에요'); } }
+
+/* ---------- 네이버 증권 (모바일 API) ---------- */
+const NV = {
+  basic: c => `https://m.stock.naver.com/api/stock/${c}/basic`,
+  integ: c => `https://m.stock.naver.com/api/stock/${c}/integration`,
+  annual: c => `https://m.stock.naver.com/api/stock/${c}/finance/annual`,
+  quarter: c => `https://m.stock.naver.com/api/stock/${c}/finance/quarter`,
+  news: c => `https://m.stock.naver.com/api/news/stock/${c}?pageSize=20&page=1`,
+  chart: c => { const e=new Date(), s=new Date(Date.now()-400*DAY); const f=d=>iso(d).replace(/-/g,'')+'0000';
+    return `https://api.stock.naver.com/chart/domestic/item/${c}/day?startDateTime=${f(s)}&endDateTime=${f(e)}`; },
+  chart2: c => `https://fchart.stock.naver.com/sise.nhn?symbol=${c}&timeframe=day&count=270&requestType=0`,
+  search: q => `https://ac.stock.naver.com/ac?q=${encodeURIComponent(q)}&target=stock`,
+};
+/* 검색 — 네이버 자동완성. 막히면 아래 내장 목록에서 찾습니다 */
+const BUILTIN = [
+  ['005930','삼성전자'],['000660','SK하이닉스'],['373220','LG에너지솔루션'],['207940','삼성바이오로직스'],['005380','현대차'],
+  ['000270','기아'],['068270','셀트리온'],['035420','NAVER'],['035720','카카오'],['051910','LG화학'],['006400','삼성SDI'],
+  ['105560','KB금융'],['055550','신한지주'],['012330','현대모비스'],['028260','삼성물산'],['066570','LG전자'],['003670','포스코퓨처엠'],
+  ['005490','POSCO홀딩스'],['096770','SK이노베이션'],['034730','SK'],['015760','한국전력'],['032830','삼성생명'],['003550','LG'],
+  ['017670','SK텔레콤'],['030200','KT'],['086790','하나금융지주'],['316140','우리금융지주'],['011200','HMM'],['009150','삼성전기'],
+  ['010130','고려아연'],['018260','삼성에스디에스'],['329180','HD현대중공업'],['042660','한화오션'],['012450','한화에로스페이스'],
+  ['047050','포스코인터내셔널'],['010950','S-Oil'],['090430','아모레퍼시픽'],['097950','CJ제일제당'],['267260','HD현대일렉트릭'],
+  ['000810','삼성화재'],['139480','이마트'],['004020','현대제철'],['011170','롯데케미칼'],['036570','엔씨소프트'],['251270','넷마블'],
+  ['259960','크래프톤'],['352820','하이브'],['041510','에스엠'],['035900','JYP Ent.'],['247540','에코프로비엠'],['086520','에코프로'],
+  ['028300','HLB'],['196170','알테오젠'],['403870','HPSP'],['058470','리노공업'],['240810','원익IPS'],['039030','이오테크닉스'],
+  ['095340','ISC'],['078600','대주전자재료'],['112040','위메이드'],['263750','펄어비스'],['214150','클래시스'],['145020','휴젤'],
+  ['000100','유한양행'],['128940','한미약품'],['185750','종근당'],['069500','KODEX 200'],['360750','TIGER 미국S&P500'],
+];
+function searchBuiltin(q){
+  const ql = q.toLowerCase();
+  let out = BUILTIN.filter(([c,n]) => c.includes(q) || n.toLowerCase().includes(ql)).map(([code,name]) => ({code,name,market:''}));
+  if(!out.length && /^\d{6}$/.test(q)) out = [{code:q, name:q, market:''}];
+  return out;
+}
+async function searchStocks(q){
+  q = q.trim(); if(!q) return [];
+  let out = [];
+  try{
+    const j = await withTimeout(relayJSON(NV.search(q)), 5000);
+    const items = j?.items || j?.result?.items || (Array.isArray(j)? j : []);
+    out = items.map(x => ({ code: x.code || x.symbolCode || x.itemCode, name: x.name || x.itemName || x.stockName, market: x.typeName || x.typeCode || x.marketType || '' }))
+      .filter(x => x.code && /^\d{6}$/.test(String(x.code)));
+  }catch(e){}
+  if(!out.length) out = searchBuiltin(q);
+  return out.slice(0, 15);
+}
+const withTimeout = (pr, ms) => Promise.race([pr, new Promise((_,rej)=>setTimeout(()=>rej(new Error('시간 초과')), ms))]);
+
+/* ---------- 응답을 우리 형식으로 다듬기 (모두 방어적으로) ---------- */
+function parseBasic(j){
+  const b = j?.datas?.[0] || j || {};
+  const price = num(b.closePrice);
+  let diff = num(b.compareToPreviousClosePrice);
+  const down = String(b?.compareToPreviousPrice?.code||'') === '5';
+  if(has(diff) && diff>0 && down) diff = -diff;
+  const prev = has(diff) ? price - diff : NaN;
+  return { price, prev, name: b.stockName || b.itemName || '', market: b.stockExchangeType?.name || b.stockExchangeName || '',
+           marketCap: num(b.marketValue), volume: num(b.accumulatedTradingVolume) };
+}
+/* integration: totalInfos 에 시가총액/PER/PBR/EPS/BPS/배당/52주 등이 code 또는 key(한글) 로 들어 있습니다 */
+function parseInteg(j){
+  const out = {};
+  const infos = j?.totalInfos || j?.stockInfos || [];
+  const map = {
+    marketValue:'marketCap', 시가총액:'marketCap', per:'per', PER:'per', pbr:'pbr', PBR:'pbr', eps:'eps', EPS:'eps', bps:'bps', BPS:'bps',
+    dividendYieldRatio:'divYield', 배당수익률:'divYield', highPriceOf52Weeks:'high52', '52주최고':'high52', lowPriceOf52Weeks:'low52', '52주최저':'low52',
+    industryPer:'indPer', 동일업종PER:'indPer', foreignRatio:'foreignRatio', 외국인소진율:'foreignRatio', cnsEps:'epsE', cnsPer:'perE',
+  };
+  for(const it of infos){
+    const k = map[it.code] || map[String(it.key||'').replace(/\s/g,'')];
+    if(k) out[k] = num(it.value);
+  }
+  const c = j?.consensusInfo || j?.consensus || {};
+  out.target = num(c.priceTargetMean ?? c.targetPrice ?? c.priceTargetAvg);
+  out.recomm = num(c.recommMean ?? c.recommendation);
+  out.epsE = has(out.epsE) ? out.epsE : num(c.eps ?? c.epsMean);
+  out.industry = j?.industryCompareInfo?.industryName || j?.industryInfo?.industryName || j?.industryName || '';
+  out.corpSummary = j?.corporationSummary || j?.stockInfo?.corporationSummary || '';
+  return out;
+}
+/* 재무제표: rowList[{title, columns:{'2023.12':{value}}}], trTitleList 로 열 순서 */
+const FIN_ROWS = [
+  ['revenue','매출액'],['op','영업이익'],['ni','당기순이익'],['opm','영업이익률'],['npm','순이익률'],['roe','ROE'],['debt','부채비율'],
+  ['quick','당좌비율'],['reserve','유보율'],['eps','EPS'],['per','PER'],['bps','BPS'],['pbr','PBR'],['dps','주당배당금'],['divy','배당수익률'],
+];
+function parseFinance(j){
+  const fi = j?.financeInfo || j || {};
+  const rows = fi.rowList || fi.rows || [];
+  let cols = (fi.trTitleList || fi.titleList || []).map(t => ({ key: t.key || t.code || t.title, title: t.title || t.key, est: /E|예상|추정/.test(String(t.title||t.key)) }));
+  const table = {};
+  for(const r of rows){
+    const title = String(r.title || r.name || '').replace(/\s/g,'');
+    const hit = FIN_ROWS.find(([,k]) => title.startsWith(k.replace(/\s/g,'')));
+    if(!hit) continue;
+    const vals = {};
+    const colsObj = r.columns || r.values || {};
+    for(const [ck, cv] of Object.entries(colsObj)){ vals[ck] = num(cv?.value ?? cv); }
+    table[hit[0]] = vals;
+    if(!cols.length) cols = Object.keys(colsObj).map(k => ({ key:k, title:k, est:/E/.test(k) }));
+  }
+  /* 열 키가 trTitleList 와 다를 수 있어 title 로도 맞춰 봅니다 */
+  cols = cols.filter(c => Object.values(table).some(v => v[c.key] != null));
+  return { cols, table };
+}
+function parseChart(j){
+  let arr = Array.isArray(j) ? j : (j?.priceInfos || j?.result || []);
+  const out = arr.map(x => ({ d: String(x.localDate || x.date || ''), c: num(x.closePrice ?? x.close), v: num(x.accumulatedTradingVolume ?? x.volume) })).filter(x => has(x.c) && x.d);
+  return out;
+}
+function parseChartXml(txt){
+  const out = [];
+  const re = /data="([^"]+)"/g; let m;
+  while((m = re.exec(txt))){ const p = m[1].split('|'); if(p.length>=5) out.push({ d:p[0], c:num(p[4]), v:num(p[5]) }); }
+  return out.filter(x => has(x.c));
+}
+function parseNews(j){
+  let groups = Array.isArray(j) ? j : (j?.items ? [j] : []);
+  const items = [];
+  for(const g of groups){
+    const arr = g.items || (g.title ? [g] : []);
+    for(const a of arr){
+      const id = String(a.articleId || a.id || (a.officeId+'-'+a.title));
+      items.push({ id, title: decodeEnt(a.title || ''), office: a.officeName || '', dt: String(a.datetime || a.date || ''), body: decodeEnt(a.body || ''),
+        url: (a.officeId && a.articleId) ? `https://n.news.naver.com/mnews/article/${a.officeId}/${a.articleId}` : (a.url || '') });
+    }
+  }
+  const seen = new Set();
+  return items.filter(x => { if(seen.has(x.id)) return false; seen.add(x.id); return true; }).slice(0, 30);
+}
+function decodeEnt(s){ const t = document.createElement('textarea'); t.innerHTML = String(s).replace(/<[^>]+>/g,''); return t.value; }
+
+/* 한 종목의 데이터를 전부 모아 옵니다. 하나가 막혀도 나머지는 살립니다 */
+async function fetchStock(code){
+  const errs = [];
+  const tryGet = async (fn) => { try{ return await fn(); }catch(e){ errs.push(e.message); return null; } };
+  const [basic, integ, annual, quarter, news, chart] = await Promise.all([
+    tryGet(async()=>parseBasic(await relayJSON(NV.basic(code)))),
+    tryGet(async()=>parseInteg(await relayJSON(NV.integ(code)))),
+    tryGet(async()=>parseFinance(await relayJSON(NV.annual(code)))),
+    tryGet(async()=>parseFinance(await relayJSON(NV.quarter(code)))),
+    tryGet(async()=>parseNews(await relayJSON(NV.news(code)))),
+    tryGet(async()=>{ try{ const c = parseChart(await relayJSON(NV.chart(code))); if(c.length) return c; }catch(e){} return parseChartXml(await relayText(NV.chart2(code))); }),
+  ]);
+  if(!basic || !has(basic.price)) throw new Error('시세를 못 가져왔어요 (' + (errs[0]||'연결 실패') + ')');
+  return { code, t: Date.now(), basic, integ: integ||{}, annual: annual||{cols:[],table:{}}, quarter: quarter||{cols:[],table:{}}, news: news||[], chart: chart||[], errs, demo:false };
+}
+
+/* ============================================================
+   2. 계산 모델 — 점수 (0~100) · 시나리오 · 변화 감지
+   ------------------------------------------------------------
+   모두 순수 함수. 입력은 위의 data 한 덩어리, 출력은 숫자와 '왜' 목록입니다.
+   ============================================================ */
+/* 구간 보간: pts=[[x,y],...] 오름차순 x */
+function interp(x, pts){
+  if(!has(x)) return NaN;
+  if(x <= pts[0][0]) return pts[0][1];
+  for(let i=1;i<pts.length;i++){ if(x <= pts[i][0]){ const [x0,y0]=pts[i-1],[x1,y1]=pts[i]; return y0 + (y1-y0)*(x-x0)/(x1-x0); } }
+  return pts[pts.length-1][1];
+}
+const avg = a => { const b = a.filter(has); return b.length ? b.reduce((s,v)=>s+v,0)/b.length : NaN; };
+
+/* 연간 재무표에서 실적(A) 열과 추정(E) 열을 나눠 시계열로 */
+function series(fin, key){
+  const row = fin?.table?.[key]; if(!row) return { a:[], e:[] };
+  const cols = fin.cols.length ? fin.cols : Object.keys(row).map(k=>({key:k,title:k,est:/E/.test(k)}));
+  const a=[], e=[];
+  for(const c of cols){ const v = row[c.key]; if(!has(v)) continue; (c.est ? e : a).push({ k:c.title, v }); }
+  return { a, e };
+}
+const last = arr => arr.length ? arr[arr.length-1].v : NaN;
+const growth = (cur, prev) => (has(cur) && has(prev) && prev !== 0) ? (cur-prev)/Math.abs(prev)*100 : NaN;
+function cagr(arr, n){ if(arr.length < n+1) return NaN; const a = arr[arr.length-1-n].v, b = arr[arr.length-1].v; if(!(a>0) || !(b>0)) return NaN; return (Math.pow(b/a, 1/n)-1)*100; }
+
+function computeScore(d){
+  const A = d.annual, why = {}, s = {};
+  const rev = series(A,'revenue'), op = series(A,'op'), opm = series(A,'opm'), roe = series(A,'roe'), debt = series(A,'debt'), quick = series(A,'quick');
+  const per = series(A,'per'), pbr = series(A,'pbr'), eps = series(A,'eps');
+  const price = d.basic.price, I = d.integ;
+
+  /* 성장성: 3년 매출 CAGR, 최근 영업이익 증가율, 다음 해 추정 영업이익 증가율 */
+  {
+    const r3 = cagr(rev.a, Math.min(3, rev.a.length-1));
+    const g1 = growth(last(op.a), op.a.length>1 ? op.a[op.a.length-2].v : NaN);
+    const gE = op.e.length ? growth(op.e[0].v, last(op.a)) : NaN;
+    const parts = [interp(r3, [[-10,15],[0,40],[5,55],[10,68],[20,82],[35,95]]), interp(g1, [[-40,15],[-10,35],[0,48],[20,65],[50,80],[100,95]]), interp(gE, [[-30,20],[0,45],[15,65],[40,85],[80,95]])];
+    s.growth = Math.round(avg(parts));
+    why.growth = [ has(r3)&&`최근 ${Math.min(3,rev.a.length-1)}년 매출 연평균 ${pct(r3)}`, has(g1)&&`직전 연도 영업이익 ${pct(g1)}`, has(gE)&&`올해 추정 영업이익 ${pct(gE)} (증권사 추정)` ].filter(Boolean);
+  }
+  /* 수익성: 영업이익률 수준, ROE, 마진 추세 */
+  {
+    const m = last(opm.a), r = last(roe.a), mt = opm.a.length>1 ? m - opm.a[opm.a.length-2].v : NaN;
+    const parts = [interp(m, [[-5,10],[0,30],[5,48],[10,62],[20,80],[35,95]]), interp(r, [[-5,10],[0,30],[5,45],[10,62],[15,78],[25,92]]), interp(mt, [[-10,25],[-3,40],[0,50],[3,62],[10,80]])];
+    s.profit = Math.round(avg(parts));
+    why.profit = [ has(m)&&`영업이익률 ${m.toFixed(1)}%`, has(r)&&`ROE ${r.toFixed(1)}%`, has(mt)&&`영업이익률 전년 대비 ${(mt>0?'+':'')+mt.toFixed(1)}%p` ].filter(Boolean);
+  }
+  /* 밸류에이션: PER vs 자기 과거 평균, PER vs 업종, PBR, 배당 */
+  {
+    const perNow = has(I.per) ? I.per : last(per.a);
+    const perHist = avg(per.a.map(x=>x.v).filter(v=>v>0 && v<200));
+    const perE = has(I.perE) ? I.perE : (eps.e.length && eps.e[0].v>0 ? price/eps.e[0].v : NaN);
+    const rel = (has(perNow) && has(perHist) && perNow>0) ? perNow/perHist : NaN;
+    const relInd = (has(perNow) && has(I.indPer) && I.indPer>0 && perNow>0) ? perNow/I.indPer : NaN;
+    const pbrNow = has(I.pbr) ? I.pbr : last(pbr.a);
+    const parts = [ interp(rel, [[0.5,90],[0.8,72],[1,55],[1.3,40],[2,20]]), interp(relInd, [[0.5,85],[0.8,68],[1,52],[1.5,35],[2.5,18]]),
+      interp(pbrNow, [[0.5,85],[1,68],[2,52],[4,35],[8,18]]), interp(perE, [[5,90],[10,72],[15,58],[25,42],[40,25],[80,10]]), interp(I.divYield, [[0,45],[2,55],[4,68],[6,80]]) ];
+    s.value = Math.round(avg(parts));
+    why.value = [ has(perNow)&&`PER ${perNow.toFixed(1)}배` + (has(perHist)?` (과거 평균 ${perHist.toFixed(1)}배)`:''), has(perE)&&`추정 PER ${perE.toFixed(1)}배`, has(I.indPer)&&`동일업종 PER ${I.indPer.toFixed(1)}배`, has(pbrNow)&&`PBR ${pbrNow.toFixed(2)}배`, has(I.divYield)&&`배당수익률 ${I.divYield.toFixed(2)}%` ].filter(Boolean);
+    if(has(perNow) && perNow < 0) why.value.push('적자여서 PER 로 평가하기 어려움');
+  }
+  /* 재무건전성: 부채비율, 당좌비율, 순이익 흑자 여부 */
+  {
+    const dr = last(debt.a), qr = last(quick.a), ni = last(series(A,'ni').a);
+    const parts = [interp(dr, [[20,95],[50,85],[100,68],[200,42],[300,22],[500,8]]), interp(qr, [[30,20],[70,45],[100,65],[150,82],[250,95]]), has(ni) ? (ni>0 ? 75 : 25) : NaN];
+    s.health = Math.round(avg(parts));
+    why.health = [ has(dr)&&`부채비율 ${dr.toFixed(0)}%`, has(qr)&&`당좌비율 ${qr.toFixed(0)}%`, has(ni)&&(ni>0?'당기순이익 흑자':'당기순이익 적자') ].filter(Boolean);
+  }
+  /* 모멘텀: 20/60/120일 이평 대비, 3개월 수익률, 52주 위치 */
+  {
+    const ch = d.chart || [], n = ch.length;
+    const ma = k => n>=k ? avg(ch.slice(n-k).map(x=>x.c)) : NaN;
+    const m20 = ma(20), m60 = ma(60), m120 = ma(120);
+    const r3m = n>63 ? growth(price, ch[n-64].c) : NaN;
+    const hi = I.high52, lo = I.low52;
+    const pos52 = (has(hi)&&has(lo)&&hi>lo) ? (price-lo)/(hi-lo)*100 : NaN;
+    const above = [m20,m60,m120].filter(has).map(m => price>m ? 1 : 0);
+    const parts = [ above.length ? 30 + avg(above)*50 : NaN, interp(r3m, [[-30,15],[-10,35],[0,50],[10,65],[30,82],[60,95]]), interp(pos52, [[0,25],[30,45],[60,62],[90,78],[100,85]]) ];
+    s.momentum = Math.round(avg(parts));
+    why.momentum = [ above.length&&`20·60·120일선 중 ${above.filter(x=>x).length}/${above.length}개 위`, has(r3m)&&`3개월 수익률 ${pct(r3m)}`, has(pos52)&&`52주 범위의 ${pos52.toFixed(0)}% 위치` ].filter(Boolean);
+    s._mas = {m20,m60,m120,r3m,pos52};
+  }
+  const W = { growth:.25, profit:.25, value:.2, health:.15, momentum:.15 };
+  let tot=0, wsum=0;
+  for(const [k,w] of Object.entries(W)){ if(has(s[k])){ tot += s[k]*w; wsum += w; } }
+  s.total = wsum ? Math.round(tot/wsum) : NaN;
+  s.coverage = Math.round(wsum/1*100);
+  return { s, why };
+}
+
+/* 시나리오 — EPS × PER. adj = {epsBull, epsBear, perBull, perBase, perBear} 사용자가 슬라이더로 바꿀 수 있습니다 */
+function scenarios(d, adj={}){
+  const A = d.annual, I = d.integ, price = d.basic.price;
+  const eps = series(A,'eps'), per = series(A,'per');
+  const epsA = last(eps.a), epsE = has(I.epsE) ? I.epsE : (eps.e.length ? eps.e[0].v : NaN);
+  const base = has(epsE) ? epsE : epsA;
+  const hist = per.a.map(x=>x.v).filter(v=>v>0 && v<150);
+  const perAvg = hist.length ? avg(hist) : (has(I.indPer) ? I.indPer : (has(I.per)&&I.per>0 ? I.per : 12));
+  const perLo = hist.length ? Math.min(...hist) : perAvg*0.7, perHi = hist.length ? Math.max(...hist) : perAvg*1.3;
+  const a = Object.assign({ epsBull: 15, epsBear: -20, perBull: +perHi.toFixed(1), perBase: +perAvg.toFixed(1), perBear: +perLo.toFixed(1) }, adj);
+  const px = (e, p) => (has(e) && e>0) ? Math.round(e*p) : NaN;
+  const out = {
+    epsBase: base, epsSrc: has(epsE) ? '증권사 추정 EPS' : '최근 연간 EPS', perAvg, perLo, perHi, adj:a,
+    bull: px(base*(1+a.epsBull/100), a.perBull), base: px(base, a.perBase), bear: px(base*(1+a.epsBear/100), a.perBear),
+    target: I.target,
+  };
+  out.upBull = growth(out.bull, price); out.upBase = growth(out.base, price); out.upBear = growth(out.bear, price);
+  if(has(base) && base <= 0) out.note = '이익이 적자(또는 없음)라 EPS×PER 방식이 맞지 않습니다. PBR·매출 기준으로 따로 봐야 합니다.';
+  return out;
+}
+
+/* 리스크 모니터 — 데이터로 잴 수 있는 것만 별 개수로 */
+function riskMonitor(d, sc, sn){
+  const A = d.annual, I = d.integ, price = d.basic.price, out = [];
+  const add = (name, lv, why) => out.push({ name, lv, why });     /* lv 1~5 */
+  const per = series(A,'per'), debt = series(A,'debt'), opm = series(A,'opm'), rev = series(A,'revenue');
+  const perNow = has(I.per)?I.per:last(per.a), perAvg = avg(per.a.map(x=>x.v).filter(v=>v>0&&v<150));
+  if(has(perNow) && has(perAvg)) add('밸류에이션 부담', clamp(Math.round(interp(perNow/perAvg, [[0.6,1],[0.9,2],[1.2,3],[1.6,4],[2.2,5]])),1,5), `PER ${perNow.toFixed(1)}배 vs 과거 평균 ${perAvg.toFixed(1)}배`);
+  else if(has(perNow) && perNow<0) add('적자 지속', 4, 'PER 이 음수 — 이익이 나지 않고 있습니다');
+  const dr = last(debt.a); if(has(dr)) add('재무 레버리지', clamp(Math.round(interp(dr, [[50,1],[100,2],[150,3],[250,4],[400,5]])),1,5), `부채비율 ${dr.toFixed(0)}%`);
+  const m = opm.a.map(x=>x.v); if(m.length>=3){ const sd = Math.sqrt(avg(m.map(v=>(v-avg(m))**2))); add('이익 변동성(경기민감)', clamp(Math.round(interp(sd,[[1,1],[3,2],[6,3],[10,4],[15,5]])),1,5), `영업이익률 표준편차 ${sd.toFixed(1)}%p`); }
+  const r = rev.a; if(r.length>=2){ const g = growth(last(r), r[r.length-2].v); if(has(g) && g<0) add('매출 역성장', clamp(Math.round(interp(-g,[[0,2],[5,3],[15,4],[30,5]])),2,5), `직전 연도 매출 ${pct(g)}`); }
+  const pos = sc?.s?._mas?.pos52; if(has(pos)) add(pos>85?'단기 과열(52주 고점권)':'가격 위치', clamp(Math.round(interp(pos,[[0,3],[30,2],[60,1],[85,3],[100,4]])),1,5), `52주 범위 ${pos.toFixed(0)}% 위치`);
+  const cs = sn?.consensusMissing; if(!has(I.target)) add('증권사 커버리지 부족', 3, '목표주가 컨센서스가 없습니다 — 정보가 적은 종목');
+  return out.sort((a,b)=>b.lv-a.lv).slice(0,6);
+}
+
+/* 스냅샷 — 변화 감지용으로 하루 하나씩 남깁니다 */
+function makeSnap(d, sc, sn){
+  const A = d.annual, opE = series(A,'op').e, epsE = series(A,'eps').e;
+  return { t: d.t, date: iso(d.t), price: d.basic.price, per: d.integ.per, pbr: d.integ.pbr, target: d.integ.target, recomm: d.integ.recomm,
+    epsE: has(d.integ.epsE)?d.integ.epsE:(epsE[0]?.v), opE: opE[0]?.v, opEk: opE[0]?.k, score: sc.s.total, sub: {growth:sc.s.growth, profit:sc.s.profit, value:sc.s.value, health:sc.s.health, momentum:sc.s.momentum},
+    base: sn.base, newsIds: (d.news||[]).slice(0,20).map(n=>n.id), latestCol: A.cols.length ? A.cols[A.cols.length-1].title : '' };
+}
+/* 두 스냅샷을 비교해 "투자 판단에 영향을 줄 만한" 변화만 뽑습니다 */
+function detectChanges(prev, cur, news, seen){
+  const out = [];
+  const add = (impact, level, title, detail, kind) => out.push({ impact, level, title, detail, kind });
+  const d = (a,b) => growth(b,a);
+  if(prev){
+    const days = Math.max(1, Math.round((cur.t - prev.t)/DAY));
+    const pc = d(prev.price, cur.price);
+    if(has(pc) && Math.abs(pc) >= (days<=1 ? 4 : 8)) add(pc>0?'up':'down', Math.abs(pc)>=10?'high':'mid', `주가 ${pct(pc)} (${days}일)`, `${won(prev.price)} → ${won(cur.price)}`, 'price');
+    const tc = d(prev.target, cur.target);
+    if(has(tc) && Math.abs(tc) >= 2) add(tc>0?'up':'down', Math.abs(tc)>=5?'high':'mid', `목표주가 컨센서스 ${pct(tc)}`, `${won(prev.target)} → ${won(cur.target)} — 증권사 평균 목표가가 바뀌었습니다`, 'target');
+    const oc = d(prev.opE, cur.opE);
+    if(has(oc) && Math.abs(oc) >= 2 && prev.opEk === cur.opEk) add(oc>0?'up':'down', Math.abs(oc)>=5?'high':'mid', `${cur.opEk||'올해'} 영업이익 추정 ${pct(oc)}`, `${fmt(prev.opE)}억 → ${fmt(cur.opE)}억 — 실적 전망이 바뀌었습니다`, 'estimate');
+    const ec = d(prev.epsE, cur.epsE);
+    if(has(ec) && Math.abs(ec) >= 3 && !(has(oc)&&Math.abs(oc)>=2)) add(ec>0?'up':'down', 'mid', `추정 EPS ${pct(ec)}`, `${fmt(prev.epsE)}원 → ${fmt(cur.epsE)}원`, 'estimate');
+    if(has(prev.recomm) && has(cur.recomm) && Math.abs(cur.recomm-prev.recomm) >= 0.2) add(cur.recomm>prev.recomm?'up':'down', 'mid', `투자의견 평균 ${prev.recomm.toFixed(2)} → ${cur.recomm.toFixed(2)}`, '증권사 투자의견 평균이 바뀌었습니다', 'recomm');
+    if(prev.latestCol && cur.latestCol && prev.latestCol !== cur.latestCol) add('flat', 'high', `새 재무제표 반영 (${cur.latestCol})`, '연간 재무 데이터가 새로 나왔습니다. 점수와 시나리오가 다시 계산됐습니다', 'filing');
+    const scd = (has(prev.score)&&has(cur.score)) ? cur.score - prev.score : NaN;
+    if(has(scd) && Math.abs(scd) >= 4){
+      const keys = {growth:'성장성',profit:'수익성',value:'밸류에이션',health:'재무건전성',momentum:'모멘텀'};
+      let big = null, bigD = 0;
+      for(const k of Object.keys(keys)){ const dd = (cur.sub?.[k]??0) - (prev.sub?.[k]??0); if(Math.abs(dd) > Math.abs(bigD)){ bigD = dd; big = k; } }
+      add(scd>0?'up':'down', Math.abs(scd)>=8?'high':'mid', `AI 점수 ${prev.score} → ${cur.score}`, big ? `가장 크게 움직인 항목: ${keys[big]} (${bigD>0?'+':''}${bigD})` : '', 'score');
+    }
+    const pcc = d(prev.per, cur.per);
+    if(has(pcc) && Math.abs(pcc) >= 8 && !(has(pc)&&Math.abs(pc)>=4)) add(pcc>0?'down':'up', 'low', `PER ${prev.per.toFixed(1)} → ${cur.per.toFixed(1)}배`, '이익 기준이 바뀌었을 수 있습니다', 'valuation');
+  }
+  /* 새 뉴스 — 처음 보는 기사만, 중요 키워드가 있으면 등급을 올립니다 */
+  const HOT = /실적|영업이익|매출|가이던스|컨센서스|목표주가|투자의견|공시|수주|계약|유상증자|무상증자|자사주|배당|합병|인수|분할|소송|리콜|규제|제재|관세|파업|화재|점유율|증설|투자 계획|CEO|대표이사|상향|하향/;
+  const fresh = (news||[]).filter(n => !seen?.[n.id]);
+  const hot = fresh.filter(n => HOT.test(n.title));
+  if(hot.length) add('flat', hot.length>=3?'mid':'low', `주요 뉴스 ${hot.length}건`, hot.slice(0,3).map(n=>'· '+n.title).join('\n'), 'news');
+  else if(fresh.length >= 5) add('flat', 'low', `새 뉴스 ${fresh.length}건`, '기업가치에 직접 닿는 키워드는 없었습니다', 'news');
+  const rank = {high:3, mid:2, low:1};
+  return out.sort((a,b)=>rank[b.level]-rank[a.level]);
+}
+
+/* 투자 논리(Thesis) — 가정·리스크 키워드와 새 뉴스·변화를 맞춰 봅니다 */
+function thesisCheck(th, changes, news){
+  const hits = [];
+  const text = (n) => n.title + ' ' + (n.body||'');
+  const scan = (list, kind) => list.forEach((a, i) => {
+    const kws = (a.keywords||[]).filter(Boolean);
+    if(!kws.length) return;
+    const m = (news||[]).filter(n => kws.some(k => text(n).includes(k)));
+    if(m.length) hits.push({ kind, i, text:a.text, n:m.length, titles:m.slice(0,3).map(x=>x.title) });
+  });
+  scan(th.assumptions||[], 'assumption'); scan(th.risks||[], 'risk');
+  const bad = (changes||[]).filter(c => c.impact==='down' && c.level!=='low');
+  const good = (changes||[]).filter(c => c.impact==='up' && c.level!=='low');
+  return { hits, bad, good, needsReview: bad.length>0 || hits.some(h=>h.kind==='risk') };
+}
+/* 문장에서 키워드를 뽑는 아주 단순한 방법 (AI 없이 쓸 때) */
+function guessKeywords(s){
+  const stop = /^(것|수|등|및|대한|위한|통해|따라|으로|에서|이다|있다|한다|된다|같은|더|매우|계속|향후|앞으로|시장|기업|회사|성장|증가|감소|유지|전망|가능|예상|기대|리스크|위험|가정|투자|주가|실적)$/;
+  const w = String(s).replace(/[^\w가-힣A-Za-z0-9 ]/g,' ').split(/\s+/).map(x=>x.replace(/(은|는|이|가|을|를|의|도|에|로|과|와|이다|입니다)$/,'')).filter(x => x.length>=2 && !stop.test(x));
+  return [...new Set(w)].slice(0,4);
+}
+</script>
+
+<script>
+/* ============================================================
+   3. 샘플 데이터 — 데이터 서버가 막혔거나 PC에서 둘러볼 때
+   (실제 값이 아닙니다. 형태만 진짜와 같습니다)
+   ============================================================ */
+function demoStock(code){
+  const name = (BUILTIN.find(([c])=>c===code)||[code,code])[1];
+  const seed = [...code].reduce((a,c)=>a+c.charCodeAt(0),0);
+  const rnd = (i, a=0, b=1) => { const x = Math.sin(seed*7 + i*13) * 10000; return a + (x - Math.floor(x))*(b-a); };
+  const price = Math.round(rnd(1, 20000, 200000)/100)*100;
+  const yrs = ['2022.12','2023.12','2024.12','2025.12','2026.12(E)'];
+  const cols = yrs.map(k => ({ key:k, title:k, est:/E/.test(k) }));
+  const rev0 = rnd(2, 20000, 3000000);
+  const g = rnd(3, -0.05, 0.25);
+  const revs = yrs.map((_,i) => Math.round(rev0 * Math.pow(1+g, i)));
+  const opm = yrs.map((_,i) => +(rnd(4, 3, 25) + rnd(10+i, -4, 4)).toFixed(1));
+  const ops = revs.map((r,i) => Math.round(r*opm[i]/100));
+  const shares = rnd(5, 5e7, 6e9);
+  const eps = ops.map(o => Math.round(o*0.75*1e8/shares));
+  const table = {};
+  const row = arr => Object.fromEntries(yrs.map((k,i)=>[k, arr[i]]));
+  table.revenue = row(revs); table.op = row(ops); table.ni = row(ops.map(o=>Math.round(o*0.75))); table.opm = row(opm);
+  table.npm = row(opm.map(m=>+(m*0.75).toFixed(1))); table.roe = row(yrs.map((_,i)=>+(rnd(6,4,18)+rnd(20+i,-3,3)).toFixed(1)));
+  table.debt = row(yrs.map((_,i)=>Math.round(rnd(7,30,180)+rnd(30+i,-10,10)))); table.quick = row(yrs.map((_,i)=>Math.round(rnd(8,60,200))));
+  table.eps = row(eps); table.per = row(eps.map((e,i)=> i<4 ? +((price*(0.7+i*0.1))/Math.max(e,1)).toFixed(1) : NaN));
+  table.pbr = row(yrs.map((_,i)=>+(rnd(9,0.6,4)).toFixed(2))); table.dps = row(yrs.map(()=>Math.round(price*0.015)));
+  const chart = []; let p = price*rnd(11,0.7,1.2);
+  for(let i=270;i>=0;i--){ p = p*(1+rnd(100+i,-0.03,0.031)); chart.push({ d: iso(Date.now()-i*DAY).replace(/-/g,''), c: Math.round(p/10)*10, v: Math.round(rnd(200+i,1e5,5e6)) }); }
+  const k = price / chart[chart.length-1].c;
+  chart.forEach(x => { x.c = Math.round(x.c*k/10)*10; });
+  chart[chart.length-1].c = price;
+  const cs = chart.map(x=>x.c);
+  const integ = { marketCap: Math.round(price*shares/1e8), per: +(price/Math.max(eps[3],1)).toFixed(2), pbr: +table.pbr[yrs[3]].toFixed(2), eps: eps[3], bps: Math.round(price/table.pbr[yrs[3]]),
+    divYield: +(1.5).toFixed(2), high52: Math.round(Math.max(...cs)*1.06/100)*100, low52: Math.round(Math.min(...cs)*0.95/100)*100, indPer: +(rnd(12,8,25)).toFixed(2), foreignRatio: +(rnd(13,5,60)).toFixed(2),
+    target: Math.round(price*rnd(14,0.95,1.35)/100)*100, recomm: +(rnd(15,3.4,4.2)).toFixed(2), epsE: eps[4], industry: '샘플 업종', corpSummary: `${name}의 샘플 데이터입니다. 실제 재무·시세가 아니며 화면과 기능을 둘러보기 위한 값입니다.` };
+  const topics = ['실적 발표, 영업이익 컨센서스 상회','신규 수주 계약 체결 공시','목표주가 상향 — 증권사 리포트','업황 둔화 우려로 주가 약세','자사주 매입 결정','경쟁사 신제품 출시로 점유율 경쟁 심화','원자재 가격 상승, 마진 압박 전망','배당 확대 정책 발표'];
+  const news = topics.map((t,i) => ({ id: 'demo-'+code+'-'+i, title: `${name}, ${t}`, office:'샘플뉴스', dt: iso(Date.now()-i*DAY).replace(/-/g,'')+'0900', body:'', url:'' }));
+  return { code, t: Date.now(), basic: { price, prev: chart[chart.length-2].c, name, market:'KOSPI(샘플)', marketCap: integ.marketCap }, integ, annual:{cols, table}, quarter:{cols:[],table:{}}, news, chart, errs:[], demo:true };
+}
+
+/* ============================================================
+   4. AI — 내 API 키로 브라우저에서 직접 부릅니다 (서버 없음)
+   AI 는 계산하지 않습니다. 위 모델이 낸 숫자를 받아 '설명·비교·검증'만 합니다.
+   ============================================================ */
+const PROVIDERS = {
+  anthropic: { name:'Anthropic Claude', models:['claude-opus-5','claude-sonnet-5','claude-haiku-4-5'], hint:'console.anthropic.com 에서 키 발급 (sk-ant-…)' },
+  openai:    { name:'OpenAI', models:['gpt-5','gpt-5-mini'], hint:'platform.openai.com 에서 키 발급 (sk-…)' },
+  gemini:    { name:'Google Gemini', models:['gemini-2.5-pro','gemini-2.5-flash'], hint:'aistudio.google.com 에서 키 발급' },
+};
+const aiReady = () => !!(state.settings.apiKey && state.settings.provider);
+function aiModel(){ const p = PROVIDERS[state.settings.provider]; return state.settings.model || p.models[0]; }
+
+const SYSTEM = `당신은 StockLens 의 AI 애널리스트입니다. 한국 개인투자자를 돕습니다.
+원칙:
+- 사라/팔라 같은 매매 지시를 하지 않습니다. 대신 "이 논리가 맞으려면 무엇이 사실이어야 하고, 무엇이 그것을 깨뜨릴 수 있는지"를 밝힙니다.
+- 반드시 함께 제공된 데이터(JSON)에 근거해 말하고, 데이터에 없는 숫자는 지어내지 않습니다. 데이터에 없으면 "데이터에 없음"이라고 말합니다.
+- 점수·목표가는 앱의 계산 모델이 낸 값입니다. 당신은 그 계산을 바꾸지 말고 해석·설명합니다. 사용자가 가정을 바꾸면(예: 영업이익 -20%) 제공된 EPS·PER 값으로 간단히 산수해서 보여 주되 계산식을 함께 적습니다.
+- 낙관과 비관을 같은 무게로 다룹니다. 확신하는 말투를 피하고 불확실한 것은 불확실하다고 씁니다.
+- 한국어로, 짧은 문단과 목록으로, 핵심부터 씁니다. 마크다운 헤더(#)는 쓰지 말고 굵게(**)와 목록(-)만 씁니다.
+- 마지막 줄에 "근거:" 뒤에 어떤 데이터 항목을 썼는지 한 줄로 적습니다.`;
+
+/* 공통 호출: messages=[{role:'user'|'assistant', text}], system 문자열 → 답 텍스트 */
+async function aiChat(messages, system=SYSTEM, opt={}){
+  const { provider, apiKey } = state.settings;
+  if(!apiKey) throw new Error('AI 키가 없어요. ⚙️ 설정에서 API 키를 넣어 주세요.');
+  const model = aiModel();
+  const maxTok = opt.maxTokens || 4000;
+  let url, headers, body, pick;
+  if(provider === 'anthropic'){
+    url = 'https://api.anthropic.com/v1/messages';
+    headers = { 'content-type':'application/json', 'x-api-key': apiKey, 'anthropic-version':'2023-06-01',
+      'anthropic-dangerous-direct-browser-access':'true', 'anthropic-beta':'server-side-fallback-2026-07-01' };
+    body = { model, max_tokens: maxTok, system, fallbacks:'default',
+      output_config: { effort: state.settings.effort || 'medium' },
+      messages: messages.map(m => ({ role: m.role, content: m.text })) };
+    pick = j => {
+      if(j.stop_reason === 'refusal') throw new Error('AI 가 이 요청에 답하지 않았어요 (' + (j.stop_details?.category||'refusal') + ')');
+      return (j.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n');
+    };
+  }else if(provider === 'openai'){
+    url = 'https://api.openai.com/v1/chat/completions';
+    headers = { 'content-type':'application/json', 'authorization':'Bearer '+apiKey };
+    body = { model, max_completion_tokens: maxTok, messages: [{role:'system', content: system}, ...messages.map(m=>({role:m.role, content:m.text}))] };
+    pick = j => j.choices?.[0]?.message?.content || '';
+  }else{
+    url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    headers = { 'content-type':'application/json' };
+    body = { systemInstruction: { parts:[{text: system}] }, contents: messages.map(m => ({ role: m.role==='assistant'?'model':'user', parts:[{text:m.text}] })), generationConfig:{ maxOutputTokens: maxTok } };
+    pick = j => (j.candidates?.[0]?.content?.parts||[]).map(p=>p.text||'').join('');
+  }
+  const ac = new AbortController(); const t = setTimeout(()=>ac.abort(), 180000);
+  let r, j;
+  try{ r = await fetch(url, { method:'POST', headers, body: JSON.stringify(body), signal: ac.signal }); }
+  catch(e){ throw new Error('AI 서버에 연결하지 못했어요 (네트워크 또는 브라우저 차단)'); }
+  finally{ clearTimeout(t); }
+  try{ j = await r.json(); }catch(e){ throw new Error('AI 응답을 읽지 못했어요 (HTTP '+r.status+')'); }
+  if(!r.ok){ const m = j?.error?.message || j?.error?.type || ('HTTP '+r.status); throw new Error('AI 오류: ' + m); }
+  const text = pick(j);
+  if(!text) throw new Error('AI 가 빈 답을 보냈어요');
+  return text;
+}
+/* 답 속에서 JSON 한 덩어리만 꺼냅니다 (코드펜스·앞뒤 설명 무시) */
+function pickJSON(text){
+  const m = String(text).match(/\{[\s\S]*\}/);
+  if(!m) throw new Error('AI 답에서 JSON 을 찾지 못했어요');
+  return JSON.parse(m[0]);
+}
+
+/* AI 에게 넘길 데이터 묶음 — 사람이 읽어도 되는 크기로 줄입니다 */
+function dataPack(code){
+  const d = state.data[code]; if(!d) return null;
+  const sc = computeScore(d), sn = scenarios(d, state.ui.adj?.[code]), rk = riskMonitor(d, sc, sn);
+  const A = d.annual;
+  const fin = {};
+  for(const [k, label] of FIN_ROWS){ const s = series(A,k); if(s.a.length||s.e.length) fin[label] = Object.fromEntries([...s.a, ...s.e].map(x=>[x.k, x.v])); }
+  const snaps = state.snaps[code]||[]; const prev = snaps.length>1 ? snaps[snaps.length-2] : null;
+  const ch = prev ? detectChanges(prev, snaps[snaps.length-1], d.news, state.seenNews[code]) : [];
+  const th = state.theses.filter(t=>t.code===code).map(t=>({ 논리:t.title, 원문:t.text, 가정:(t.assumptions||[]).map(a=>a.text), 리스크:(t.risks||[]).map(a=>a.text), 확신도:t.confidence, 작성일: iso(t.createdAt) }));
+  return {
+    종목: { 이름: d.basic.name, 코드: code, 업종: d.integ.industry||'', 데이터출처: d.demo ? '샘플(실제 아님)' : '네이버증권', 기준시각: new Date(d.t).toLocaleString('ko-KR') },
+    시세: { 현재가: d.basic.price, 전일대비: pct(growth(d.basic.prev, d.basic.price)), 시가총액_억원: d.integ.marketCap, '52주최고': d.integ.high52, '52주최저': d.integ.low52,
+      PER: d.integ.per, PBR: d.integ.pbr, 추정EPS: d.integ.epsE, 동일업종PER: d.integ.indPer, 배당수익률: d.integ.divYield, 목표주가컨센서스: d.integ.target, 투자의견평균_5만점: d.integ.recomm, 외국인비율: d.integ.foreignRatio },
+    점수모델: { 총점: sc.s.total, 성장성: sc.s.growth, 수익성: sc.s.profit, 밸류에이션: sc.s.value, 재무건전성: sc.s.health, 모멘텀: sc.s.momentum, 근거: sc.why, 가중치:'성장25 수익25 밸류20 재무15 모멘텀15' },
+    시나리오: { 방식:'EPS × PER', 기준EPS: sn.epsBase, EPS출처: sn.epsSrc, 과거PER_평균: +sn.perAvg.toFixed(1), 과거PER_최저: +sn.perLo.toFixed(1), 과거PER_최고: +sn.perHi.toFixed(1),
+      Bull: { 가격: sn.bull, EPS조정: sn.adj.epsBull+'%', PER: sn.adj.perBull, 상승여력: pct(sn.upBull) }, Base: { 가격: sn.base, PER: sn.adj.perBase, 상승여력: pct(sn.upBase) }, Bear: { 가격: sn.bear, EPS조정: sn.adj.epsBear+'%', PER: sn.adj.perBear, 상승여력: pct(sn.upBear) }, 참고: sn.note||'' },
+    리스크모니터: rk.map(r=>({ 항목:r.name, 등급_5만점:r.lv, 근거:r.why })),
+    재무_억원: fin,
+    최근변화: ch.map(c=>({ 방향:c.impact, 중요도:c.level, 제목:c.title, 내용:c.detail })),
+    최근뉴스제목: (d.news||[]).slice(0,12).map(n=>n.title),
+    내_투자논리: th,
+  };
+}
+function portfolioPack(){
+  const items = state.watch.map(w => { const p = dataPack(w.code); if(!p) return null; return { 종목: p.종목.이름, 코드: w.code, 업종: p.종목.업종, 시세: p.시세, 점수: p.점수모델, 시나리오Base: p.시나리오.Base, 리스크: p.리스크모니터.slice(0,3), 최근변화: p.최근변화, 논리: p.내_투자논리 }; }).filter(Boolean);
+  const j = state.journal.map(x => ({ 종목:x.name, 매수일: iso(x.t), 매수가:x.price, 수량:x.qty, 이유:x.reason, 목표기간:x.horizon, 기대수익률:x.expect, 손절조건:x.stop, 현재가: state.data[x.code]?.basic.price }));
+  return { 관심종목: items, 투자일지: j };
+}
+
+/* AI 기능들 */
+async function aiExplainStock(code){
+  const p = dataPack(code);
+  return aiChat([{ role:'user', text:`아래 데이터로 이 회사의 "투자 논리(Thesis) 3가지"와 "그 논리를 깨뜨릴 수 있는 요소 3가지"를 쓰고, 점수 모델 결과를 한 문단으로 해석해 주세요. 데이터에 없는 사실은 쓰지 마세요.\n\n${JSON.stringify(p)}` }]);
+}
+async function aiStructureThesis(code, text){
+  const p = dataPack(code);
+  const raw = await aiChat([{ role:'user', text:`사용자가 적은 투자 논리를 구조화하세요. JSON 만 출력합니다. 형식:
+{"title":"한 줄 요약(15자 내)","assumptions":[{"text":"핵심 가정","keywords":["뉴스에서 이 가정과 관련된 기사를 찾을 때 쓸 한국어 키워드 2~4개"]}],"risks":[{"text":"논리를 깨뜨릴 수 있는 요소","keywords":["키워드"]}],"confidence":0~100 정수,"horizon":"예상 보유기간","comment":"사용자 논리에서 빠진 가정이나 검증 방법 1~2문장"}
+가정은 3~5개, 리스크는 3~4개. 사용자의 표현을 살리되 검증 가능한 문장으로 다듬으세요. 확신도는 데이터가 논리를 얼마나 뒷받침하는지로 매깁니다.
+
+사용자 투자 논리: """${text}"""
+
+참고 데이터: ${JSON.stringify({ 종목:p?.종목, 시세:p?.시세, 점수모델:p?.점수모델, 리스크모니터:p?.리스크모니터, 최근뉴스제목:p?.최근뉴스제목 })}` }], SYSTEM, { maxTokens: 2500 });
+  return pickJSON(raw);
+}
+async function aiGenerateThesis(code){
+  const p = dataPack(code);
+  const raw = await aiChat([{ role:'user', text:`이 회사의 데이터로 투자 논리를 만들어 주세요. JSON 만 출력합니다. 형식:
+{"title":"한 줄 요약(15자 내)","text":"투자 논리 2~3문장","assumptions":[{"text":"핵심 가정","keywords":["한국어 키워드 2~4개"]}],"risks":[{"text":"깨뜨릴 요소","keywords":["키워드"]}],"confidence":0~100 정수,"horizon":"예상 보유기간","comment":"이 논리가 틀렸다는 것을 가장 먼저 보여 줄 데이터 1~2문장"}
+가정 3~5개, 리스크 3~4개. 데이터에 없는 사실은 쓰지 마세요.
+
+데이터: ${JSON.stringify(p)}` }], SYSTEM, { maxTokens: 2500 });
+  return pickJSON(raw);
+}
+async function aiCheckThesis(th){
+  const p = dataPack(th.code);
+  const chk = thesisCheck(th, p?.최근변화 ? detectChangesFor(th.code) : [], state.data[th.code]?.news);
+  const raw = await aiChat([{ role:'user', text:`아래 투자 논리를 최근 데이터·변화·뉴스로 점검하세요. JSON 만 출력합니다. 형식:
+{"confidence":0~100 정수,"delta_reason":"확신도가 오르거나 내린 가장 큰 이유 한 문장","affected":[{"item":"가정 또는 리스크 원문","direction":"support|weaken|neutral","evidence":"근거가 된 데이터/뉴스 한 줄"}],"summary":"3~4문장 요약. 논리를 다시 검토해야 하는지, 어떤 데이터가 결정적인지","verdict":"유지|재검토|약화"}
+이전 확신도: ${th.confidence}. 확신도는 뚜렷한 근거가 있을 때만 크게 바꾸세요.
+
+투자 논리: ${JSON.stringify({ 제목:th.title, 원문:th.text, 가정:(th.assumptions||[]).map(a=>a.text), 리스크:(th.risks||[]).map(a=>a.text), 작성일: iso(th.createdAt) })}
+키워드 매칭 결과: ${JSON.stringify(chk.hits)}
+데이터: ${JSON.stringify(p)}` }], SYSTEM, { maxTokens: 2500 });
+  return pickJSON(raw);
+}
+function detectChangesFor(code){
+  const snaps = state.snaps[code]||[]; if(snaps.length<1) return [];
+  const prev = snaps.length>1 ? snaps[snaps.length-2] : null;
+  return detectChanges(prev, snaps[snaps.length-1], state.data[code]?.news, state.seenNews[code]);
+}
+async function aiBriefing(){
+  const p = portfolioPack();
+  return aiChat([{ role:'user', text:`오늘 아침 브리핑을 써 주세요. 관심종목 전체에서 "투자 판단에 영향을 줄 만한 변화" 최대 3개를 골라 각각 2줄(무엇이 바뀌었나 / 어떤 논리에 닿나)로, 그다음 포트폴리오 전체의 집중 리스크(같은 업종·같은 리스크에 겹쳐 노출된 것)를 2문장으로. 변화가 없으면 없다고 쓰세요. 전체 12줄 이내.\n\n${JSON.stringify(p)}` }], SYSTEM, { maxTokens: 1500 });
+}
+async function aiJournalReview(){
+  const p = portfolioPack();
+  return aiChat([{ role:'user', text:`투자일지를 복기해 주세요. 각 건에 대해 "매수 이유가 맞았는지 / 주가는 어땠는지 / 차이가 났다면 이유(실적 vs 밸류에이션 vs 시장)"를 짧게. 그다음 반복되는 습관(예: 성장주에 PER 을 과하게 허용, 타이밍, 손절 조건 모호함)을 근거 건수와 함께 3개 이내로. 데이터가 부족하면 부족하다고 쓰세요.\n\n${JSON.stringify(p)}` }], SYSTEM, { maxTokens: 2500 });
+}
+</script>
+
+<script>
+/* ============================================================
+   5. 화면
+   ============================================================ */
+const TABS = ['home','search','stock','thesis','ai'];
+function showTab(t){
+  state.ui.tab = t; save();
+  TABS.forEach(x => { $('#tab-'+x).classList.toggle('hidden', x!==t); });
+  document.querySelectorAll('nav.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab===t));
+  render(); window.scrollTo(0,0);
+}
+function render(){ ({home:renderHome, search:renderSearch, stock:renderStock, thesis:renderThesis, ai:renderAI})[state.ui.tab](); }
+const W = code => state.watch.find(w=>w.code===code);
+const chgOf = code => { const d = state.data[code]; return d ? growth(d.basic.prev, d.basic.price) : NaN; };
+const cls = v => !has(v) || Math.abs(v)<0.005 ? 'flat' : v>0 ? 'up' : 'down';
+const levelLabel = { high:'HIGH', mid:'MED', low:'LOW' };
+const impIcon = c => c.impact==='up' ? '🟢' : c.impact==='down' ? '🔴' : '🟡';
+const stars = n => '★'.repeat(n) + '☆'.repeat(5-n);
+const lvWord = n => n>=5?'매우 높음':n>=4?'높음':n>=3?'보통':n>=2?'낮음':'매우 낮음';
+let busy = {};
+const spinBtn = (id, on) => { busy[id]=on; };
+
+/* ---------- 홈 ---------- */
+function renderHome(){
+  const el = $('#tab-home');
+  if(!state.watch.length){
+    el.innerHTML = `<div class="card">
+      <h2>👋 처음이시죠</h2>
+      <p class="desc">이 앱은 <b>종목을 찍어 주지 않습니다.</b><br>관심 종목을 넣으면 재무데이터로 점수를 매기고, 내가 적은 <b>투자 논리</b>가 맞는지 데이터가 바뀔 때마다 검증합니다.</p>
+      <div class="btn-row"><button class="btn" data-act="go" data-tab="search">🔍 관심 종목 넣기</button></div>
+      <div class="btn-row"><button class="btn ghost" data-act="demo">🧪 샘플 데이터로 먼저 둘러보기</button></div>
+      <p class="tagline mt">AI 질문 기능은 ⚙️에서 내 API 키를 넣으면 켜집니다. 점수·시나리오는 키 없이도 됩니다.</p>
+    </div>
+    <div class="card"><h2>이 앱이 하는 일</h2>
+      <p class="desc">① 재무데이터 → 계산 모델 → 점수 (AI 가 느낌으로 매기지 않습니다)<br>② 내 투자 논리를 가정·리스크로 쪼개 저장<br>③ 시세·추정치·뉴스가 바뀌면 <b>"무엇이 바뀌었나"</b>만 골라서 보여줌<br>④ 그 변화가 내 논리에 닿는지 점검<br>⑤ 매수 이유를 기록해 두고 나중에 복기</p>
+    </div>`;
+    return;
+  }
+  /* 변화 모으기 */
+  const all = [];
+  for(const w of state.watch){ const ch = detectChangesFor(w.code); ch.forEach(c => all.push(Object.assign({code:w.code, name:w.name}, c))); }
+  const rank = {high:3, mid:2, low:1};
+  all.sort((a,b)=>rank[b.level]-rank[a.level]);
+  const top = all.filter(c=>c.level!=='low').slice(0,3);
+  const alerts = state.theses.filter(t => { const chk = thesisCheck(t, detectChangesFor(t.code), (state.data[t.code]?.news||[]).filter(n=>!state.seenNews[t.code]?.[n.id])); return chk.needsReview; });
+  const lastT = Math.max(0, ...state.watch.map(w=>state.data[w.code]?.t||0));
+  const demoOn = state.watch.some(w=>state.data[w.code]?.demo);
+  el.innerHTML = `
+  <div class="card">
+    <h2>오늘의 브리핑 <span class="sub">${lastT ? new Date(lastT).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}) + ' 기준' : ''}</span></h2>
+    ${demoOn ? `<div class="note mt">🧪 <b>샘플 데이터</b>가 섞여 있습니다. 실제 값이 아닙니다. (⚙️에서 끌 수 있어요)</div>` : ''}
+    <p class="desc">${top.length ? `관심종목에서 판단에 영향을 줄 만한 변화가 <b>${top.length}개</b> 있습니다.` : all.length ? '작은 변화만 있습니다. 판단을 바꿀 만한 것은 없어요.' : '아직 비교할 이전 기록이 없거나, 어제와 달라진 게 없습니다.<br>내일 다시 열면 그 사이 바뀐 것만 보여 드립니다.'}</p>
+    ${top.map(c => `<div class="chg-item"><div class="ico">${impIcon(c)}</div><div class="grow">
+      <div class="t">${esc(c.name)} · ${esc(c.title)}<span class="lv ${c.level}">${levelLabel[c.level]}</span></div>
+      <div class="d">${esc(c.detail)}</div>
+      <div class="mt"><button class="btn xs ghost" data-act="open" data-code="${c.code}">자세히</button></div></div></div>`).join('')}
+    ${all.length>top.length ? `<p class="tiny muted mt">그 밖의 변화 ${all.length-top.length}건은 종목 화면에서 보실 수 있어요.</p>` : ''}
+    <div class="btn-row">
+      <button class="btn sm ghost" data-act="refreshAll" ${busy.refreshAll?'disabled':''}>${busy.refreshAll?'<span class="spin dark"></span> 가져오는 중':'🔄 새로고침'}</button>
+      <button class="btn sm" data-act="brief" ${busy.brief?'disabled':''}>${busy.brief?'<span class="spin"></span> 쓰는 중':'💬 AI 브리핑'}</button>
+    </div>
+    ${state.brief ? `<div class="msg ai mt" style="max-width:100%">${esc(state.brief.text)}<div class="src">${state.brief.date} · ${esc(state.brief.model||'')}</div></div>` : ''}
+  </div>
+  ${alerts.length ? `<div class="card" style="border-color:#f3c9c5">
+    <h2>🚨 투자 논리 점검 필요</h2>
+    ${alerts.map(t => `<div class="chg-item"><div class="ico">🧭</div><div class="grow"><div class="t">${esc(t.title)} <span class="tiny muted">· ${esc(W(t.code)?.name||t.code)}</span></div>
+      <div class="d">핵심 가정이나 리스크에 닿는 변화·뉴스가 발견됐습니다. 확신도 ${t.confidence}%</div>
+      <div class="mt"><button class="btn xs" data-act="go" data-tab="thesis">점검하러 가기</button></div></div></div>`).join('')}
+  </div>` : ''}
+  <div class="card">
+    <h2>관심종목 <span class="sub">${state.watch.length}개</span></h2>
+    <div class="list">
+    ${state.watch.map(w => { const d = state.data[w.code], c = chgOf(w.code), sc = d ? computeScore(d).s.total : NaN; const ch = detectChangesFor(w.code); const worst = ch.find(x=>x.level==='high') || ch.find(x=>x.level==='mid');
+      return `<button class="item" data-act="open" data-code="${w.code}">
+        <div class="dot ${worst ? (worst.impact==='flat'?'flat':worst.impact) : 'flat'}"></div>
+        <div class="grow"><div class="nm">${esc(w.name)} ${d?.demo?'<span class="pill gold">샘플</span>':''}</div><div class="cd">${w.code}${worst ? ' · ' + esc(worst.title) : (state.theses.some(t=>t.code===w.code) ? ' · 논리 저장됨' : '')}</div></div>
+        <div class="right"><div class="px num">${d ? won(d.basic.price) : '–'}</div><div class="chg num ${cls(c)}">${pct(c)}${has(sc)?` · <b>${sc}</b>점`:''}</div></div>
+      </button>`; }).join('')}
+    </div>
+    <div class="btn-row"><button class="btn sm ghost" data-act="go" data-tab="search">＋ 종목 추가</button><button class="btn sm ghost" data-act="go" data-tab="ai">💬 포트폴리오에 질문</button></div>
+  </div>`;
+}
+
+/* ---------- 검색 ---------- */
+let searchT, searchRes = [], searchQ = '', searchSeq = 0;
+function renderSearch(){
+  const el = $('#tab-search');
+  el.innerHTML = `<div class="card">
+    <h2>🔍 종목 검색</h2>
+    <div class="row mt"><input id="q" placeholder="종목명 또는 6자리 코드 (예: 삼성전자, 005930)" value="${esc(searchQ)}" autocomplete="off"><button class="btn sm" data-act="search">찾기</button></div>
+    <div id="sres" class="list"></div>
+    <div class="sec-t">자주 찾는 종목</div>
+    <div class="chips">${BUILTIN.slice(0,12).map(([c,n])=>`<button class="chip" data-act="pick" data-code="${c}" data-name="${esc(n)}">${esc(n)}</button>`).join('')}</div>
+    <p class="tiny muted mt">국내 상장 주식·ETF (네이버증권 데이터). 시세가 안 붙으면 ⚙️에서 <b>구글 스크립트 중계</b>를 만들어 주세요.</p>
+  </div>`;
+  const q = $('#q');
+  q.addEventListener('input', () => { searchQ = q.value; clearTimeout(searchT); searchT = setTimeout(doSearch, 350); });
+  q.addEventListener('keydown', e => { if(e.key==='Enter') doSearch(); });
+  drawSearch();
+}
+async function doSearch(){
+  const q = searchQ.trim(); const box = $('#sres'); if(!box) return;
+  if(!q){ searchRes = []; drawSearch(); return; }
+  searchRes = searchBuiltin(q); drawSearch();            /* 내장 목록은 바로, 네이버 검색 결과는 오면 갈아끼웁니다 */
+  if(!searchRes.length) box.innerHTML = `<div class="empty"><span class="spin dark"></span> 찾는 중</div>`;
+  const mine = ++searchSeq;
+  try{ const r = await searchStocks(q); if(mine===searchSeq && r.length) { searchRes = r; drawSearch(); } else if(mine===searchSeq && !searchRes.length) drawSearch(); }
+  catch(e){ if(mine===searchSeq) drawSearch(); }
+}
+function drawSearch(){
+  const box = $('#sres'); if(!box) return;
+  if(!searchQ.trim()){ box.innerHTML = ''; return; }
+  if(!searchRes.length){ box.innerHTML = `<div class="empty">찾은 종목이 없어요.<br><span class="tiny">6자리 코드를 직접 넣어도 됩니다</span></div>`; return; }
+  box.innerHTML = searchRes.map(r => `<button class="item" data-act="pick" data-code="${r.code}" data-name="${esc(r.name)}">
+    <div class="grow"><div class="nm">${esc(r.name)}</div><div class="cd">${r.code} ${esc(r.market||'')}</div></div>
+    <div class="pill ${W(r.code)?'flat':'brand'}">${W(r.code)?'담김':'＋ 담기'}</div></button>`).join('');
+}
+async function addWatch(code, name){
+  if(!W(code)){ state.watch.push({ code, name: name||code, addedAt: Date.now() }); save(); }
+  state.ui.code = code;
+  showTab('stock');
+  await refreshStock(code);
+  if(W(code) && state.data[code]?.basic.name && W(code).name === code){ W(code).name = state.data[code].basic.name; save(); }
+  render();
+}
+
+/* ---------- 데이터 새로고침 ---------- */
+async function refreshStock(code, opts={}){
+  busy['r'+code] = true; if(!opts.quiet) render();
+  try{
+    const d = state.ui.demo ? demoStock(code) : await fetchStock(code);
+    if(!d.basic.name && W(code)) d.basic.name = W(code).name;
+    state.data[code] = d;
+    const sc = computeScore(d), sn = scenarios(d, state.ui.adj?.[code]);
+    const snap = makeSnap(d, sc, sn);
+    const arr = state.snaps[code] = state.snaps[code] || [];
+    if(arr.length && arr[arr.length-1].date === snap.date) arr[arr.length-1] = snap; else arr.push(snap);
+    if(arr.length > 90) arr.splice(0, arr.length-90);
+    if(!state.seenNews[code]){ state.seenNews[code] = {}; d.news.forEach(n => state.seenNews[code][n.id] = 1); }   /* 처음 담을 때 있던 뉴스는 '이미 본 것'으로. 그 뒤 새로 뜨는 기사만 변화로 칩니다 */
+    save();
+    if(d.errs.length && !opts.quiet) toast('일부 데이터를 못 가져왔어요: ' + d.errs[0]);
+  }catch(e){ if(!opts.quiet) toast(e.message); state.ui.lastErr = e.message; }
+  busy['r'+code] = false; if(!opts.quiet) render();
+}
+async function refreshAll(){
+  if(busy.refreshAll) return;
+  busy.refreshAll = true; resetRelays(); render();
+  for(const w of state.watch){ await refreshStock(w.code, {quiet:true}); }
+  busy.refreshAll = false; save(); render();
+  toast(state.ui.demo ? '샘플 데이터를 다시 만들었어요' : '새로고침 완료');
+}
+function markSeen(code){
+  const d = state.data[code]; if(!d) return;
+  const s = state.seenNews[code] = state.seenNews[code] || {};
+  d.news.forEach(n => s[n.id] = 1);
+}
+
+/* ---------- 종목 ---------- */
+function finTable(fin, keys){
+  if(!fin?.cols?.length) return `<p class="tiny muted mt">재무 데이터가 없어요.</p>`;
+  const cols = fin.cols.slice(-6);
+  return `<div class="tbwrap"><table class="tb"><thead><tr><th>(억원)</th>${cols.map(c=>`<th>${esc(c.title).replace('.12','')}</th>`).join('')}</tr></thead><tbody>
+    ${keys.map(([k,label]) => { const row = fin.table[k]; if(!row) return ''; const isPct = /률|ROE/.test(label), isX = /PER|PBR/.test(label);
+      return `<tr><td>${esc(label)}</td>${cols.map(c => { const v = row[c.key]; return `<td class="num ${c.est?'muted':''}">${!has(v)?'–': isPct ? v.toFixed(1)+'%' : isX ? v.toFixed(1) : fmt(v)}</td>`; }).join('')}</tr>`; }).join('')}
+  </tbody></table></div><p class="tiny muted">회색 열은 증권사 추정(E). 억원 · EPS/BPS/배당은 원.</p>`;
+}
+function renderStock(){
+  const el = $('#tab-stock'); const code = state.ui.code;
+  if(!code || !W(code)){
+    el.innerHTML = state.watch.length ? `<div class="card"><h2>종목을 고르세요</h2><div class="list">${state.watch.map(w=>`<button class="item" data-act="open" data-code="${w.code}"><div class="grow"><div class="nm">${esc(w.name)}</div><div class="cd">${w.code}</div></div><div class="muted">›</div></button>`).join('')}</div></div>`
+      : `<div class="card"><div class="empty"><div class="em">📊</div>관심 종목이 아직 없어요<br><button class="btn sm mt" data-act="go" data-tab="search">종목 찾기</button></div></div>`;
+    return;
+  }
+  const w = W(code), d = state.data[code];
+  if(!d){
+    el.innerHTML = `<div class="card"><h2>${esc(w.name)} <span class="sub">${code}</span></h2>
+      <div class="empty">${busy['r'+code] ? '<span class="spin dark"></span> 데이터 가져오는 중' : `아직 데이터가 없어요<br><span class="tiny">${esc(state.ui.lastErr||'')}</span>`}</div>
+      <div class="btn-row"><button class="btn sm" data-act="refresh" data-code="${code}">🔄 다시 가져오기</button><button class="btn sm ghost" data-act="demoOne" data-code="${code}">🧪 샘플로 보기</button><button class="btn sm warn" data-act="unwatch" data-code="${code}">빼기</button></div></div>`;
+    return;
+  }
+  const sc = computeScore(d), adj = state.ui.adj?.[code], sn = scenarios(d, adj), rk = riskMonitor(d, sc, sn);
+  const changes = detectChangesFor(code);
+  const c = chgOf(code), I = d.integ;
+  const theses = state.theses.filter(t=>t.code===code);
+  const seen = state.seenNews[code]||{};
+  const q = state.ui.finQ;
+  const subs = [['growth','성장성'],['profit','수익성'],['value','밸류에이션'],['health','재무건전성'],['momentum','모멘텀']];
+  el.innerHTML = `
+  <div class="card">
+    <div class="row"><div class="grow"><h2 style="font-size:19px">${esc(d.basic.name||w.name)} ${d.demo?'<span class="pill gold">샘플</span>':''}</h2><div class="tiny muted">${code} · ${esc(d.basic.market||'')} ${I.industry?'· '+esc(I.industry):''}</div></div>
+      <div class="right"><div class="b num" style="font-size:20px">${won(d.basic.price)}</div><div class="num ${cls(c)} small">${pct(c)}</div></div></div>
+    <div class="kv">
+      <div class="c"><div class="k">시가총액</div><div class="v">${has(I.marketCap)? (I.marketCap>=10000? (I.marketCap/10000).toFixed(1)+'조':fmt(I.marketCap)+'억') : '–'}</div></div>
+      <div class="c"><div class="k">PER</div><div class="v">${has(I.per)?I.per.toFixed(1)+'배':'–'}</div></div>
+      <div class="c"><div class="k">PBR</div><div class="v">${has(I.pbr)?I.pbr.toFixed(2)+'배':'–'}</div></div>
+      <div class="c"><div class="k">목표가 컨센서스</div><div class="v">${won(I.target)}</div></div>
+      <div class="c"><div class="k">배당수익률</div><div class="v">${has(I.divYield)?I.divYield.toFixed(2)+'%':'–'}</div></div>
+      <div class="c"><div class="k">52주 위치</div><div class="v">${has(sc.s._mas.pos52)?sc.s._mas.pos52.toFixed(0)+'%':'–'}</div></div>
+    </div>
+    <div class="btn-row"><button class="btn sm ghost" data-act="refresh" data-code="${code}" ${busy['r'+code]?'disabled':''}>${busy['r'+code]?'<span class="spin dark"></span>':'🔄'} 새로고침</button><button class="btn sm ghost" data-act="askAbout" data-code="${code}">💬 AI에게 질문</button><button class="btn sm warn" data-act="unwatch" data-code="${code}">빼기</button></div>
+    <p class="tiny muted mt">${new Date(d.t).toLocaleString('ko-KR')} · ${d.demo?'샘플 데이터(실제 아님)':'네이버증권'}${d.errs.length?` · 일부 누락: ${esc(d.errs.slice(0,2).join(', '))}`:''}</p>
+  </div>
+
+  <div class="card">
+    <h2>AI SCORE <span class="sub">계산 모델 · 데이터 커버리지 ${sc.s.coverage}%</span></h2>
+    <div class="score-hero mt"><div class="score-big">${has(sc.s.total)?sc.s.total:'–'}<small> / 100</small></div>
+      <div class="grow"><div class="bar"><i style="width:${has(sc.s.total)?sc.s.total:0}%"></i></div><p class="tiny muted mt">성장 25 · 수익 25 · 밸류 20 · 재무 15 · 모멘텀 15 가중. 60 이상이면 평균 이상, 40 이하면 근거를 더 봐야 합니다.</p></div></div>
+    <div class="bars">${subs.map(([k,l])=>`<div class="r"><span>${l}</span><div class="bar"><i style="width:${has(sc.s[k])?sc.s[k]:0}%;background:${!has(sc.s[k])?'#ddd':sc.s[k]>=65?'var(--green)':sc.s[k]<40?'var(--up)':'var(--brand)'}"></i></div><span class="v num">${has(sc.s[k])?sc.s[k]:'–'}</span></div>`).join('')}</div>
+    <details class="mt"><summary>왜 이 점수인가요?</summary><div class="why"><ul>${subs.map(([k,l])=>(sc.why[k]||[]).length?`<li><b>${l}</b>: ${esc(sc.why[k].join(' · '))}</li>`:'').join('')}</ul></div></details>
+  </div>
+
+  <div class="card">
+    <h2>🧭 나의 투자 논리 <span class="sub">${theses.length?theses.length+'개':'아직 없음'}</span></h2>
+    ${theses.length ? theses.map(t=>thesisCard(t, true)).join('') : `<p class="desc">왜 이 회사에 투자하나요? 적어 두면 데이터가 바뀔 때마다 그 논리가 여전히 맞는지 점검합니다.</p>`}
+    <div class="btn-row"><button class="btn sm" data-act="newThesis" data-code="${code}">✍️ 직접 쓰기</button><button class="btn sm ghost" data-act="genThesis" data-code="${code}" ${busy['g'+code]?'disabled':''}>${busy['g'+code]?'<span class="spin dark"></span> 만드는 중':'✨ AI가 논리 만들기'}</button></div>
+  </div>
+
+  <div class="card">
+    <h2>적정가치 시나리오 <span class="sub">EPS × PER</span></h2>
+    <p class="desc">기준 EPS <b>${fmt(sn.epsBase)}원</b> (${sn.epsSrc}) · 과거 PER ${sn.perLo.toFixed(1)}~${sn.perHi.toFixed(1)}배, 평균 ${sn.perAvg.toFixed(1)}배</p>
+    ${sn.note?`<div class="note mt">${esc(sn.note)}</div>`:''}
+    <div class="scen">
+      <div class="c bull"><div class="t up">Bull</div><div class="p">${won(sn.bull)}</div><div class="d">EPS ${sn.adj.epsBull>0?'+':''}${sn.adj.epsBull}% × ${sn.adj.perBull}배<br>${pct(sn.upBull)}</div></div>
+      <div class="c base"><div class="t">Base</div><div class="p">${won(sn.base)}</div><div class="d">EPS 그대로 × ${sn.adj.perBase}배<br>${pct(sn.upBase)}</div></div>
+      <div class="c bear"><div class="t down">Bear</div><div class="p">${won(sn.bear)}</div><div class="d">EPS ${sn.adj.epsBear}% × ${sn.adj.perBear}배<br>${pct(sn.upBear)}</div></div>
+    </div>
+    ${has(I.target)?`<p class="tiny muted mt">증권사 목표가 컨센서스 ${won(I.target)} (${pct(growth(d.basic.price, I.target))}) 와 비교해 보세요.</p>`:''}
+    <details class="mt"><summary>가정 바꿔 보기 (영업이익이 20% 떨어지면?)</summary>
+      <div class="slider"><span>Bull EPS</span><input type="range" min="-50" max="100" step="5" value="${sn.adj.epsBull}" data-adj="epsBull" data-code="${code}"><span class="v num">${sn.adj.epsBull>0?'+':''}${sn.adj.epsBull}%</span></div>
+      <div class="slider"><span>Bull PER</span><input type="range" min="3" max="80" step="0.5" value="${sn.adj.perBull}" data-adj="perBull" data-code="${code}"><span class="v num">${sn.adj.perBull}배</span></div>
+      <div class="slider"><span>Base PER</span><input type="range" min="3" max="80" step="0.5" value="${sn.adj.perBase}" data-adj="perBase" data-code="${code}"><span class="v num">${sn.adj.perBase}배</span></div>
+      <div class="slider"><span>Bear EPS</span><input type="range" min="-80" max="30" step="5" value="${sn.adj.epsBear}" data-adj="epsBear" data-code="${code}"><span class="v num">${sn.adj.epsBear}%</span></div>
+      <div class="slider"><span>Bear PER</span><input type="range" min="3" max="80" step="0.5" value="${sn.adj.perBear}" data-adj="perBear" data-code="${code}"><span class="v num">${sn.adj.perBear}배</span></div>
+      <div class="btn-row"><button class="btn xs ghost" data-act="resetAdj" data-code="${code}">기본값으로</button></div>
+    </details>
+  </div>
+
+  <div class="card">
+    <h2>⚠️ Risk Monitor <span class="sub">데이터로 잴 수 있는 것만</span></h2>
+    ${rk.length ? rk.map(r=>`<div class="risk"><span>${r.lv>=4?'🔴':r.lv>=3?'🟡':'🟢'}</span><div class="grow"><div>${esc(r.name)}</div><div class="tiny muted">${esc(r.why)}</div></div><span class="stars">${stars(r.lv)} <span class="tiny muted">${lvWord(r.lv)}</span></span></div>`).join('') : '<p class="desc">잴 데이터가 부족합니다.</p>'}
+    <p class="tiny muted mt">경쟁력·기술 같은 정성 리스크는 투자 논리의 '리스크' 칸에 적어 두면 뉴스와 맞춰 봅니다.</p>
+  </div>
+
+  <div class="card">
+    <h2>최근 감지된 변화 <span class="sub">${(state.snaps[code]||[]).length}일치 기록</span></h2>
+    ${changes.length ? changes.map(ch=>`<div class="chg-item"><div class="ico">${impIcon(ch)}</div><div class="grow"><div class="t">${esc(ch.title)}<span class="lv ${ch.level}">${levelLabel[ch.level]}</span></div><div class="d">${esc(ch.detail)}</div></div></div>`).join('')
+      : `<p class="desc">${(state.snaps[code]||[]).length<2 ? '비교할 이전 날 기록이 아직 없어요. 내일 다시 열면 바뀐 것만 보여 드립니다.' : '어제 기록과 견줘 눈에 띄는 변화가 없습니다.'}</p>`}
+  </div>
+
+  <div class="card">
+    <h2>재무 <span class="sub"><button class="btn xs ghost" data-act="finQ" data-v="0" ${!q?'style="background:var(--brand);color:#fff"':''}>연간</button> <button class="btn xs ghost" data-act="finQ" data-v="1" ${q?'style="background:var(--brand);color:#fff"':''}>분기</button></span></h2>
+    ${finTable(q ? d.quarter : d.annual, FIN_ROWS.filter(([k])=>['revenue','op','ni','opm','roe','debt','eps','per','pbr','dps'].includes(k)))}
+  </div>
+
+  <div class="card">
+    <h2>뉴스 <span class="sub">${d.news.length}건</span></h2>
+    ${d.news.length ? `<div class="newsl">${d.news.slice(0,15).map(n=>`<a href="${esc(n.url||'#')}" ${n.url?'target="_blank" rel="noopener"':''}>${!seen[n.id]?'<span class="new">NEW</span>':''}${esc(n.title)}<div class="m">${esc(n.office)} · ${n.dt.slice(0,4)}.${n.dt.slice(4,6)}.${n.dt.slice(6,8)}</div></a>`).join('')}</div>` : '<p class="desc">뉴스를 못 가져왔어요.</p>'}
+    ${I.corpSummary?`<details class="mt"><summary>회사 개요</summary><p class="desc">${esc(I.corpSummary)}</p></details>`:''}
+  </div>
+
+  <div class="card">
+    <h2>💬 AI 해석</h2>
+    <p class="desc">위 숫자를 AI 가 읽고 <b>투자 논리 3개 / 깨뜨릴 요소 3개</b>로 정리합니다. 사라·팔라는 말하지 않습니다.</p>
+    ${state.ui.explain?.[code] ? `<div class="msg ai mt" style="max-width:100%">${esc(state.ui.explain[code].text)}<div class="src">${state.ui.explain[code].date} · ${esc(state.ui.explain[code].model)}</div></div>` : ''}
+    <div class="btn-row"><button class="btn sm" data-act="explain" data-code="${code}" ${busy['e'+code]?'disabled':''}>${busy['e'+code]?'<span class="spin"></span> 읽는 중':(state.ui.explain?.[code]?'다시 해석':'AI 해석 보기')}</button></div>
+  </div>`;
+  /* 뉴스를 봤으니 '새 뉴스' 표시는 다음 새로고침부터 */
+  setTimeout(()=>{ markSeen(code); save(); }, 1500);
+}
+function thesisCard(t, compact=false){
+  const d = state.data[t.code];
+  const fresh = (d?.news||[]).filter(n=>!state.seenNews[t.code]?.[n.id]);
+  const chk = thesisCheck(t, detectChangesFor(t.code), d?.news||[]);           /* 표시용: 지금 있는 뉴스 전부와 맞춰 봅니다 */
+  const need = thesisCheck(t, detectChangesFor(t.code), fresh).needsReview;   /* 경고용: 새로 뜬 뉴스·변화만 */
+  const hist = t.history||[];
+  const col = t.confidence>=70?'var(--green)':t.confidence>=45?'var(--gold)':'var(--up)';
+  return `<div class="${compact?'mt':'card'}" data-thesis="${t.id}">
+    <div class="row"><div class="grow"><div class="b" style="font-size:15px">${esc(t.title)}</div><div class="tiny muted">${esc(W(t.code)?.name||t.code)} · ${iso(t.createdAt)} 작성${t.horizon?' · '+esc(t.horizon):''}</div></div>
+      ${need?'<span class="pill up">점검 필요</span>':''}</div>
+    ${t.text?`<p class="desc" style="margin-top:6px">"${esc(t.text)}"</p>`:''}
+    <div class="conf"><span class="tiny muted">확신도</span><div class="bar"><i style="width:${t.confidence}%;background:${col}"></i></div><span class="n num">${t.confidence}%</span></div>
+    ${hist.length>1?`<div class="tiny muted">${hist.slice(-4).map(h=>h.conf).join(' → ')}${hist.length>1?' · '+esc(hist[hist.length-1].reason||''):''}</div>`:''}
+    <div class="sec-t">핵심 가정</div>
+    ${(t.assumptions||[]).map((a,i)=>{ const h = chk.hits.find(x=>x.kind==='assumption'&&x.i===i); return `<div class="assump"><span class="k">✓</span><div class="grow">${esc(a.text)}${h?`<div class="kw">📰 관련 뉴스 ${h.n}건: ${esc(h.titles[0])}</div>`:(a.keywords?.length?`<div class="kw">키워드: ${esc(a.keywords.join(', '))}</div>`:'')}</div></div>`; }).join('')}
+    <div class="sec-t">깨뜨릴 수 있는 것</div>
+    ${(t.risks||[]).map((a,i)=>{ const h = chk.hits.find(x=>x.kind==='risk'&&x.i===i); return `<div class="assump"><span class="k">⚠</span><div class="grow">${esc(a.text)}${h?`<div class="kw up">📰 관련 뉴스 ${h.n}건: ${esc(h.titles[0])}</div>`:(a.keywords?.length?`<div class="kw">키워드: ${esc(a.keywords.join(', '))}</div>`:'')}</div></div>`; }).join('')}
+    ${t.lastCheck?`<div class="msg ai mt" style="max-width:100%"><b>${esc(t.lastCheck.verdict||'')}</b> ${esc(t.lastCheck.summary||'')}${(t.lastCheck.affected||[]).length?'\n'+t.lastCheck.affected.map(a=>(a.direction==='weaken'?'↓ ':a.direction==='support'?'↑ ':'· ')+a.item+' — '+a.evidence).join('\n'):''}<div class="src">${t.lastCheck.date} AI 점검</div></div>`:''}
+    <div class="btn-row"><button class="btn sm" data-act="checkThesis" data-id="${t.id}" ${busy['c'+t.id]?'disabled':''}>${busy['c'+t.id]?'<span class="spin"></span> 점검 중':'🔎 AI 점검'}</button><button class="btn sm ghost" data-act="editThesis" data-id="${t.id}">수정</button><button class="btn sm ghost" data-act="open" data-code="${t.code}">종목</button><button class="btn xs warn" data-act="delThesis" data-id="${t.id}">삭제</button></div>
+  </div>`;
+}
+
+/* ---------- 논리 + 투자일지 ---------- */
+function renderThesis(){
+  const el = $('#tab-thesis');
+  const j = state.journal.slice().sort((a,b)=>b.t-a.t);
+  const stat = journalStats();
+  el.innerHTML = `
+  ${state.theses.length ? state.theses.slice().sort((a,b)=>b.createdAt-a.createdAt).map(t=>thesisCard(t)).join('')
+    : `<div class="card"><h2>🧭 투자 논리</h2><p class="desc">아직 저장한 논리가 없어요. 종목 화면에서 <b>✍️ 직접 쓰기</b> 또는 <b>✨ AI가 논리 만들기</b>를 눌러 보세요.</p>${state.watch.length?`<div class="btn-row">${state.watch.slice(0,4).map(w=>`<button class="btn sm ghost" data-act="newThesis" data-code="${w.code}">${esc(w.name)} 논리 쓰기</button>`).join('')}</div>`:''}</div>`}
+  <div class="card">
+    <h2>📓 투자일지 <span class="sub">${j.length}건</span></h2>
+    <p class="desc">매수할 때 이유를 적어 두면, 나중에 결과와 견줘 <b>내 판단 습관</b>을 볼 수 있습니다.</p>
+    ${stat ? `<div class="kv"><div class="c"><div class="k">기록</div><div class="v">${stat.n}건</div></div><div class="c"><div class="k">현재 수익 중</div><div class="v">${stat.win}/${stat.n}</div></div><div class="c"><div class="k">평균 수익률</div><div class="v ${cls(stat.avg)}">${pct(stat.avg)}</div></div></div>` : ''}
+    <div class="list">${j.map(x => { const cur = state.data[x.code]?.basic.price, r = growth(x.price, cur); return `<div class="item" style="cursor:default"><div class="grow"><div class="nm">${esc(x.name)} <span class="tiny muted">${iso(x.t)}</span></div><div class="cd">"${esc(x.reason)}" · ${esc(x.horizon||'')} ${x.expect?'· 기대 '+esc(x.expect):''}</div>${x.stop?`<div class="cd">손절 조건: ${esc(x.stop)}</div>`:''}</div>
+      <div class="right"><div class="px num">${won(x.price)}</div><div class="chg num ${cls(r)}">${has(r)?'지금 '+pct(r):'–'}</div><button class="btn xs ghost mt" data-act="delJournal" data-id="${x.id}">삭제</button></div></div>`; }).join('')}</div>
+    <div class="btn-row"><button class="btn sm" data-act="newJournal">＋ 매수 기록</button><button class="btn sm ghost" data-act="reviewJournal" ${busy.review?'disabled':''}>${busy.review?'<span class="spin dark"></span> 복기 중':'🧠 AI 복기'}</button></div>
+    ${state.ui.review?`<div class="msg ai mt" style="max-width:100%">${esc(state.ui.review.text)}<div class="src">${state.ui.review.date} · ${esc(state.ui.review.model)}</div></div>`:''}
+  </div>`;
+}
+function journalStats(){
+  const j = state.journal.filter(x=>has(state.data[x.code]?.basic.price));
+  if(!j.length) return null;
+  const rs = j.map(x=>growth(x.price, state.data[x.code].basic.price));
+  return { n: j.length, win: rs.filter(r=>r>0).length, avg: avg(rs) };
+}
+
+/* ---------- AI ---------- */
+const SAMPLE_Q = {
+  '*': ['내 포트폴리오에서 가장 위험한 종목은?','업종이 겹쳐서 같은 리스크에 노출된 종목이 있어?','지금 가장 밸류에이션이 매력적인 건 어디야?','내 투자 논리들 중 근거가 약한 건?'],
+  s: ['지금 비싼 거야? 최근 몇 년 중 어느 수준이야?','영업이익이 20% 떨어지면 적정주가는?','Bear case 를 더 구체적으로 만들어 줘','워런 버핏 관점으로 평가해 줘','이 회사 논리를 깨뜨릴 가장 빠른 신호는?'],
+};
+function renderAI(){
+  const el = $('#tab-ai');
+  const ctx = state.ui.ctx && (state.ui.ctx==='*' || W(state.ui.ctx)) ? state.ui.ctx : '*';
+  state.ui.ctx = ctx;
+  const msgs = state.chats[ctx]||[];
+  const name = ctx==='*' ? '포트폴리오 전체' : W(ctx).name;
+  const qs = ctx==='*' ? SAMPLE_Q['*'] : SAMPLE_Q.s;
+  const cmp = state.watch.length>=2 && ctx!=='*' ? state.watch.filter(w=>w.code!==ctx).slice(0,2).map(w=>`${W(ctx).name}랑 ${w.name} 비교해 줘`) : [];
+  el.innerHTML = `<div class="card">
+    <h2>💬 AI Analyst</h2>
+    ${!aiReady() ? `<div class="note mt">AI 질문은 <b>내 API 키</b>가 있어야 합니다. ⚙️ 설정에서 넣어 주세요. (키는 이 폰에만 저장되고, 질문할 때 AI 회사 서버로만 갑니다)</div>` : ''}
+    <div class="f"><label>무엇에 대해 물을까요</label><select id="ctx"><option value="*" ${ctx==='*'?'selected':''}>포트폴리오 전체 (${state.watch.length}종목)</option>${state.watch.map(w=>`<option value="${w.code}" ${ctx===w.code?'selected':''}>${esc(w.name)}</option>`).join('')}</select></div>
+    <p class="tiny muted mt">질문하면 <b>${esc(name)}</b>의 실제 데이터(시세·재무·점수·시나리오·리스크·변화·내 논리)가 함께 전달됩니다. 질문 → 데이터 → 계산 → AI 해석 → 근거 표시.</p>
+    <div class="chips">${[...qs, ...cmp].map(q=>`<button class="chip" data-act="chip" data-q="${esc(q)}">${esc(q)}</button>`).join('')}</div>
+    <div class="chat" id="chat">${msgs.map(m=>`<div class="msg ${m.role==='user'?'me':'ai'}">${esc(m.text)}${m.role==='assistant'&&m.model?`<div class="src">${esc(m.model)} · ${new Date(m.t).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})}</div>`:''}</div>`).join('')}
+      ${busy.chat?`<div class="msg ai"><span class="spin dark"></span> 데이터를 읽고 답하는 중…</div>`:''}</div>
+    <div class="ask"><textarea id="ask" placeholder="예: ${esc(qs[0])}" rows="1"></textarea><button class="btn" data-act="send" ${busy.chat?'disabled':''}>보내기</button></div>
+    ${msgs.length?`<div class="btn-row"><button class="btn xs ghost" data-act="clearChat">대화 지우기</button></div>`:''}
+  </div>`;
+  $('#ctx').addEventListener('change', e => { state.ui.ctx = e.target.value; save(); renderAI(); });
+  const ta = $('#ask'); ta.addEventListener('keydown', e => { if(e.key==='Enter' && !e.shiftKey && !e.isComposing){ e.preventDefault(); sendChat(); } });
+  const chat = $('#chat'); if(chat && msgs.length) chat.lastElementChild?.scrollIntoView({block:'nearest'});
+}
+async function sendChat(q){
+  const ta = $('#ask'); q = (q || ta?.value || '').trim(); if(!q || busy.chat) return;
+  if(!aiReady()){ openSettings(); return; }
+  const ctx = state.ui.ctx || '*';
+  const arr = state.chats[ctx] = state.chats[ctx] || [];
+  arr.push({ role:'user', text:q, t:Date.now() }); if(ta) ta.value=''; busy.chat = true; save(); renderAI();
+  try{
+    const pack = ctx==='*' ? portfolioPack() : dataPack(ctx);
+    const hist = arr.slice(-8).map(m=>({ role:m.role, text:m.text }));
+    hist[0] = { role:'user', text: `[데이터]\n${JSON.stringify(pack)}\n\n[질문]\n${hist[0].text}` };
+    if(hist.length>1) hist[hist.length-1] = { role:'user', text: `[최신 데이터]\n${JSON.stringify(pack)}\n\n[질문]\n${q}` };
+    const text = await aiChat(hist);
+    arr.push({ role:'assistant', text, t:Date.now(), model: aiModel() });
+  }catch(e){ arr.push({ role:'assistant', text:'⚠️ '+e.message, t:Date.now() }); }
+  busy.chat = false; save(); renderAI();
+}
+
+/* ---------- 모달 ---------- */
+function openModal(html){ $('#modal-root').innerHTML = `<div class="modal-bg" data-act="closeBg"><div class="modal">${html}</div></div>`; }
+function closeModal(){ $('#modal-root').innerHTML = ''; }
+function openSettings(){
+  const s = state.settings, p = PROVIDERS[s.provider];
+  const relay = normRelay(s.relayUrl);
+  openModal(`<div class="mhead"><h3>⚙️ 설정</h3><button class="x" data-act="close">✕</button></div>
+    <div class="sec-t">🤖 AI (내 API 키)</div>
+    <div class="f"><label>AI 회사</label><select id="sProv">${Object.entries(PROVIDERS).map(([k,v])=>`<option value="${k}" ${s.provider===k?'selected':''}>${v.name}</option>`).join('')}</select></div>
+    <div class="f"><label>API 키 <span class="muted">— ${esc(p.hint)}</span></label><input id="sKey" type="password" value="${esc(s.apiKey)}" placeholder="이 폰에만 저장됩니다" autocomplete="off"></div>
+    <div class="f"><label>모델 <span class="muted">(비우면 ${esc(p.models[0])})</span></label><input id="sModel" list="mlist" value="${esc(s.model)}" placeholder="${esc(p.models[0])}"><datalist id="mlist">${p.models.map(m=>`<option value="${m}">`).join('')}</datalist></div>
+    ${s.provider==='anthropic'?`<div class="f"><label>생각 깊이 (effort)</label><select id="sEffort">${['low','medium','high'].map(e=>`<option ${s.effort===e?'selected':''}>${e}</option>`).join('')}</select></div>`:''}
+    <p class="tiny muted mt">키는 이 브라우저의 저장소에만 있고, 질문할 때 해당 AI 회사 서버로만 전송됩니다. 다른 곳으로는 가지 않습니다.</p>
+    <div class="sec-t">📡 데이터 (시세·재무·뉴스)</div>
+    <p class="tiny muted">서버가 없어서 공개 중계를 거쳐 네이버증권을 읽습니다. 공개 중계는 자주 막히니 <b>내 구글 스크립트 중계</b>를 한 번 만들어 두면 안정적입니다. (우리집 자산 앱에서 만든 주소가 있으면 자동으로 씁니다)</p>
+    <div class="f"><label>내 중계 주소</label><input id="sRelay" value="${esc(s.relayUrl)}" placeholder="https://script.google.com/macros/s/…/exec"></div>
+    <details class="mt"><summary>구글 스크립트 중계 만드는 법 (3분)</summary>
+      <div class="note mt"><b>1</b> <a href="https://script.new" target="_blank" rel="noopener">script.new</a> 로 새 스크립트<br><b>2</b> 내용을 다 지우고 아래 코드 붙여넣기<br><b>3</b> 배포 → 새 배포 → 유형 <b>웹 앱</b> → 액세스 <b>모든 사용자</b> → 배포<br><b>4</b> 나온 웹 앱 URL 을 위 칸에 붙여넣기</div>
+      <textarea readonly style="min-height:120px;font-size:10px;font-family:ui-monospace,monospace;margin-top:8px" onclick="this.select()">${esc(GAS_CODE)}</textarea>
+      <button class="btn sm ghost mt" data-act="copyGas">📋 코드 복사</button></details>
+    <div class="f mt2"><label><input type="checkbox" id="sDemo" ${state.ui.demo?'checked':''} style="width:auto;margin-right:6px">샘플 데이터 모드 (실제 시세 대신 가짜 값으로 둘러보기)</label></div>
+    <div class="btn-row"><button class="btn" data-act="saveSettings">저장</button></div>
+    <div class="sec-t">💾 백업</div>
+    <div class="btn-row"><button class="btn sm ghost" data-act="export">내보내기</button><button class="btn sm ghost" data-act="import">불러오기</button><button class="btn sm warn" data-act="reset">전부 지우기</button></div>
+    <input type="file" id="impFile" accept="application/json" class="hidden">
+    <p class="tiny muted mt">StockLens v0.1 · 저장 키 ${KEY} · 사라/팔라는 말하지 않습니다. 투자 판단과 결과는 본인의 몫입니다.</p>`);
+  $('#sProv').addEventListener('change', e => { state.settings.provider = e.target.value; state.settings.model=''; openSettings(); });
+}
+function saveSettings(){
+  const s = state.settings;
+  s.apiKey = $('#sKey').value.trim(); s.model = $('#sModel').value.trim(); s.relayUrl = normRelay($('#sRelay').value); s.relay = 0;
+  if($('#sEffort')) s.effort = $('#sEffort').value;
+  const demo = $('#sDemo').checked;
+  const changed = demo !== !!state.ui.demo; state.ui.demo = demo;
+  save(); closeModal(); toast('저장했어요'); resetRelays();
+  if(changed && state.watch.length) refreshAll(); else render();
+}
+function openThesisEditor(code, t){
+  const w = W(code); if(!w) return;
+  openModal(`<div class="mhead"><h3>🧭 ${esc(w.name)} 투자 논리</h3><button class="x" data-act="close">✕</button></div>
+    <div class="f"><label>한 줄 제목</label><input id="thTitle" value="${esc(t?.title||'')}" placeholder="예: HBM 시장 고성장"></div>
+    <div class="f"><label>왜 이 회사에 투자하나요?</label><textarea id="thText" placeholder="예: HBM 시장이 앞으로 3년간 빠르게 성장하고, 이 회사가 점유율을 지킬 것으로 봄">${esc(t?.text||'')}</textarea></div>
+    <div class="f"><label>핵심 가정 (한 줄에 하나) — 이게 사실이어야 논리가 맞습니다</label><textarea id="thA" placeholder="AI 데이터센터 투자 증가&#10;HBM 수요 증가&#10;점유율 유지">${esc((t?.assumptions||[]).map(a=>a.text).join('\n'))}</textarea></div>
+    <div class="f"><label>깨뜨릴 수 있는 것 (한 줄에 하나)</label><textarea id="thR" placeholder="경쟁사 경쟁력 회복&#10;AI CAPEX 감소&#10;공급과잉">${esc((t?.risks||[]).map(a=>a.text).join('\n'))}</textarea></div>
+    <div class="row mt"><div class="f grow"><label>예상 보유기간</label><input id="thH" value="${esc(t?.horizon||'')}" placeholder="예: 2년"></div><div class="f" style="width:110px"><label>확신도 %</label><input id="thC" type="number" min="0" max="100" value="${t?.confidence??70}"></div></div>
+    <p class="tiny muted mt">가정·리스크 줄마다 키워드를 자동으로 뽑아 뉴스 제목과 맞춰 봅니다. ${aiReady()?'<b>AI로 다듬기</b>를 누르면 AI가 가정·리스크·키워드를 구조화합니다.':''}</p>
+    <div class="btn-row">${aiReady()?`<button class="btn ghost" data-act="thAI" data-code="${code}" ${busy.thAI?'disabled':''}>${busy.thAI?'<span class="spin dark"></span> 다듬는 중':'✨ AI로 다듬기'}</button>`:''}<button class="btn" data-act="thSave" data-code="${code}" data-id="${t?.id||''}">저장</button></div>`);
+}
+function readThesisForm(code, id){
+  const lines = s => s.split('\n').map(x=>x.trim()).filter(Boolean);
+  const title = $('#thTitle').value.trim(), text = $('#thText').value.trim();
+  const A = lines($('#thA').value), R = lines($('#thR').value);
+  if(!title && !text){ toast('제목이나 내용을 적어 주세요'); return null; }
+  const old = state.theses.find(x=>x.id===id);
+  const keep = (list, arr) => arr.map(tx => { const o = (list||[]).find(x=>x.text===tx); return { text:tx, keywords: o?.keywords?.length ? o.keywords : guessKeywords(tx) }; });
+  return { id: id||uid(), code, title: title || text.slice(0,20), text, assumptions: keep(old?.assumptions, A), risks: keep(old?.risks, R),
+    horizon: $('#thH').value.trim(), confidence: clamp(+$('#thC').value||70, 0, 100), createdAt: old?.createdAt||Date.now(), history: old?.history||[], lastCheck: old?.lastCheck||null };
+}
+function fillThesisForm(j){
+  if(j.title) $('#thTitle').value = j.title; if(j.text && !$('#thText').value.trim()) $('#thText').value = j.text;
+  $('#thA').value = (j.assumptions||[]).map(a=>a.text).join('\n'); $('#thR').value = (j.risks||[]).map(a=>a.text).join('\n');
+  if(j.horizon) $('#thH').value = j.horizon; if(has(+j.confidence)) $('#thC').value = clamp(+j.confidence,0,100);
+  $('#thA').dataset.kw = JSON.stringify(j.assumptions||[]); $('#thR').dataset.kw = JSON.stringify(j.risks||[]);
+  if(j.comment) toast('AI: ' + j.comment.slice(0,60));
+}
+function openJournal(){
+  openModal(`<div class="mhead"><h3>📓 매수 기록</h3><button class="x" data-act="close">✕</button></div>
+    <div class="f"><label>종목</label><select id="jCode">${state.watch.map(w=>`<option value="${w.code}" ${state.ui.code===w.code?'selected':''}>${esc(w.name)}</option>`).join('')}</select></div>
+    <div class="row"><div class="f grow"><label>매수가 (원)</label><input id="jPrice" type="number" inputmode="numeric" value="${state.data[state.ui.code]?.basic.price||''}"></div><div class="f grow"><label>수량</label><input id="jQty" type="number" inputmode="numeric" placeholder="30"></div></div>
+    <div class="f"><label>투자 이유 (한 문장)</label><input id="jReason" placeholder="예: HBM 성장"></div>
+    <div class="row"><div class="f grow"><label>목표 보유기간</label><input id="jH" placeholder="2년"></div><div class="f grow"><label>기대 수익률</label><input id="jE" placeholder="+40%"></div></div>
+    <div class="f"><label>손절(논리 포기) 조건</label><input id="jStop" placeholder="예: HBM 점유율 하락, 영업이익 추정 -20%"></div>
+    <div class="btn-row"><button class="btn" data-act="jSave">저장</button></div>`);
+}
+
+/* ---------- 이벤트 ---------- */
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-act]'); if(!b) return;
+  if(b.dataset.act==='closeBg' && e.target!==b) return;
+  const act = b.dataset.act, code = b.dataset.code, id = b.dataset.id;
+  switch(act){
+    case 'go': showTab(b.dataset.tab); break;
+    case 'settings': openSettings(); break;
+    case 'close': case 'closeBg': closeModal(); break;
+    case 'saveSettings': saveSettings(); break;
+    case 'copyGas': try{ await navigator.clipboard.writeText(GAS_CODE); toast('복사했어요'); }catch(_){ toast('길게 눌러 복사해 주세요'); } break;
+    case 'demo': state.ui.demo = true; for(const [c,n] of [['005930','삼성전자'],['000660','SK하이닉스'],['035420','NAVER']]) if(!W(c)) state.watch.push({code:c,name:n,addedAt:Date.now()}); save(); await refreshAll(); break;
+    case 'demoOne': { state.data[code] = demoStock(code); const d = state.data[code]; const sc = computeScore(d); const snap = makeSnap(d, sc, scenarios(d)); (state.snaps[code]=state.snaps[code]||[]).push(snap); if(!state.seenNews[code]){ state.seenNews[code]={}; d.news.forEach(n=>state.seenNews[code][n.id]=1); } save(); render(); break; }
+    case 'search': doSearch(); break;
+    case 'pick': addWatch(code, b.dataset.name); break;
+    case 'open': state.ui.code = code; showTab('stock'); if(!state.data[code]) refreshStock(code); break;
+    case 'refresh': resetRelays(); refreshStock(code); break;
+    case 'refreshAll': refreshAll(); break;
+    case 'unwatch': if(confirm('관심종목에서 뺄까요? (논리·기록은 남습니다)')){ state.watch = state.watch.filter(w=>w.code!==code); state.ui.code=''; save(); showTab('home'); } break;
+    case 'finQ': state.ui.finQ = b.dataset.v==='1'; render(); break;
+    case 'resetAdj': if(state.ui.adj) delete state.ui.adj[code]; save(); render(); break;
+    case 'askAbout': state.ui.ctx = code; save(); showTab('ai'); break;
+    case 'chip': state.ui.tab==='ai' ? sendChat(b.dataset.q) : null; break;
+    case 'send': sendChat(); break;
+    case 'clearChat': delete state.chats[state.ui.ctx||'*']; save(); renderAI(); break;
+    case 'brief': {
+      if(!aiReady()){ openSettings(); break; }
+      busy.brief = true; render();
+      try{ const text = await aiBriefing(); state.brief = { date: today(), text, model: aiModel() }; save(); }catch(err){ toast(err.message); }
+      busy.brief = false; render(); break; }
+    case 'explain': {
+      if(!aiReady()){ openSettings(); break; }
+      busy['e'+code] = true; render();
+      try{ const text = await aiExplainStock(code); state.ui.explain = state.ui.explain||{}; state.ui.explain[code] = { text, date: today(), model: aiModel() }; save(); }catch(err){ toast(err.message); }
+      busy['e'+code] = false; render(); break; }
+    case 'newThesis': openThesisEditor(code); break;
+    case 'editThesis': { const t = state.theses.find(x=>x.id===id); if(t) openThesisEditor(t.code, t); break; }
+    case 'delThesis': if(confirm('이 투자 논리를 지울까요?')){ state.theses = state.theses.filter(x=>x.id!==id); save(); render(); } break;
+    case 'thSave': {
+      const t = readThesisForm(code, id); if(!t) break;
+      /* AI가 다듬은 키워드가 있으면 그것을 씁니다 */
+      try{ const ka = JSON.parse($('#thA').dataset.kw||'[]'), kr = JSON.parse($('#thR').dataset.kw||'[]');
+        t.assumptions.forEach(a => { const m = ka.find(x=>x.text===a.text); if(m?.keywords?.length) a.keywords = m.keywords; });
+        t.risks.forEach(a => { const m = kr.find(x=>x.text===a.text); if(m?.keywords?.length) a.keywords = m.keywords; }); }catch(_){}
+      if(!t.history.length) t.history.push({ t: Date.now(), conf: t.confidence, reason: '작성' });
+      const i = state.theses.findIndex(x=>x.id===t.id); if(i>=0) state.theses[i] = t; else state.theses.push(t);
+      save(); closeModal(); render(); toast('논리를 저장했어요. 데이터가 바뀌면 점검합니다'); break; }
+    case 'thAI': {
+      const t = readThesisForm(code, ''); if(!t) break; busy.thAI = true; b.disabled = true; b.innerHTML = '<span class="spin dark"></span> 다듬는 중';
+      try{ const j = await aiStructureThesis(code, [t.title, t.text, '가정: '+t.assumptions.map(a=>a.text).join(', '), '리스크: '+t.risks.map(a=>a.text).join(', ')].join('\n')); fillThesisForm(j); toast('AI가 가정·리스크를 정리했어요. 고친 뒤 저장하세요'); }
+      catch(err){ toast(err.message); }
+      busy.thAI = false; b.disabled = false; b.innerHTML = '✨ AI로 다듬기'; break; }
+    case 'genThesis': {
+      if(!aiReady()){ openSettings(); break; }
+      busy['g'+code] = true; render();
+      try{ const j = await aiGenerateThesis(code); openThesisEditor(code, { title:j.title, text:j.text, assumptions:j.assumptions||[], risks:j.risks||[], horizon:j.horizon, confidence:j.confidence }); fillThesisForm(j); }
+      catch(err){ toast(err.message); }
+      busy['g'+code] = false; render(); break; }
+    case 'checkThesis': {
+      if(!aiReady()){ openSettings(); break; }
+      const t = state.theses.find(x=>x.id===id); if(!t) break;
+      if(!state.data[t.code]){ toast('먼저 종목 데이터를 가져와 주세요'); break; }
+      busy['c'+id] = true; render();
+      try{ const j = await aiCheckThesis(t); const conf = clamp(Math.round(+j.confidence), 0, 100);
+        if(has(conf)){ t.history.push({ t: Date.now(), conf, reason: j.delta_reason||'' }); t.confidence = conf; }
+        t.lastCheck = { date: today(), verdict: j.verdict, summary: j.summary, affected: j.affected||[] }; t.lastChecked = Date.now(); save(); }
+      catch(err){ toast(err.message); }
+      busy['c'+id] = false; render(); break; }
+    case 'newJournal': if(!state.watch.length){ toast('먼저 관심종목을 넣어 주세요'); break; } openJournal(); break;
+    case 'jSave': {
+      const c = $('#jCode').value, price = +$('#jPrice').value; if(!(price>0)){ toast('매수가를 넣어 주세요'); break; }
+      state.journal.push({ id: uid(), code: c, name: W(c)?.name||c, price, qty: +$('#jQty').value||0, reason: $('#jReason').value.trim(), horizon: $('#jH').value.trim(), expect: $('#jE').value.trim(), stop: $('#jStop').value.trim(), t: Date.now() });
+      save(); closeModal(); render(); toast('기록했어요'); break; }
+    case 'delJournal': if(confirm('이 기록을 지울까요?')){ state.journal = state.journal.filter(x=>x.id!==id); save(); render(); } break;
+    case 'reviewJournal': {
+      if(!aiReady()){ openSettings(); break; } if(!state.journal.length){ toast('복기할 기록이 없어요'); break; }
+      busy.review = true; render();
+      try{ const text = await aiJournalReview(); state.ui.review = { text, date: today(), model: aiModel() }; save(); }catch(err){ toast(err.message); }
+      busy.review = false; render(); break; }
+    case 'export': { const blob = new Blob([JSON.stringify(state, null, 1)], {type:'application/json'}); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `stocklens-${today()}.json`; a.click(); break; }
+    case 'import': { const f = $('#impFile'); f.onchange = () => { const r = new FileReader(); r.onload = () => { try{ const s = JSON.parse(r.result); if(!s.watch) throw 0; state = Object.assign(state, s); save(); closeModal(); render(); toast('불러왔어요'); }catch(_){ toast('파일을 읽지 못했어요'); } }; r.readAsText(f.files[0]); }; f.click(); break; }
+    case 'reset': if(confirm('관심종목·논리·일지·설정을 모두 지울까요?')){ localStorage.removeItem(KEY); location.reload(); } break;
+  }
+});
+document.addEventListener('input', e => {
+  const r = e.target.closest('input[data-adj]'); if(!r) return;
+  const code = r.dataset.code; state.ui.adj = state.ui.adj||{}; state.ui.adj[code] = state.ui.adj[code]||{};
+  state.ui.adj[code][r.dataset.adj] = +r.value;
+  /* 슬라이더는 다시 그리지 않고 숫자만 바꿉니다 */
+  const d = state.data[code]; const sn = scenarios(d, state.ui.adj[code]);
+  r.parentElement.querySelector('.v').textContent = /eps/.test(r.dataset.adj) ? ((+r.value>0?'+':'')+r.value+'%') : (r.value+'배');
+  const cards = document.querySelectorAll('.scen .c');
+  if(cards.length===3){
+    cards[0].innerHTML = `<div class="t up">Bull</div><div class="p">${won(sn.bull)}</div><div class="d">EPS ${sn.adj.epsBull>0?'+':''}${sn.adj.epsBull}% × ${sn.adj.perBull}배<br>${pct(sn.upBull)}</div>`;
+    cards[1].innerHTML = `<div class="t">Base</div><div class="p">${won(sn.base)}</div><div class="d">EPS 그대로 × ${sn.adj.perBase}배<br>${pct(sn.upBase)}</div>`;
+    cards[2].innerHTML = `<div class="t down">Bear</div><div class="p">${won(sn.bear)}</div><div class="d">EPS ${sn.adj.epsBear}% × ${sn.adj.perBear}배<br>${pct(sn.upBear)}</div>`;
+  }
+  clearTimeout(window._adjT); window._adjT = setTimeout(save, 400);
+});
+document.querySelectorAll('nav.tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
+
+/* ---------- 시작 ---------- */
+load();
+showTab(state.ui.tab && TABS.includes(state.ui.tab) ? state.ui.tab : 'home');
+(async () => {
+  const stale = state.watch.filter(w => !state.data[w.code] || Date.now() - state.data[w.code].t > 6*3600000);
+  if(stale.length){ busy.refreshAll = true; render(); for(const w of stale) await refreshStock(w.code, {quiet:true}); busy.refreshAll = false; save(); render(); }
+})();
+</script>
+</body>
+</html>
