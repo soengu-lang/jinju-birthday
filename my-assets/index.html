@@ -1302,9 +1302,39 @@ function divYearTotal(year){
    같은 종목이라도 계좌마다 다른 칸에 저장돼 시세가 어긋날 수 있었습니다. */
 const pxKey = h => h.cat + ':' + (h.code || h.sym || h.id);
 /* 같은 종목(같은 코드)인 자산들 — 계좌만 다른 것들 */
+/* 이름 안의 '서로 함께 있을 수 없는 표시' — 앞부분이 길게 같아도 다른 종목임을 알려 줍니다.
+   KODEX 미국S&P500 과 KODEX 미국나스닥100 은 앞 8글자가 같아 닮은 정도로는 못 가립니다. */
+const MARKERS = [
+  ['snp',  /s\s*&?\s*p\s*500|에스앤피/i],
+  ['nas',  /나스닥|nasdaq|qqq/i],
+  ['kospi',/코스피|kospi/i],
+  ['kosdq',/코스닥|kosdaq/i],
+  ['lev',  /레버리지|leverage|2x|3x/i],
+  ['inv',  /인버스|inverse|숏|short/i],
+  ['dow',  /다우|dow/i],
+];
+const EXCLUSIVE = [['snp','nas'],['snp','dow'],['nas','dow'],['kospi','kosdq'],['lev','inv']];
+const markersOf = n => MARKERS.filter(([,re])=>re.test(String(n||''))).map(([k])=>k);
+/* 두 이름이 서로 배타적인 표시를 하나씩 갖고 있으면 다른 종목입니다 */
+function markerConflict(a, b){
+  const A = markersOf(a), B = markersOf(b);
+  return EXCLUSIVE.some(([x,y]) => (A.includes(x)&&B.includes(y)) || (A.includes(y)&&B.includes(x)));
+}
+/* 이름이 얼마나 닮았나 — 0~1. 코드가 잘못 붙었을 때 남의 종목과 섞이지 않게 씁니다 */
+function nameAlike(a, b){
+  const A = norm(a), B = norm(b);
+  if(!A || !B) return 1;
+  if(A === B) return 1;
+  return lcsLen(A, B) / Math.max(A.length, B.length);
+}
+/* 코드가 같아도 이름이 딴판이면 다른 종목으로 봅니다 (0.4 미만) */
+const groupable = (a, b) =>
+  a.cat === b.cat && a.code && a.code === b.code &&
+  !a.solo && !b.solo &&
+  !markerConflict(a.name, b.name) && nameAlike(a.name, b.name) >= 0.4;
 function sameStock(h){
-  if(!h.code) return [h];
-  return (state.holdings||[]).filter(x=>x.cat===h.cat && x.code===h.code);
+  if(!h.code || h.solo) return [h];
+  return (state.holdings||[]).filter(x=>x===h || groupable(h, x));
 }
 /* 이 종목의 현재 시세 (직접 입력한 값이 있으면 그게 우선) */
 function priceOf(h){
@@ -1542,13 +1572,14 @@ function addDiary(text, holdId){
    화면에서는 하나로 묶어 보여줍니다.
    ------------------------------------------------------------ */
 function groupOf(items){
-  const m = new Map();
+  const out = [];
   (items||[]).forEach(h=>{
-    const k = h.code ? h.cat+':'+h.code : 'id:'+h.id;   /* 코드가 없는 건 묶지 않습니다 */
-    if(!m.has(k)) m.set(k, []);
-    m.get(k).push(h);
+    /* 코드가 없거나 따로 보기로 둔 것은 묶지 않습니다.
+       코드가 같아도 이름이 딴판이면 다른 종목이라 따로 둡니다. */
+    const g = (h.code && !h.solo) ? out.find(a=>groupable(a[0], h)) : null;
+    if(g) g.push(h); else out.push([h]);
   });
-  return [...m.values()];
+  return out;
 }
 /* 묶인 종목의 합계 — 평단은 수량으로 가중평균 */
 function calcGroup(list){
@@ -1880,7 +1911,7 @@ KODEX 레버리지|122630|KS
 KODEX 인버스|114800|KS
 TIGER 미국S&P500|360750|KS
 TIGER 미국나스닥100|133690|KS
-KODEX 미국S&P500|379810|KS
+KODEX 미국나스닥100|379810|KS
 KODEX 미국S&P500TR|379800|KS
 TIGER 미국배당다우존스|458730|KS
 ACE 미국배당다우존스|402970|KS
@@ -2440,6 +2471,9 @@ function parseTable(lines){
       if(!(r.qty > 0)) continue;
       if(r.check === false){ r.use = false; r.weak = true; }
       if(r.weak && !r.check){ r.use = false; }
+      /* 이름을 '닮은 것으로 미루어' 찾았을 뿐이면 켜 두지 않습니다.
+         코드가 틀리면 남의 종목 시세가 붙어 평가금액이 통째로 어긋납니다. */
+      if(r.code && r.sure === false) r.use = false;
       rows.push(r);
     }
   }
@@ -3574,6 +3608,9 @@ function openPastePreview(owner, working){
             <label>평균단가<input class="pa" data-i="${i}" inputmode="decimal" value="${isFinite(r.avg)?r.avg:''}"></label>
             <label>코드·티커<input class="pk" data-i="${i}" value="${esc(r.code||'')}" placeholder="${r.cat==='kr'?'005930':'AAPL'}"></label>
           </div>
+          ${r.code && r.sure === false ? `<div class="warn">⚠️ <b>이 종목이 맞는지 봐 주세요.</b>
+            캡처 글자가 뭉개져서 <b>닮은 이름</b>으로 찾았습니다 — 맞으면 켜고, 아니면 이름·코드를 고쳐 주세요.
+            코드가 틀리면 남의 종목 시세가 붙습니다.</div>`:''}
           ${r.same ? `<div class="hint" style="margin-top:4px">이미 <b>같은 수량·평단</b>으로 담겨 있어요 — 그대로 두려면 꺼진 채로, 다시 담으려면 켜 주세요</div>`:''}
           ${r.ocrName && r.ocrName !== r.name ? `<div class="hint" style="margin-top:4px">
               📷 캡처에는 <b>${esc(r.ocrName)}</b> 로 찍혔는데 <b>${esc(r.name)}</b> 으로 알아봤어요${r.sure?'':' — 확실치 않으니 봐 주세요'}${r.check===true?' · 평가금액이 수량×현재가와 맞아 진짜 종목입니다':''}</div>`:''}
@@ -3607,6 +3644,14 @@ function openHold(id){
     <div class="tiny muted" style="margin:-6px 0 12px">
       ${c.emo} ${c.label}${h.acct? ' · <b>'+esc(h.acct)+'</b>':''}${h.code&&!amt? ' · '+esc(h.code):''}${h.official? ' · '+esc(h.official):''}
       ${px.src? ' · 시세 '+esc(px.src)+' '+timeAgo(px.at) : ''}</div>
+    ${h.official && h.code && markerConflict(h.name, h.official) ? `
+      <div class="note" style="margin-bottom:12px;line-height:1.8">
+        ⚠️ <b>코드가 다른 종목을 가리키는 것 같아요.</b>
+        내 종목은 <b>${esc(h.name)}</b> 인데, 코드 <b>${esc(h.code)}</b> 로 가져온 정식 이름은
+        <b>${esc(h.official)}</b> 입니다.<br>
+        <span class="tiny">증권사 앱에서 진짜 코드를 확인해 아래 <b>코드·티커</b> 칸을 고쳐 주세요.
+        그때까지 시세는 남의 종목 값입니다.</span>
+      </div>` : ''}
 
     ${h.cat==='debt' ? `
     <div class="card tight" style="margin-bottom:12px">
@@ -3836,6 +3881,11 @@ function openGroupModal(ids){
       if(ps.length > 1) return `<div class="note" style="margin-bottom:10px">
         ⚠️ 계좌마다 <b>현재가가 다르게</b> 잡혀 있어요 (${ps.map(v=>priceS(v/10000, g.px.ccy)).join(' · ')}).
         아래 <b>🔧 시세 고치기</b>로 맞는 값을 한 번 넣으면 모든 계좌에 같이 적용됩니다.</div>`;
+      const odd = list.filter(x=>markerConflict(h0.name, x.name) || nameAlike(h0.name, x.name) < 0.75).map(x=>x.name);
+      if(odd.length) return `<div class="note" style="margin-bottom:10px">
+        ⚠️ <b>이름이 서로 달라요</b> — <b>${esc(h0.name)}</b> 와 <b>${esc(odd[0])}</b>.
+        코드(${esc(h0.code||'')})가 같아서 묶였는데, 진짜 다른 종목이면 아래
+        <b>✂️ 갈라놓기</b> 를 눌러 주세요.</div>`;
       if(list.some(priceOdd)) return `<div class="note" style="margin-bottom:10px">
         ⚠️ 가져온 시세(${priceS(g.px.p, g.px.ccy)})가 평균 매수가(${priceS(g.avg, isUs?'USD':'KRW')})와
         너무 차이 납니다. 증권사 앱 값과 다르면 아래 <b>🔧 시세 고치기</b>에 적어 주세요.</div>`;
@@ -3862,7 +3912,11 @@ function openGroupModal(ids){
       🔧 시세 고치기 (계좌 ${list.length}곳 모두)</button>
     <button class="btn ghost block mt" data-act="mergeGroup" data-ids="${esc(ids)}">
       🔗 한 줄로 합치기 (수량 더하고 평단 다시 계산)</button>
-    <div class="tiny muted mt">합치면 계좌 구분은 사라지고 하나로 남습니다.</div>`);
+    <div class="tiny muted mt">합치면 계좌 구분은 사라지고 하나로 남습니다.</div>
+
+    <button class="btn ghost block mt" data-act="splitGroup" data-ids="${esc(ids)}">
+      ✂️ 다른 종목이에요 — 갈라놓기</button>
+    <div class="tiny muted mt">코드가 잘못 붙어 남의 종목과 묶였을 때 쓰세요. 갈라놓으면 각자 한 줄이 됩니다.</div>`);
 }
 
 /* 💰 배당 받은 것 적기 */
@@ -5076,6 +5130,16 @@ document.addEventListener('click', async ev=>{
     save(false); await syncPush(); render(); syncStart();
     if(state.sync.error){ toast(state.sync.error); runSyncDiag(); }
     else toast('연결했어요 — 초대 링크를 다른 기기에 붙여넣으세요');
+    break; }
+  case 'splitGroup': {
+    const ids = String(b.dataset.ids||'').split(',').filter(Boolean);
+    const list = ids.map(x=>(state.holdings||[]).find(h=>h.id===x)).filter(Boolean);
+    if(list.length < 2) break;
+    if(!confirm(`${list.length}개를 각각 따로 보이게 할까요?\n수량·평단은 그대로 두고 묶음만 풉니다.`)) break;
+    /* 첫 줄은 그대로 두고 나머지를 따로 세웁니다 — 시세는 각자 받습니다 */
+    list.slice(1).forEach(h=>{ h.solo = true; });
+    save(); closeModal(); render();
+    toast('갈라놨어요 — 코드가 틀렸다면 종목을 눌러 고쳐 주세요');
     break; }
   case 'finView': ui.fin = b.dataset.v === '1'; render(); break;
   case 'dSearch': break;   /* input 이벤트로 처리합니다 */
