@@ -375,6 +375,104 @@ function blankState(){
 }
 
 /* ---------- 샘플 데이터 (첫 실행 시에만) ---------- */
+/* ============================================================
+   우리집 냉장고 재료로 만든 추천 레시피 꾸러미
+   ------------------------------------------------------------
+   재료 이름과 단위는 냉장고에 등록된 것과 맞춰 두었습니다.
+   그래야 부족 표시·장보기·요리 완료 차감이 정확히 맞물립니다.
+   ============================================================ */
+const RECIPE_PACK = [
+  { name:'가지 소고기 덮밥', emoji:'🍆', kcal:380, protein:24, minutes:25, servings:2,
+    tags:['한식','고단백','15분완성'],
+    ingredients:[['다진소고기',200,'g'],['가지',3,'개'],['양파',1,'개'],['대파',1,'대'],
+      ['저염간장',2,'큰술'],['알룰로스',1,'큰술'],['다진마늘',1,'큰술'],['참기름',1,'큰술']],
+    steps:['가지 손질|반달로 썰어 소금에 5분 절였다가 물기를 짜면 기름을 훨씬 덜 먹어요.',
+      '고기 볶기|다진마늘과 다진소고기를 센 불에 볶아 핏기를 없앱니다.',
+      '양념 넣기|저염간장·알룰로스를 넣고 가지와 양파를 넣어 3분 볶습니다.',
+      '마무리|대파와 참기름을 둘러 30초 더 볶고 밥 위에 올립니다.'] },
+
+  { name:'토마토 소고기 스튜', emoji:'🍲', kcal:340, protein:30, minutes:30, servings:2,
+    tags:['양식','고단백','저탄수'],
+    ingredients:[['토마토',500,'g'],['다진소고기',300,'g'],['양파',1,'개'],['애호박',1,'개'],
+      ['다진마늘',1,'큰술'],['알룰로스',1,'큰술'],['소금',1,'작은술']],
+    steps:['토마토 데치기|열십자로 칼집을 내 끓는 물에 30초 담갔다 빼면 껍질이 쉽게 벗겨져요.',
+      '고기 볶기|다진마늘과 다진소고기를 볶다가 양파를 넣습니다.',
+      '끓이기|토마토를 넣고 으깨가며 15분 뭉근히 끓입니다.',
+      '간 맞추기|애호박을 넣고 5분 더 끓인 뒤 소금·알룰로스로 신맛을 잡습니다.'] },
+
+  { name:'옥돔 구이와 부추무침', emoji:'🐟', kcal:320, protein:34, minutes:25, servings:2,
+    tags:['한식','고단백','저탄수'],
+    ingredients:[['옥돔',2,'마리'],['부추',0.5,'봉'],['저염간장',1,'큰술'],['고춧가루',1,'큰술'],
+      ['알룰로스',1,'큰술'],['참기름',1,'큰술'],['소금',1,'작은술']],
+    steps:['옥돔 손질|물기를 완전히 닦고 소금을 뿌려 10분 두었다가 다시 닦아냅니다.',
+      '굽기|기름을 두른 팬에 껍질면부터 중불로 5분, 뒤집어 3분 굽습니다.',
+      '부추 무치기|부추를 5cm로 썰어 저염간장·고춧가루·알룰로스·참기름에 살살 무칩니다.',
+      '담기|구운 옥돔 위에 부추무침을 얹으면 비린내가 잡혀요.'] },
+
+  { name:'목살 고추장구이 상추쌈', emoji:'🐖', kcal:450, protein:36, minutes:30, servings:2,
+    tags:['한식','고단백'],
+    ingredients:[['목살',400,'g'],['청상추',200,'g'],['양파',1,'개'],['고추장',2,'큰술'],
+      ['저염간장',1,'큰술'],['알룰로스',1,'큰술'],['다진마늘',1,'큰술'],['맛술',1,'큰술']],
+    steps:['해동·밑간|목살은 하루 전 냉장 해동이 가장 좋아요. 맛술을 뿌려 10분 두면 잡내가 빠집니다.',
+      '양념 만들기|고추장·저염간장·알룰로스·다진마늘을 섞습니다.',
+      '재우기|목살에 양념을 발라 20분 재웁니다. 오래 재우면 탈 수 있어요.',
+      '굽기|중불에서 앞뒤로 굽고 양파를 곁들여 볶은 뒤 청상추에 싸 먹습니다.'] },
+
+  { name:'참치 콘 샐러드', emoji:'🥗', kcal:280, protein:22, minutes:10, servings:2,
+    tags:['15분완성','고단백','양식'],
+    ingredients:[['참치캔',2,'개'],['청상추',150,'g'],['콘옥수수',1,'개'],['토마토',200,'g'],
+      ['마요네즈',2,'큰술'],['알룰로스',1,'큰술']],
+    steps:['참치 기름 빼기|체에 밭쳐 살짝 눌러 기름을 빼면 칼로리가 확 줄어요.',
+      '채소 준비|청상추는 손으로 뜯고 토마토는 한입 크기로 썹니다.',
+      '드레싱|마요네즈와 알룰로스를 섞어 새콤달콤하게 만듭니다.',
+      '버무리기|먹기 직전에 버무려야 물이 생기지 않습니다.'] },
+
+  { name:'비빔냉면', emoji:'🍜', kcal:480, protein:14, minutes:20, servings:2,
+    tags:['한식','여름'],
+    ingredients:[['냉면',2,'팩'],['청상추',100,'g'],['토마토',150,'g'],['고추장',2,'큰술'],
+      ['고춧가루',1,'큰술'],['알룰로스',2,'큰술'],['저염간장',1,'큰술'],['참기름',1,'큰술']],
+    steps:['양념장|고추장·고춧가루·알룰로스·저염간장·참기름을 섞어 30분 두면 맛이 안정돼요.',
+      '면 삶기|냉면은 끓는 물에 3분 삶고 찬물에 여러 번 헹궈 전분을 씻어냅니다.',
+      '물기 빼기|체에 밭쳐 물기를 최대한 털어야 양념이 묽어지지 않아요.',
+      '비비기|양념장에 면을 비비고 청상추와 토마토를 올립니다.'] },
+
+  { name:'토마토 미트 스파게티', emoji:'🍝', kcal:560, protein:28, minutes:25, servings:2,
+    tags:['양식','고단백'],
+    ingredients:[['스파게티 면 사리',1,'팩'],['토마토',400,'g'],['다진소고기',200,'g'],['양파',1,'개'],
+      ['다진마늘',1,'큰술'],['케챱',2,'큰술'],['모짜렐라 치즈',0.5,'봉'],['소금',1,'작은술']],
+    steps:['소스 시작|다진마늘·양파·다진소고기 순으로 볶습니다.',
+      '토마토 넣기|썬 토마토와 케챱을 넣고 10분 졸입니다. 케챱이 단맛과 감칠맛을 채워 줘요.',
+      '면 삶기|소금 넣은 물에 면을 삶고 면수 半국자를 남겨 둡니다.',
+      '버무리기|면과 소스를 면수와 함께 섞고 모짜렐라를 올려 녹입니다.'] },
+
+  { name:'공심채 마늘볶음', emoji:'🥬', kcal:90, protein:4, minutes:10, servings:2,
+    tags:['15분완성','저탄수','반찬'],
+    ingredients:[['공심채',1,'봉'],['다진마늘',1,'큰술'],['저염간장',1,'큰술'],
+      ['청양고추',0.3,'봉'],['참기름',1,'큰술']],
+    steps:['손질|공심채는 씻어 물기를 털고 5cm로 썹니다. 줄기와 잎을 나눠 두세요.',
+      '마늘 향내기|기름에 다진마늘과 청양고추를 볶아 향을 냅니다.',
+      '센 불 볶기|줄기부터 30초, 잎을 넣고 30초만 볶아야 아삭합니다.',
+      '마무리|저염간장과 참기름을 둘러 불을 끕니다.'] },
+
+  { name:'떡만둣국', emoji:'🍲', kcal:470, protein:18, minutes:20, servings:2,
+    tags:['한식','15분완성'],
+    ingredients:[['떡',1,'봉'],['교자만두',0.5,'봉'],['대파',1,'대'],['김',0.3,'봉'],
+      ['저염간장',1,'큰술'],['다진마늘',1,'큰술'],['소금',1,'작은술']],
+    steps:['떡 불리기|떡은 찬물에 10분 담가 두면 잘 퍼지지 않아요.',
+      '육수 내기|물 1L에 다진마늘과 저염간장을 넣고 끓입니다.',
+      '넣는 순서|떡을 먼저 넣고 떠오르면 만두를 넣어 3분 더 끓입니다.',
+      '마무리|대파를 넣고 소금으로 간한 뒤 김을 부숴 올립니다.'] },
+
+  { name:'애호박 치즈 그라탕', emoji:'🧀', kcal:420, protein:24, minutes:30, servings:2,
+    tags:['양식','고단백'],
+    ingredients:[['애호박',2,'개'],['모짜렐라 치즈',0.5,'봉'],['우유',0.5,'개'],['양파',1,'개'],
+      ['다진소고기',150,'g'],['소금',1,'작은술']],
+    steps:['애호박 준비|1cm 두께로 썰어 소금을 살짝 뿌려 물기를 빼 둡니다.',
+      '고기 볶기|양파와 다진소고기를 볶아 소금으로 간합니다.',
+      '층 쌓기|그릇에 애호박과 고기를 번갈아 담고 우유를 부어 촉촉하게 합니다.',
+      '굽기|모짜렐라를 덮고 200도 오븐이나 에어프라이어에서 15분 노릇하게 굽습니다.'] }
+];
+
 function seed(){
   const R = (name,emoji,kcal,protein,minutes,tags,ings,steps,yt)=>({
     id:uid(), name, emoji, kcal, protein, minutes, servings:2, tags,
@@ -468,13 +566,20 @@ function stockList(){
 function findStock(list, name, unit){
   return list.find(s=>sameItem(s.name,name) && s.unit===unit);
 }
+/* 고추장 "1팩"처럼 통째로 가진 양념은, 레시피의 1~2큰술을 대기에 충분하다고 본다.
+   (팩·병 단위는 남은 양을 알 수 없으므로 부족하다고 다그치지 않는다) */
+function seasoningInStock(name){
+  return state.fridge.some(f=> sameItem(f.name,name) && f.qty>0
+    && (f.cat==='소스·양념' || f.cat==='기타') && !UNIT_BASE[f.unit]);
+}
 /* 레시피 1개가 지금 재고로 얼마나 커버되는지 (0~1) + 부족 재료 수 */
 function coverage(recipe, list, servings){
   const f = servings/(recipe.servings||2);
   let total=0, have=0, missing=0, urgent=0;
   for(const ing of recipe.ingredients){
     const [need,u] = normUnit(ing.qty*f, ing.unit);
-    const s = findStock(list, ing.name, u);
+    let s = findStock(list, ing.name, u);
+    if(!s && UNIT_BASE[ing.unit] && seasoningInStock(ing.name)) s = {qty:need, expDate:''};  // 팩째 가진 양념
     const w = 1;
     total += w;
     if(s && s.qty>0){
@@ -544,6 +649,8 @@ function shoppingNeeds(dates){
   return Object.values(need).map(n=>{
     const s = findStock(list, n.name, n.unit);
     const have = s? s.qty : 0;
+    if(!s && UNIT_BASE[n.disp] && seasoningInStock(n.name))
+      return {...n, have:n.need, short:0, whole:true};      // 팩째 있음
     return {...n, have, short: Math.max(0, n.need-have)};
   }).sort((a,b)=> CATS.indexOf(a.cat)-CATS.indexOf(b.cat) || b.short-a.short);
 }
@@ -909,6 +1016,7 @@ function viewMenu(){
       <button class="btn orange sm grow" data-act="addByCapture">📷 캡처로 레시피 추가</button>
       <button class="btn ghost sm" data-act="addRecipe">＋ 직접 입력</button>
     </div>
+    <button class="btn ghost block sm" data-act="openPack">🧊 우리 냉장고 재료로 만든 레시피 ${RECIPE_PACK.length}가지 보기</button>
     <div class="row wrap" style="gap:5px">
       ${tags.map(t=>`<button class="chip ${ui.menuFilter===t?'on':''}" data-act="filter" data-t="${esc(t)}">${esc(t)}</button>`).join('')}
     </div>
@@ -1511,12 +1619,14 @@ function openCookDone(recipeId, servings, dateKey){
     const [nq,nu] = normUnit(need, ing.unit);
     const s = findStock(list, ing.name, nu);
     const have = s? s.qty : 0;
+    const whole = !s && seasoningInStock(ing.name);          // 팩·병째 가진 양념
     const enough = have >= nq-0.001;
     return `<div class="g4" style="grid-template-columns:auto 1.6fr 1fr auto;align-items:center">
-      <button class="cb ${enough?'on':''}" data-act="useTgl" data-k="${k}">✓</button>
+      <button class="cb ${enough?'on':''}" data-act="useTgl" data-k="${k}" ${whole?'disabled style="opacity:.35"':''}>✓</button>
       <div style="min-width:0">
         <div style="font-size:12.5px;font-weight:700">${esc(ing.name)}</div>
-        <div class="tiny muted">${have>0? `보유 ${nice(have)}${nu}` : '냉장고에 없음'}</div>
+        <div class="tiny muted">${whole? '팩째 보유 · 차감 안 함'
+          : have>0? `보유 ${nice(have)}${nu}` : '냉장고에 없음'}</div>
       </div>
       <input type="number" inputmode="decimal" step="0.5" data-use="${k}" value="${nice(need)}">
       <span class="tiny muted">${ing.unit}</span>
@@ -1532,6 +1642,43 @@ function openCookDone(recipeId, servings, dateKey){
       체크를 풀면 그 재료는 냉장고에서 빼지 않습니다.</div>
     <div class="ing-box" style="margin-top:10px">${rows}</div>
     <button class="btn block" style="margin-top:12px" data-act="applyCook">🍳 냉장고에 반영하기</button>
+  </div>`);
+}
+/* ---------- 추천 레시피 꾸러미 담기 ---------- */
+function packRecipe(src){
+  return { id:uid(), name:src.name, emoji:src.emoji, kcal:src.kcal, protein:src.protein,
+    minutes:src.minutes, servings:src.servings, tags:[...src.tags],
+    ingredients: src.ingredients.map(([n,q,u])=>({name:n, qty:q, unit:u})),
+    steps:[...src.steps], youtube:'', instagram:'', image:'', source:'추천', fav:false, createdAt:Date.now() };
+}
+function openRecipePack(){
+  const list = stockList();
+  const rows = RECIPE_PACK.map((src,k)=>{
+    const have = state.recipes.some(r=>sameItem(r.name, src.name));
+    const c = coverage(packRecipe(src), list, src.servings);
+    const badge = have ? `<span class="tag">이미 있음</span>`
+      : c.missing===0 ? `<span class="tag ok">재료 다 있음</span>`
+      : `<span class="tag soon">${c.missing}가지만 사면 돼요</span>`;
+    return `<div class="shop-line" style="padding-left:0;padding-right:0">
+      <button class="cb ${have?'':'on'}" data-act="packTgl" data-k="${k}" ${have?'disabled style="opacity:.35"':''}>✓</button>
+      <div class="grow" style="min-width:0">
+        <div style="font-size:13px;font-weight:800">${src.emoji} ${esc(src.name)} ${badge}</div>
+        <div class="tiny muted">⏱ ${src.minutes}분 · ${src.kcal}kcal · 단백질 ${src.protein}g
+          · ${src.ingredients.slice(0,3).map(i=>esc(i[0])).join(', ')} 등</div>
+      </div>
+    </div>`;
+  }).join('');
+  openModal(`<div class="modal" id="packBox">
+    <div class="mhead">
+      <div><h3>우리 냉장고 재료로</h3>
+        <div class="tiny muted">지금 있는 재료에 맞춰 고른 ${RECIPE_PACK.length}가지예요</div></div>
+      <button class="x" data-act="close">✕</button>
+    </div>
+    <div class="tiny muted" style="line-height:1.7">
+      담아도 <b>기존 메뉴판은 그대로</b>예요. 체크한 것만 새로 추가됩니다.
+    </div>
+    <div class="ing-box" style="margin-top:10px;padding:4px 11px">${rows}</div>
+    <button class="btn block" style="margin-top:12px" data-act="addPack">선택한 레시피 담기</button>
   </div>`);
 }
 function openJoinByLink(){
@@ -1711,6 +1858,20 @@ document.addEventListener('click', async (e)=>{
   case 'openRecipe': openRecipe(id); break;
   case 'addRecipe': openRecipeForm(null,false); break;
   case 'addByCapture': openRecipeForm(null,true); break;
+  case 'openPack': openRecipePack(); break;
+  case 'packTgl': b.classList.toggle('on'); break;
+  case 'addPack': {
+    let n = 0;
+    $('#packBox').querySelectorAll('[data-act="packTgl"]').forEach(cb=>{
+      if(!cb.classList.contains('on') || cb.disabled) return;
+      const src = RECIPE_PACK[+cb.dataset.k];
+      if(state.recipes.some(r=>sameItem(r.name, src.name))) return;   // 중복 방지
+      state.recipes.push(packRecipe(src)); n++;
+    });
+    if(!n){ toast('담을 레시피를 골라 주세요'); break; }
+    save(); closeModal(); ui.tab='menu'; render();
+    toast(`레시피 ${n}가지를 메뉴판에 담았어요`); break;
+  }
   case 'editRecipe': openRecipeForm(recipeById(id)); break;
   case 'delRecipe': {
     if(!confirm('이 레시피를 지울까요?')) break;
