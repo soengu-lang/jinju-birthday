@@ -2924,6 +2924,34 @@ function viewListCore(){
              ${g.cost>0? `<span class="${sgn(gc)}"> ${pctS(gc,1)}</span>`:''}`}</div>
       </div>
       ${g.value>0? `<div class="bar" style="margin-bottom:6px"><i style="width:${pct.toFixed(1)}%;background:${g.color}"></i></div>`:''}
+      ${(()=>{ if(ui.slice !== 'acct') return '';
+        const acct = g.items[0]?.acct || ''; if(!acct) return '';
+        const rk = acctRisk(acct); if(!rk) return '';
+        const ym = iso(new Date()).slice(0,7);
+        const inf = inflowOf(acct, ym);
+        const plan = (state.plans||{})[acct] || {};
+        const left = plan.monthly ? Math.max(0, plan.monthly - inf.sum) : 0;
+        const col = rk.band.c==='bad' ? 'var(--up)' : rk.band.c==='warn' ? 'var(--gold)' : 'var(--brand)';
+        return `<div class="box" style="margin:2px 0 8px">
+          <div class="between" style="align-items:baseline">
+            <span class="tiny muted">위험자산 <b style="color:${col};font-size:13px">${rk.pct.toFixed(0)}%</b>
+              <span class="tiny">· ${esc(rk.band.t)}</span></span>
+            ${rk.cash>0? `<span class="tiny muted">현금 <b class="num">${shortWon(rk.cash)}</b></span>`:''}
+          </div>
+          <div style="height:7px;background:#eceae4;border-radius:4px;overflow:hidden;margin-top:4px;position:relative">
+            <div style="height:100%;width:${Math.min(100,rk.pct).toFixed(1)}%;background:${col}"></div>
+            <div style="position:absolute;top:-2px;bottom:-2px;left:65%;width:2px;background:#333" title="65%"></div>
+            <div style="position:absolute;top:-2px;bottom:-2px;left:70%;width:2px;background:var(--up)" title="한도 70%"></div>
+          </div>
+          <div class="tiny muted" style="margin-top:4px;line-height:1.6">
+            ${rk.room65 > 0 ? `65%까지 <b class="num">${shortWon(rk.room65)}</b> 더 살 수 있어요` : '이미 65%를 넘었어요'}
+            · 한도 70%까지 <b class="num">${shortWon(rk.room70)}</b>
+          </div>
+          ${plan.monthly ? `<div class="tiny muted" style="margin-top:4px">
+            이번 달 들어온 돈 <b class="num">${won(inf.sum)}</b>${left>0? ` · 예정보다 <b class="num">${won(left)}</b> 모자라요` : ' ✅ 예정만큼 들어왔어요'}</div>`
+            : inf.sum? `<div class="tiny muted" style="margin-top:4px">이번 달 들어온 돈 <b class="num">${won(inf.sum)}</b></div>`:''}
+          <button class="chip line" style="margin-top:6px" data-act="cashIn" data-acct="${esc(acct)}">💵 돈 넣기·기록</button>
+        </div>`; })()}
       ${groups.map(holdGroupRow).join('')}
     </div>`;
   }).join('')}
@@ -3634,6 +3662,154 @@ function openPastePreview(owner, working){
     <button class="btn ghost block mt" data-act="pasteOpen">다시 붙여넣기</button>`);
 }
 
+/* ============================================================
+   🚦 계좌 운용 — 위험자산 비중과 떨어질 때 살 수량
+   ------------------------------------------------------------
+   DC(퇴직연금)는 위험자산이 70%를 넘을 수 없습니다. 법정 한도를
+   꽉 채우기보다 65~67%를 실질 상한으로 두는 게 안전합니다.
+   ============================================================ */
+const RISKY = ['stock','coin','etc'];          /* 채권·현금·금·달러는 안전자산으로 봅니다 */
+const isRisky = h => RISKY.includes(kindOf(h)) && h.cat !== 'debt';
+function acctRisk(acct){
+  const list = activeHoldings().filter(h=>(h.acct||'')===acct && h.cat!=='debt');
+  if(!list.length) return null;
+  let risky = 0, safe = 0, cash = 0;
+  list.forEach(h=>{
+    const v = calc(h).value || 0;
+    if(isRisky(h)) risky += v; else { safe += v; if(h.cat==='cash') cash += v; }
+  });
+  const total = risky + safe;
+  if(!(total > 0)) return null;
+  const pct = risky / total * 100;
+  const band = pct < 50 ? { t:'적극 매수해도 좋아요', c:'ok' }
+             : pct < 60 ? { t:'보통 — 그대로 모으세요', c:'ok' }
+             : pct < 65 ? { t:'매수는 계속하되 비중을 봐 주세요', c:'ok' }
+             : pct < 67 ? { t:'매수 속도를 줄일 때', c:'warn' }
+             : pct < 70 ? { t:'새 돈은 안전자산 위주로', c:'warn' }
+             : { t:'위험자산 추가매수 멈춤 (한도 70%)', c:'bad' };
+  /* 한도까지 위험자산을 얼마나 더 살 수 있나 — x 를 더 넣었을 때 (risky+x)/(total+x) = cap */
+  const room = cap => { const r = cap/100; return Math.max(0, (r*total - risky) / (1 - r)); };
+  return { acct, risky, safe, cash, total, pct, band, room65:room(65), room70:room(70) };
+}
+/* 📉 떨어질 때 얼마나 살까 — 지금 가격 기준 구간표 */
+const DIP_STEPS = [[0,5],[-5,10],[-10,15],[-15,20],[-20,30],[-30,50]];
+function dipPlan(h){
+  const r = calc(h), cur = +r.px.p || 0;
+  if(!(cur > 0)) return null;
+  const isUs = h.cat==='us', fx = +state.fx?.v || 0;
+  return DIP_STEPS.map(([d,q])=>{
+    const px = cur * (1 + d/100);
+    const won = (isUs ? px * fx : px) * q;
+    return { d, q, px, won };
+  });
+}
+
+/* ============================================================
+   💱 계좌 안에서 사고팔기 — 종목과 현금을 한 번에
+   ------------------------------------------------------------
+   DC·ISA 처럼 계좌 안에 현금이 따로 있는 곳에서는 한 번 살 때마다
+   종목 수량과 계좌 현금을 둘 다 고쳐야 했습니다. 한 번에 합칩니다.
+   ============================================================ */
+/* 이 계좌의 '현금' 자산 — 없으면 만들지 않고 null */
+function cashOf(acct){
+  if(!acct) return null;
+  return (state.holdings||[]).find(h=>h.cat==='cash' && (h.acct||'')===acct && !h.hide) || null;
+}
+const cashAmt = c => c ? (+c.mp || 0) : 0;
+/* 거래 한 건 기록 — 언제 얼마나 사고팔았는지 남깁니다 */
+function logTrade(o){
+  state.trades = state.trades || [];
+  state.trades.push({ id:uid(), at:Date.now(), date:iso(new Date()), ...o });
+  if(state.trades.length > 800) state.trades = state.trades.slice(-800);
+}
+const tradesOf = (acct, ym) => (state.trades||[])
+  .filter(t=>(!acct || t.acct===acct) && (!ym || String(t.date||'').slice(0,7)===ym))
+  .sort((a,b)=>b.at-a.at);
+/* 이번 달 계좌에 들어온 돈 (불입·분배금) */
+function inflowOf(acct, ym){
+  const ts = tradesOf(acct, ym).filter(t=>t.t==='in');
+  return { list:ts, sum:ts.reduce((a,t)=>a+(+t.amt||0), 0) };
+}
+
+/* 💱 사기 · 팔기 */
+function openTrade(id, mode){
+  const h = state.holdings.find(x=>x.id===id); if(!h) return;
+  const acct = h.acct || '';
+  const cash = cashOf(acct);
+  const r = calc(h), cur = +r.px.p || +h.avg || 0;
+  const isUs = h.cat==='us';
+  ui.tr = { ...(ui.tr||{}), mode: mode || ui.tr?.mode || 'buy' };
+  const m = ui.tr.mode;
+  openModal(`
+    <div class="mhead"><h3>${m==='buy'?'🛒 사기':'💸 팔기'}</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted" style="margin:-6px 0 10px;line-height:1.7">
+      <b>${esc(h.name)}</b>${acct? ` · <b>${esc(acct)}</b> 계좌`:''} ·
+      지금 ${qtyS(h.qty,h.cat)}${CAT(h.cat).unit} · 평단 ${priceS(h.avg, isUs?'USD':'KRW')}
+    </div>
+    <div class="seg" style="margin-bottom:10px">
+      <button class="${m==='buy'?'on':''}" data-act="trMode" data-id="${h.id}" data-v="buy">🛒 사기</button>
+      <button class="${m==='sell'?'on':''}" data-act="trMode" data-id="${h.id}" data-v="sell">💸 팔기</button>
+    </div>
+    ${cash ? `<div class="box" style="margin-bottom:10px">
+      <div class="between"><span class="tiny muted">${esc(acct)} 현금</span>
+        <b class="num">${won(cashAmt(cash))}</b></div>
+      <div class="tiny muted" style="margin-top:3px">${m==='buy'?'산 만큼 여기서 빠집니다':'판 만큼 여기로 들어옵니다'}</div>
+    </div>` : `<div class="note" style="margin-bottom:10px;line-height:1.7">
+      ${acct? `<b>${esc(acct)}</b> 계좌에 <b>현금</b> 자산이 없어요.` : '계좌를 안 적어 두셨어요.'}
+      수량·평단만 고치고 현금은 안 건드립니다.<br>
+      <span class="tiny">＋ 담기 → 💰 예적금·현금 으로 계좌 현금을 만들어 두면 자동으로 오갑니다.</span></div>`}
+    <div class="grid2">
+      <div class="f"><label>${m==='buy'?'몇':'몇'} ${CAT(h.cat).unit} ${m==='buy'?'살까요':'팔까요'}</label>
+        <input id="trQty" inputmode="decimal" value="${esc(ui.tr.qty||'')}" placeholder="예: 10"></div>
+      <div class="f"><label>${m==='buy'?'살':'팔'} 가격 ${isUs?'($)':'(원)'}</label>
+        <input id="trPx" inputmode="decimal" value="${esc(ui.tr.px ?? (cur? round2(cur):''))}"></div>
+    </div>
+    <div class="f"><label>날짜</label><input id="trDate" type="date" value="${iso(new Date())}"></div>
+    <button class="btn block" data-act="trGo" data-id="${h.id}">${m==='buy'?'샀어요':'팔았어요'}</button>
+    <div id="trOut" style="margin-top:10px"></div>
+    <div class="tiny muted mt" style="line-height:1.7">
+      수수료·세금은 넣지 않았습니다. ${m==='buy'? '평단은 수량으로 가중평균해 다시 계산합니다.' : '평단은 그대로 두고 수량만 줄입니다.'}
+    </div>`);
+  setTimeout(()=>$('#trQty')?.focus(), 60);
+}
+
+/* 💵 계좌에 돈 넣기·빼기 (불입·분배금) */
+function openCashIn(acct){
+  const cash = cashOf(acct);
+  const ym = iso(new Date()).slice(0,7);
+  const inf = inflowOf(acct, ym);
+  const plan = (state.plans||{})[acct] || {};
+  openModal(`
+    <div class="mhead"><h3>💵 ${esc(acct)} 에 돈 넣기</h3><button class="x" data-act="close">✕</button></div>
+    ${cash ? `<div class="box" style="margin-bottom:10px">
+      <div class="between"><span class="tiny muted">지금 현금</span><b class="num">${won(cashAmt(cash))}</b></div>
+      ${inf.sum? `<div class="tiny muted" style="margin-top:3px">이번 달 들어온 돈 <b class="num">${won(inf.sum)}</b> · ${inf.list.length}건</div>`:''}
+    </div>` : `<div class="note" style="margin-bottom:10px">
+      이 계좌에 <b>현금</b> 자산이 없어요 — ＋ 담기 → 💰 예적금·현금 으로 먼저 만들어 주세요.</div>`}
+    <div class="chips" style="margin-bottom:10px">
+      ${[['불입','회사 불입금'],['분배금','분배금·배당'],['이체','내가 넣은 돈'],['출금','뺀 돈']].map(([k,l])=>
+        `<button class="chip ${ (ui.ci?.kind||'불입')===k ? '':'line'}" data-act="ciKind" data-acct="${esc(acct)}" data-v="${k}">${l}</button>`).join('')}
+    </div>
+    <div class="grid2">
+      <div class="f"><label>금액 (원)</label>
+        <input id="ciAmt" inputmode="text" value="${esc(ui.ci?.amt ?? (plan.monthly && (ui.ci?.kind||'불입')==='불입' ? plan.monthly : ''))}" placeholder="예: 45만"></div>
+      <div class="f"><label>날짜</label><input id="ciDate" type="date" value="${iso(new Date())}"></div>
+    </div>
+    <div class="f"><label>메모 <span class="muted">선택</span></label>
+      <input id="ciMemo" placeholder="예: 9월 회사 불입"></div>
+    <button class="btn block" data-act="ciGo" data-acct="${esc(acct)}">기록하고 현금에 반영</button>
+
+    <div class="f mt"><label>매달 들어올 금액 <span class="muted">정해 두면 챙겨 드려요</span></label>
+      <input id="ciPlan" inputmode="text" value="${esc(plan.monthly||'')}" placeholder="예: 45만"></div>
+    <button class="btn ghost block" data-act="ciPlanSave" data-acct="${esc(acct)}">매달 예정 저장</button>
+    ${inf.list.length? `<div style="margin-top:12px;border-top:1px solid var(--line);padding-top:8px">
+      <div class="tiny muted" style="margin-bottom:4px">이번 달 들어온 돈</div>
+      ${inf.list.map(t=>`<div class="between" style="padding:3px 0;font-size:12.5px">
+        <span class="muted">${esc(String(t.date).replace(/-/g,'.'))} · ${esc(t.kind||'입금')}${t.memo? ' · '+esc(t.memo):''}</span>
+        <b class="num">${won(t.amt)}</b></div>`).join('')}
+    </div>`:''}`);
+}
+
 /* 담아 둔 종목 하나 자세히 보기 · 고치기 */
 function openHold(id){
   const h = state.holdings.find(x=>x.id===id); if(!h) return;
@@ -3719,8 +3895,25 @@ function openHold(id){
         <div class="f"><label>평균 매수가 ${isUs?'($)':'(원)'}</label>
           <input id="hAvg" inputmode="decimal" value="${h.avg?esc(h.avg):''}"></div>
       </div>
-      ${(+h.qty>0 && +h.avg>0)? `<button class="btn ghost sm block" style="margin:-4px 0 12px"
-        data-act="avgCalc" data-id="${h.id}">🧮 물타기 계산 — 더 사면 평단이 얼마가 될까</button>`:''}`}
+      <div class="row" style="gap:6px;margin:-4px 0 6px">
+        <button class="btn ghost sm" style="flex:1" data-act="trade" data-id="${h.id}" data-m="buy">🛒 샀어요</button>
+        <button class="btn ghost sm" style="flex:1" data-act="trade" data-id="${h.id}" data-m="sell">💸 팔았어요</button>
+      </div>
+      ${h.acct && cashOf(h.acct) ? `<div class="tiny muted" style="margin-bottom:10px">
+        <b>${esc(h.acct)}</b> 현금 ${won(cashAmt(cashOf(h.acct)))} 에서 자동으로 오갑니다.</div>`
+        : `<div class="tiny muted" style="margin-bottom:10px">수량·평단만 바뀝니다. 계좌에 현금 자산을 만들어 두면 함께 오갑니다.</div>`}
+      ${(+h.qty>0 && +h.avg>0)? `<button class="btn ghost sm block" style="margin:0 0 12px"
+        data-act="avgCalc" data-id="${h.id}">🧮 물타기 계산 — 더 사면 평단이 얼마가 될까</button>`:''}
+      ${(()=>{ const dp = dipPlan(h); if(!dp) return '';
+        return `<details style="margin:0 0 12px"><summary class="tiny muted" style="cursor:pointer;font-weight:700">
+          📉 떨어지면 얼마나 살까 — 구간표 보기</summary>
+          <div class="tiny muted" style="margin:6px 0 4px;line-height:1.6">지금 ${priceS(+calc(h).px.p, calc(h).px.ccy)} 기준입니다. 많이 빠질수록 많이 삽니다.</div>
+          ${dp.map(x=>`<div class="between" style="padding:3px 0;font-size:12.5px;border-top:1px solid var(--line)">
+            <span class="muted">${x.d? `${x.d}%` : '평범한 하락'} · ${priceS(x.px, calc(h).px.ccy)}</span>
+            <span><b>${x.q}${CAT(h.cat).unit}</b> <span class="tiny muted num">${shortWon(x.won)}원</span></span>
+          </div>`).join('')}
+          <div class="tiny muted" style="margin-top:6px;line-height:1.6">한 번 사고 끝이 아니라, 그 언저리에서 여러 번 나눠 사도 됩니다.</div>
+        </details>`; })()}`}
       ${isUs? `<div class="f"><label>살 때 환율 <span class="muted">선택</span></label>
         <input id="hAvgFx" inputmode="decimal" value="${h.avgFx?esc(h.avgFx):''}" placeholder="비우면 달러 기준"></div>`:''}
       <div class="f"><label>시세 직접 입력 ${isUs?'($)':'(원)'} <span class="muted">선택</span></label>
@@ -4482,7 +4675,7 @@ async function fsPut(path, json, rev){
   if(!r.ok) throw new Error(await fsErr(r));
 }
 /* 가계부 앱이 이 목록을 읽어 갑니다 — 이름을 바꾸지 마세요 */
-const CORE_KEYS = ['settings','holdings','accts','diary','divs','memo','led','alert','targets','msnap','changes'];
+const CORE_KEYS = ['settings','holdings','accts','diary','divs','memo','led','alert','targets','msnap','changes','trades','plans'];
 function corePayload(){
   const o = {}; CORE_KEYS.forEach(k=>o[k]=state[k]);
   return JSON.stringify(o);
@@ -4626,7 +4819,7 @@ function openJoinPrompt(){
    시세·코인목록 같은 캐시는 빼서 가볍게 만듭니다.
    ============================================================ */
 const BACKUP_KEYS = ['v','settings','holdings','accts','divs','diary','memo',
-                     'sync','relayUrl','sheet','fx','snap','alert','targets','msnap','bud','changes'];
+                     'sync','relayUrl','sheet','fx','snap','alert','targets','msnap','bud','changes','trades','plans'];
 function backupText(){
   const o = { _app:'myAssets', _at:Date.now() };
   BACKUP_KEYS.forEach(k=>{ if(state[k] !== undefined) o[k] = state[k]; });
@@ -5130,6 +5323,77 @@ document.addEventListener('click', async ev=>{
     save(false); await syncPush(); render(); syncStart();
     if(state.sync.error){ toast(state.sync.error); runSyncDiag(); }
     else toast('연결했어요 — 초대 링크를 다른 기기에 붙여넣으세요');
+    break; }
+  case 'trade': ui.tr = { mode:b.dataset.m||'buy' }; openTrade(b.dataset.id, b.dataset.m); break;
+  case 'trMode': {
+    ui.tr = { ...(ui.tr||{}), mode:b.dataset.v,
+      qty: $('#trQty')?.value || '', px: $('#trPx')?.value || '' };
+    openTrade(b.dataset.id, b.dataset.v); break; }
+  case 'trGo': {
+    const h = state.holdings.find(x=>x.id===b.dataset.id); if(!h) break;
+    const m = ui.tr?.mode || 'buy';
+    const q = parseQty($('#trQty')?.value);
+    const px = parseQty($('#trPx')?.value);
+    const date = $('#trDate')?.value || iso(new Date());
+    const out = $('#trOut');
+    const fail = t => { if(out) out.innerHTML = `<div class="note">${esc(t)}</div>`; };
+    if(!isFinite(q) || q <= 0) return fail('몇 ' + CAT(h.cat).unit + ' 인지 적어 주세요.');
+    if(!isFinite(px) || px <= 0) return fail('가격을 적어 주세요.');
+    const q0 = +h.qty || 0, a0 = +h.avg || 0;
+    if(m === 'sell' && q > q0 + 1e-9) return fail(`갖고 있는 ${qtyS(q0,h.cat)}${CAT(h.cat).unit} 보다 많이 팔 수는 없어요.`);
+    const fx = +state.fx?.v || 0;
+    const krw = v => h.cat==='us' ? v * fx : v;         /* 계좌 현금은 원화로 셈합니다 */
+    const cashHold = cashOf(h.acct||'');
+    const money = krw(q * px);
+    if(m === 'buy' && cashHold && money > cashAmt(cashHold) + 1e-6){
+      if(!confirm(`${esc(h.acct)} 현금 ${won(cashAmt(cashHold))} 보다 많이 씁니다 (${won(money)}).\n그래도 기록할까요?`)) break;
+    }
+    const before = (calc(h).value||0);
+    if(m === 'buy'){
+      const nq = q0 + q;
+      h.avg = Math.round((((q0*a0) + (q*px)) / nq) * 10000) / 10000;
+      h.qty = round2(nq);
+    } else {
+      h.qty = round2(q0 - q);                            /* 팔 때 평단은 그대로 둡니다 */
+    }
+    if(cashHold){
+      cashHold.mp = Math.round(cashAmt(cashHold) + (m==='buy' ? -money : money));
+      cashHold.mpAt = Date.now();
+    }
+    logChange('edit', h, (calc(h).value||0) - before);
+    logTrade({ t:m, acct:h.acct||'', hold:h.id, name:h.name, qty:q, px, amt:Math.round(money), date });
+    save(); closeModal(); render();
+    toast(`${h.name} ${qtyS(q,h.cat)}${CAT(h.cat).unit} ${m==='buy'?'샀어요':'팔았어요'}` +
+          (cashHold? ` · ${h.acct} 현금 ${won(cashAmt(cashHold))}` : ''));
+    break; }
+  case 'cashIn': openCashIn(b.dataset.acct); break;
+  case 'ciKind': ui.ci = { ...(ui.ci||{}), kind:b.dataset.v, amt: $('#ciAmt')?.value || '' };
+    openCashIn(b.dataset.acct); break;
+  case 'ciGo': {
+    const acct = b.dataset.acct;
+    const amt = parseAmount($('#ciAmt')?.value);
+    if(!isFinite(amt) || amt <= 0){ toast('금액을 적어 주세요'); break; }
+    const kind = ui.ci?.kind || '불입';
+    const out = kind === '출금';
+    const cashHold = cashOf(acct);
+    if(cashHold){
+      cashHold.mp = Math.round(cashAmt(cashHold) + (out ? -amt : amt));
+      cashHold.mpAt = Date.now();
+    }
+    logTrade({ t: out ? 'out' : 'in', acct, kind, amt:Math.round(amt),
+               date: $('#ciDate')?.value || iso(new Date()), memo: ($('#ciMemo')?.value||'').trim() });
+    ui.ci = { kind };
+    save(); closeModal(); render();
+    toast(`${acct} ${kind} ${won(amt)} ${out?'뺐어요':'넣었어요'}` + (cashHold? ` · 현금 ${won(cashAmt(cashHold))}`:''));
+    break; }
+  case 'ciPlanSave': {
+    const acct = b.dataset.acct;
+    const v = parseAmount($('#ciPlan')?.value);
+    state.plans = state.plans || {};
+    if(isFinite(v) && v > 0) state.plans[acct] = { ...(state.plans[acct]||{}), monthly:Math.round(v) };
+    else delete state.plans[acct];
+    save(); closeModal(); render();
+    toast(isFinite(v) && v>0 ? `매달 ${won(v)} 들어오는 걸로 챙길게요` : '매달 예정을 지웠어요');
     break; }
   case 'splitGroup': {
     const ids = String(b.dataset.ids||'').split(',').filter(Boolean);
