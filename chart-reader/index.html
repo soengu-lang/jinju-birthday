@@ -1,0 +1,2416 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#4c3f7a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="차트 지표 읽기">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-180.png">
+<link rel="manifest" href="manifest.json">
+<title>차트 지표 읽기</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f4f2ed; --card:#fffdf8; --ink:#1e2430; --muted:#6f7683;
+  --brand:#4c3f7a; --brand-d:#3a3060; --soft:#eae6f4; --soft-d:#cfc6e6;
+  --up:#d1453b; --up-s:#fdeceb;      /* 국내 관례: 올라가는 쪽 = 빨강 */
+  --down:#2f62c4; --down-s:#eaf0fd;  /* 내려가는 쪽 = 파랑 */
+  --flat:#6f7683; --flat-s:#eeeeee;
+  --gold:#c9862b; --gold-s:#fdf2e2;
+  --line:#e5e2d8; --shadow:0 1px 2px rgba(30,36,48,.06), 0 8px 22px rgba(30,36,48,.06);
+  --r:16px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  font-family:'Noto Sans KR',-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;
+  background:var(--bg); color:var(--ink); line-height:1.5;
+  padding-bottom:calc(40px + env(safe-area-inset-bottom));
+  -webkit-font-smoothing:antialiased;
+}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;border:none;background:none}
+input,select{background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 10px;width:100%}
+input:focus,select:focus{outline:2px solid var(--soft-d);outline-offset:1px}
+.wrap{max-width:640px;margin:0 auto;padding:0 14px}
+.hidden{display:none !important}
+.num{font-variant-numeric:tabular-nums}
+
+header{background:var(--card);border-bottom:1px solid var(--line);padding-top:env(safe-area-inset-top)}
+.head-in{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;padding:14px 0 12px}
+.brand{font-size:12px;font-weight:700;color:var(--gold);letter-spacing:.02em}
+h1{font-size:clamp(18px,5vw,23px);font-weight:900;letter-spacing:-.03em;margin-top:2px;white-space:nowrap}
+.head-note{font-size:clamp(9.5px,2.7vw,11px);color:var(--muted);text-align:right;line-height:1.45;max-width:46%}
+
+nav.tabs{position:sticky;top:0;z-index:30;background:var(--bg);
+  padding:calc(9px + env(safe-area-inset-top)) 0 8px;box-shadow:0 6px 14px -12px rgba(0,0,0,.4)}
+.tabs-in{display:flex;gap:6px;background:#e9e6dd;border-radius:13px;padding:4px}
+.tabs button{flex:1;padding:8px 6px;border-radius:10px;font-size:13.5px;font-weight:700;color:var(--muted)}
+.tabs button.on{background:var(--card);color:var(--brand);box-shadow:0 1px 3px rgba(0,0,0,.09)}
+
+section.tab{padding-top:4px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+  padding:15px;box-shadow:var(--shadow);margin-bottom:12px}
+.card > h2{font-size:15px;font-weight:900;letter-spacing:-.02em;display:flex;align-items:center;gap:7px}
+.step{display:inline-grid;place-items:center;width:21px;height:21px;border-radius:7px;
+  background:var(--brand);color:#fff;font-size:11.5px;font-weight:800;flex:none}
+.desc{font-size:12.5px;color:var(--muted);line-height:1.7;margin-top:7px}
+.desc b{color:var(--ink);font-weight:700}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  background:var(--brand);color:#fff;border-radius:12px;padding:12px 14px;font-size:14px;font-weight:800;width:100%}
+.btn:active{background:var(--brand-d)}
+.btn.ghost{background:var(--soft);color:var(--brand)}
+.btn.ghost:active{background:var(--soft-d)}
+.btn.sm{padding:8px 11px;font-size:12.5px;width:auto;border-radius:10px}
+.btn[disabled]{opacity:.45;pointer-events:none}
+.btn-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:11px}
+
+.drop{border:2px dashed var(--soft-d);border-radius:14px;padding:22px 14px;text-align:center;
+  background:#faf8f4;margin-top:11px}
+.drop.hot{border-color:var(--brand);background:var(--soft)}
+.drop .em{font-size:30px}
+.drop .t{font-size:13.5px;font-weight:800;margin-top:7px}
+.drop .s{font-size:11.5px;color:var(--muted);margin-top:4px;line-height:1.6}
+
+.stage{position:relative;margin-top:11px;border-radius:12px;overflow:hidden;background:#20242c;
+  touch-action:none;-webkit-user-select:none;user-select:none}
+.stage canvas{display:block;width:100%;height:auto}
+.stage #ov{position:absolute;inset:0;width:100%;height:100%}
+#loupe{position:absolute;width:118px;height:118px;border-radius:50%;overflow:hidden;
+  border:3px solid #fff;box-shadow:0 4px 14px rgba(0,0,0,.35);pointer-events:none;display:none;z-index:5}
+#loupe canvas{width:118px;height:118px}
+.modebar{display:flex;gap:6px;margin-top:10px;background:#efece4;border-radius:12px;padding:4px}
+.modebar button{flex:1;padding:9px 4px;border-radius:9px;font-size:12.5px;font-weight:700;color:var(--muted)}
+.modebar button.on{background:var(--card);color:var(--brand);box-shadow:0 1px 3px rgba(0,0,0,.09)}
+.hint{margin-top:9px;background:var(--gold-s);border:1px solid #f0dcbb;border-radius:11px;
+  padding:9px 11px;font-size:12px;line-height:1.65;color:#7a5518}
+
+.swatches{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
+.sw{display:flex;align-items:center;gap:6px;border:1px solid var(--line);background:#fff;
+  border-radius:11px;padding:5px 9px 5px 6px;font-size:11.5px;font-weight:700;color:var(--muted)}
+.sw i{width:19px;height:19px;border-radius:6px;border:1px solid rgba(0,0,0,.14);display:block}
+.sw.used{border-color:var(--brand);color:var(--brand);background:var(--soft)}
+
+.roles{margin-top:11px;display:flex;flex-direction:column;gap:7px}
+.role{display:flex;align-items:center;gap:9px;border:1px solid var(--line);border-radius:12px;
+  padding:9px 10px;background:#fff}
+.role.set{border-color:var(--soft-d);background:#fbfaff}
+.role .chip{width:26px;height:26px;border-radius:8px;border:1px solid rgba(0,0,0,.15);flex:none;
+  background:repeating-conic-gradient(#ddd 0% 25%, #fff 0% 50%) 50%/10px 10px}
+.role .nm{flex:1;min-width:0;font-size:13px;font-weight:700;letter-spacing:-.01em}
+.role .nm small{display:block;font-size:10.5px;color:var(--muted);font-weight:500;margin-top:1px;line-height:1.4}
+.role .per{width:62px;flex:none}
+.role .per input{padding:6px 7px;text-align:center;font-size:12px}
+.role .act{display:flex;gap:5px;flex:none}
+.role .act button{border:1px solid var(--line);border-radius:9px;padding:6px 8px;font-size:11.5px;font-weight:700;color:var(--brand);background:#fff}
+.role .act button.del{color:var(--muted)}
+.group-t{font-size:11.5px;font-weight:800;color:var(--muted);letter-spacing:.02em;margin:12px 0 -1px}
+
+.scale-row{display:flex;gap:8px;align-items:center;margin-top:8px}
+.scale-row .lb{font-size:12px;font-weight:700;width:56px;flex:none;color:var(--muted)}
+.scale-row .val{flex:1}
+
+.rcard{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+  padding:15px;box-shadow:var(--shadow);margin-bottom:12px}
+.rhead{display:flex;align-items:center;gap:8px;justify-content:space-between}
+.rhead h3{font-size:15.5px;font-weight:900;letter-spacing:-.02em}
+.badge{font-size:11px;font-weight:800;border-radius:8px;padding:4px 8px;white-space:nowrap;flex:none}
+.badge.up{background:var(--up-s);color:var(--up)}
+.badge.down{background:var(--down-s);color:var(--down)}
+.badge.flat{background:var(--flat-s);color:var(--flat)}
+.facts{list-style:none;margin-top:11px;display:flex;flex-direction:column;gap:6px}
+.facts li{font-size:13px;line-height:1.65;padding-left:15px;position:relative}
+.facts li::before{content:'';position:absolute;left:3px;top:8px;width:5px;height:5px;border-radius:50%;background:var(--soft-d)}
+.facts li b{font-weight:800}
+.facts li .u{color:var(--up);font-weight:800}
+.facts li .d{color:var(--down);font-weight:800}
+.mean{margin-top:11px;background:var(--soft);border-radius:12px;padding:11px 12px;font-size:12.5px;line-height:1.75}
+.mean b{font-weight:800;color:var(--brand)}
+.edu{margin-top:8px;border-top:1px dashed var(--line);padding-top:9px;font-size:12px;line-height:1.75;color:var(--muted)}
+.edu b{color:var(--ink);font-weight:700}
+.warn{margin-top:9px;background:#fdeceb;border:1px solid #f6cfcb;border-radius:11px;padding:9px 11px;
+  font-size:12px;line-height:1.65;color:#8d2f27}
+.note{font-size:11.5px;color:var(--muted);line-height:1.7;margin-top:10px}
+
+.sheet-bg{position:fixed;inset:0;background:rgba(20,22,30,.45);z-index:60;display:none}
+.sheet-bg.on{display:block}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:61;background:var(--card);
+  border-radius:20px 20px 0 0;padding:16px 14px calc(18px + env(safe-area-inset-bottom));
+  max-width:640px;margin:0 auto;transform:translateY(100%);transition:transform .18s ease-out;
+  max-height:82vh;overflow:auto}
+.sheet.on{transform:none}
+.sheet h3{font-size:15px;font-weight:900;display:flex;align-items:center;gap:8px}
+.sheet .opt{display:flex;align-items:center;gap:9px;width:100%;text-align:left;border:1px solid var(--line);
+  background:#fff;border-radius:12px;padding:11px 12px;font-size:13.5px;font-weight:700;margin-top:7px}
+.sheet .opt small{display:block;font-size:11px;color:var(--muted);font-weight:500;margin-top:2px}
+
+.logrow{display:flex;gap:11px;align-items:flex-start;background:var(--card);border:1px solid var(--line);
+  border-radius:var(--r);padding:11px;box-shadow:var(--shadow);margin-bottom:10px}
+.logrow img{width:84px;height:auto;border-radius:9px;border:1px solid var(--line);flex:none;background:#fff}
+.logrow .info{flex:1;min-width:0}
+.logrow .ttl{font-size:14px;font-weight:900;letter-spacing:-.02em}
+.logrow .dt{font-size:11px;color:var(--muted);margin-top:2px}
+.logrow .sum{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px}
+.logrow .sum span{font-size:10.5px;font-weight:800;border-radius:6px;padding:2px 6px}
+.logrow .acts{display:flex;gap:6px;margin-top:8px}
+.logrow .acts button{border:1px solid var(--line);border-radius:8px;padding:5px 8px;font-size:11.5px;font-weight:700;color:var(--brand);background:#fff}
+.logdetail{margin-top:9px;border-top:1px dashed var(--line);padding-top:9px}
+.logdetail h4{font-size:12.5px;font-weight:900;margin-top:8px}
+.logdetail ul{list-style:none;margin-top:4px}
+.logdetail li{font-size:12px;line-height:1.65;padding-left:11px;position:relative;color:#3a4150}
+.logdetail li::before{content:'·';position:absolute;left:2px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:11px}
+.chips button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 11px;
+  font-size:12px;font-weight:700;color:var(--muted)}
+.chips button.on{background:var(--brand);border-color:var(--brand);color:#fff}
+.dict h3{font-size:14.5px;font-weight:900;margin-top:2px}
+.dict p{font-size:12.8px;line-height:1.85;color:#3a4150;margin-top:7px}
+.dict p b{color:var(--ink);font-weight:800}
+.dict .k{display:inline-block;background:var(--soft);color:var(--brand);border-radius:6px;
+  padding:1px 6px;font-size:11.5px;font-weight:800;margin-right:3px}
+.dict ul{margin:8px 0 0 16px;font-size:12.8px;line-height:1.85;color:#3a4150}
+.dict li{margin-bottom:3px}
+footer{text-align:center;font-size:11px;color:var(--muted);line-height:1.8;padding:6px 0 4px}
+.spin{display:inline-block;animation:sp 1s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap head-in">
+    <div>
+      <div class="brand">CHART LENS</div>
+      <h1>차트 지표 읽기</h1>
+    </div>
+    <div class="head-note">캡처한 차트의 보조지표를<br>그대로 읽어 줍니다</div>
+  </div>
+</header>
+
+<nav class="tabs"><div class="wrap tabs-in">
+  <button id="tabRead" class="on">차트 읽기</button>
+  <button id="tabLog">기록</button>
+  <button id="tabDict">지표 사전</button>
+</div></nav>
+
+<main class="wrap">
+
+<!-- ============ 차트 읽기 ============ -->
+<section class="tab" id="secRead">
+
+  <div class="card" id="card1">
+    <h2><span class="step">1</span>차트 캡처 넣기</h2>
+    <p class="desc">증권사 앱이나 HTS에서 <b>캔들과 보조지표가 보이는 화면</b>을 캡처해서 넣으세요.
+      <b>넣기만 하면 알아서 읽습니다</b> — 선 색과 몇 일선인지도 앱이 찾아냅니다.
+      사진은 이 폰(브라우저) 안에서만 처리되고 <b>어디로도 올라가지 않습니다</b>.</p>
+    <div class="drop" id="drop">
+      <div class="em">📈</div>
+      <div class="t">사진 고르기 · 끌어다 놓기 · 붙여넣기</div>
+      <div class="s">거래량·MACD 같은 아래 칸까지 같이 찍혀도 괜찮습니다.<br>다음 단계에서 볼 곳만 잘라내면 됩니다.</div>
+    </div>
+    <input type="file" id="file" accept="image/*" class="hidden">
+    <div class="btn-row"><button class="btn" id="btnFile">사진 고르기</button></div>
+  </div>
+
+  <div class="card hidden" id="cardAuto">
+    <h2><span class="step">✓</span>사진에서 읽은 것</h2>
+    <div id="autoBody"></div>
+  </div>
+
+  <div class="card hidden" id="card2">
+    <h2><span class="step">2</span>볼 곳 정하고 색 찍기</h2>
+    <div class="modebar">
+      <button data-mode="crop" class="on">① 영역 자르기</button>
+      <button data-mode="pick">② 색 찍기</button>
+      <button data-mode="scale">③ 가격 눈금</button>
+    </div>
+    <div class="hint" id="hint"></div>
+    <div class="stage" id="stage">
+      <canvas id="cv"></canvas>
+      <canvas id="ov"></canvas>
+      <div id="loupe"><canvas id="loupeCv" width="118" height="118"></canvas></div>
+    </div>
+    <div class="btn-row">
+      <button class="btn ghost sm" id="btnFull">전체로 되돌리기</button>
+      <button class="btn ghost sm" id="btnAuto">이 그림의 색 찾기</button>
+      <button class="btn ghost sm" id="btnOther">다른 사진</button>
+    </div>
+    <div class="swatches" id="swatches"></div>
+  </div>
+
+  <div id="manual" class="hidden">
+  <div class="card hidden" id="card3">
+    <h2><span class="step">3</span>어떤 선이 무슨 지표인지</h2>
+    <p class="desc">색을 찍으면 그 색 선만 따라가서 읽습니다. <b>모두 채울 필요는 없고</b>,
+      읽고 싶은 지표만 정해도 됩니다.</p>
+    <div class="group-t">캔들 (있으면 봉 개수·현재 위치까지 읽습니다)</div>
+    <div class="roles" id="rolesCandle"></div>
+    <div class="group-t">이동평균선</div>
+    <div class="roles" id="rolesMa"></div>
+    <div class="btn-row"><button class="btn ghost sm" id="btnAddMa">＋ 이평선 추가</button></div>
+    <div class="group-t">볼린저밴드</div>
+    <div class="roles" id="rolesBb"></div>
+    <div class="group-t">일목균형표</div>
+    <div class="roles" id="rolesIch"></div>
+  </div>
+
+  <div class="card hidden" id="card4">
+    <h2><span class="step">4</span>가격 눈금 <span style="font-size:11px;font-weight:700;color:var(--muted)">(안 해도 됨)</span></h2>
+    <p class="desc">차트 오른쪽 <b>가격 눈금 두 개</b>의 높이를 찍고 숫자를 적으면,
+      결과가 <b>% 와 실제 가격</b>으로 나옵니다. 안 하면 방향·순서·교차만 나옵니다.</p>
+    <div class="scale-row">
+      <span class="lb">위쪽 값</span>
+      <button class="btn ghost sm" id="btnScaleA">높이 찍기</button>
+      <span class="val"><input type="text" inputmode="decimal" id="scaleAV" placeholder="예: 75,000"></span>
+    </div>
+    <div class="scale-row">
+      <span class="lb">아래쪽 값</span>
+      <button class="btn ghost sm" id="btnScaleB">높이 찍기</button>
+      <span class="val"><input type="text" inputmode="decimal" id="scaleBV" placeholder="예: 60,000"></span>
+    </div>
+    <div class="hint" id="scaleState">아직 찍지 않았습니다.</div>
+  </div>
+  </div>
+
+  <div class="hidden" id="card5">
+    <button class="btn" id="btnRun">지표 읽기</button>
+    <p class="note" id="runNote"></p>
+  </div>
+
+  <div id="results"></div>
+</section>
+
+<!-- ============ 기록 ============ -->
+<section class="tab hidden" id="secLog"></section>
+
+<!-- ============ 지표 사전 ============ -->
+<section class="tab hidden" id="secDict"></section>
+
+<footer>
+  이 앱은 <b>사고팔라는 이야기를 하지 않습니다</b>.<br>
+  화면에 그려진 보조지표가 지금 어떤 모양인지, 그 모양을 뭐라고 부르는지만 설명합니다.
+</footer>
+</main>
+
+<div class="sheet-bg" id="sheetBg"></div>
+<div class="sheet" id="sheet"></div>
+
+<script>
+'use strict';
+const $ = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+const LS = 'chart-reader:v1';
+
+/* ─────────────────────────────────────────────
+   상태
+   ───────────────────────────────────────────── */
+const S = {
+  W:0, H:0, px:null,              // 작업용 이미지 크기 + 픽셀 데이터
+  crop:null,                      // {x0,y0,x1,y1} 작업 이미지 좌표
+  mode:'crop',
+  pending:null,                   // 색을 기다리는 역할 키
+  pendingScale:null,              // 'a' | 'b'
+  roles:{},                       // key -> {c:[r,g,b], pt:{x,y}}
+  barMaxCol:null,                 // 이 열보다 오른쪽은 캔들로 세지 않음 (현재가 딱지 등)
+  panes:[],                       // 아래 칸 (거래량·RSI·MACD·스토캐스틱)
+  mas:[],                         // [{id, period, c, pt}]
+  scale:{a:null, b:null},         // {y, v}
+  tol:52,
+  swatches:[]
+};
+
+const ROLE = {
+  candleUp:  {nm:'양봉 (오르는 캔들)', sub:'국내 차트는 보통 빨강', kind:'line'},
+  candleDown:{nm:'음봉 (내리는 캔들)', sub:'국내 차트는 보통 파랑', kind:'line'},
+  bbBand:    {nm:'볼린저 상·하단선',   sub:'위아래 선이 같은 색이면 한 번만 찍으면 됩니다', kind:'line'},
+  bbMid:     {nm:'볼린저 중심선',      sub:'가운데 선 (보통 20일 이평선)', kind:'line'},
+  cloudUp:   {nm:'구름 · 양운 색',     sub:'선행1이 위일 때 칠해지는 색 (보통 붉은/초록 계열)', kind:'fill'},
+  cloudDown: {nm:'구름 · 음운 색',     sub:'선행2가 위일 때 칠해지는 색 (보통 푸른 계열)', kind:'fill'},
+  tenkan:    {nm:'전환선 (9)',         sub:'일목균형표의 짧은 선', kind:'line'},
+  kijun:     {nm:'기준선 (26)',        sub:'일목균형표의 중심 선', kind:'line'}
+};
+const GROUPS = {
+  rolesCandle:['candleUp','candleDown'],
+  rolesBb:['bbBand','bbMid'],
+  rolesIch:['cloudUp','cloudDown','tenkan','kijun']
+};
+
+/* ─────────────────────────────────────────────
+   그림 불러오기
+   ───────────────────────────────────────────── */
+const cv = $('#cv'), ov = $('#ov'), stage = $('#stage');
+const cvx = cv.getContext('2d', {willReadFrequently:true});
+const ovx = ov.getContext('2d');
+const work = document.createElement('canvas');
+const wx = work.getContext('2d', {willReadFrequently:true});
+const MAXW = 2600;   /* 폰 캡처는 대개 그대로 씁니다 (선이 뭉개지면 색을 못 찾습니다) */
+
+async function loadFile(f){
+  if(!f || !/^image\//.test(f.type)) return;
+  let bmp = null;
+  try{ bmp = await createImageBitmap(f, {imageOrientation:'from-image'}); }
+  catch(e){
+    bmp = await new Promise((res, rej)=>{
+      const im = new Image(); im.onload = ()=>res(im); im.onerror = rej;
+      im.src = URL.createObjectURL(f);
+    });
+  }
+  const sc = Math.min(1, MAXW / Math.max(bmp.width, bmp.height));
+  S.W = Math.round(bmp.width * sc); S.H = Math.round(bmp.height * sc);
+  work.width = S.W; work.height = S.H;
+  wx.imageSmoothingEnabled = true; wx.imageSmoothingQuality = 'high';
+  wx.clearRect(0,0,S.W,S.H);
+  wx.drawImage(bmp, 0, 0, S.W, S.H);
+  S.px = wx.getImageData(0,0,S.W,S.H).data;
+  S.crop = {x0:0, y0:0, x1:S.W-1, y1:S.H-1};
+  S.scale = {a:null, b:null};
+  $('#scaleAV').value = ''; $('#scaleBV').value = '';
+  $('#results').innerHTML = '';
+  $('#card1').classList.add('hidden');
+  ['card2','card3','card4','card5'].forEach(i=>$('#'+i).classList.remove('hidden'));
+  S.barMaxCol = null;
+  setMode('pick');
+  fitCanvas(); autoSwatches(); drawSwatches(); paintScaleState();
+  runAuto();
+}
+
+function fitCanvas(){
+  const cssW = stage.clientWidth || 340;
+  const cssH = Math.round(cssW * S.H / S.W);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+  cv.style.height = cssH + 'px'; ov.style.height = cssH + 'px';
+  cv.width = Math.round(cssW*dpr); cv.height = Math.round(cssH*dpr);
+  ov.width = cv.width; ov.height = cv.height;
+  cvx.imageSmoothingEnabled = true; cvx.imageSmoothingQuality = 'high';
+  cvx.clearRect(0,0,cv.width,cv.height);
+  cvx.drawImage(work, 0, 0, cv.width, cv.height);
+  drawOverlay();
+}
+window.addEventListener('resize', ()=>{ if(S.px) fitCanvas(); });
+
+$('#btnFile').onclick = ()=> $('#file').click();
+$('#drop').onclick = ()=> $('#file').click();
+$('#btnOther').onclick = ()=> $('#file').click();
+$('#file').onchange = e => { loadFile(e.target.files[0]); e.target.value=''; };
+['dragenter','dragover'].forEach(t=> $('#drop').addEventListener(t, e=>{ e.preventDefault(); $('#drop').classList.add('hot'); }));
+['dragleave','drop'].forEach(t=> $('#drop').addEventListener(t, e=>{ e.preventDefault(); $('#drop').classList.remove('hot'); }));
+$('#drop').addEventListener('drop', e=>{ const f = e.dataTransfer.files[0]; if(f) loadFile(f); });
+window.addEventListener('paste', e=>{
+  const it = Array.from(e.clipboardData ? e.clipboardData.items : []).find(i=>/^image\//.test(i.type));
+  if(it) loadFile(it.getAsFile());
+});
+
+/* ─────────────────────────────────────────────
+   화면 위 덧그림
+   ───────────────────────────────────────────── */
+function w2c(p){ return {x: p.x / S.W * ov.width, y: p.y / S.H * ov.height}; }
+
+function drawOverlay(){
+  if(!S.px) return;
+  const g = ovx, W = ov.width, H = ov.height;
+  g.clearRect(0,0,W,H);
+  const c = S.crop, a = w2c({x:c.x0,y:c.y0}), b = w2c({x:c.x1+1,y:c.y1+1});
+  g.fillStyle = 'rgba(18,20,28,.5)';
+  g.fillRect(0,0,W,a.y); g.fillRect(0,b.y,W,H-b.y);
+  g.fillRect(0,a.y,a.x,b.y-a.y); g.fillRect(b.x,a.y,W-b.x,b.y-a.y);
+  g.strokeStyle = '#fff'; g.lineWidth = Math.max(2, W/300); g.setLineDash([9,7]);
+  g.strokeRect(a.x, a.y, b.x-a.x, b.y-a.y); g.setLineDash([]);
+
+  const marks = [];
+  for(const k in S.roles) if(S.roles[k] && S.roles[k].pt) marks.push([S.roles[k].pt, S.roles[k].c]);
+  S.mas.forEach(m=>{ if(m.pt) marks.push([m.pt, m.c]); });
+  marks.forEach(([pt, col])=>{
+    const p = w2c(pt), r = Math.max(7, W/48);
+    g.beginPath(); g.arc(p.x, p.y, r, 0, 7); g.fillStyle = rgb(col); g.fill();
+    g.lineWidth = Math.max(2, W/280); g.strokeStyle = '#fff'; g.stroke();
+  });
+
+  [['a', S.scale.a], ['b', S.scale.b]].forEach(([k, sv])=>{
+    if(!sv) return;
+    const y = sv.y / S.H * H;
+    g.strokeStyle = '#ffd479'; g.lineWidth = Math.max(2, W/320); g.setLineDash([6,5]);
+    g.beginPath(); g.moveTo(0,y); g.lineTo(W,y); g.stroke(); g.setLineDash([]);
+    g.fillStyle = '#ffd479'; g.font = '700 ' + Math.max(11, W/34) + 'px sans-serif';
+    g.fillText(k==='a' ? '위쪽 눈금' : '아래쪽 눈금', 8, y - 6);
+  });
+}
+
+/* ─────────────────────────────────────────────
+   포인터 (자르기 / 색 찍기 / 눈금)
+   ───────────────────────────────────────────── */
+let drag = null;
+function evPos(e){
+  const r = ov.getBoundingClientRect();
+  return {
+    x: Math.max(0, Math.min(S.W-1, Math.round((e.clientX - r.left) / r.width * S.W))),
+    y: Math.max(0, Math.min(S.H-1, Math.round((e.clientY - r.top) / r.height * S.H)))
+  };
+}
+ov.addEventListener('pointerdown', e=>{
+  if(!S.px) return;
+  ov.setPointerCapture(e.pointerId);
+  const p = evPos(e);
+  if(S.mode === 'crop'){ drag = {a:p, b:p}; }
+  else { drag = {a:p, b:p}; showLoupe(p, e); }
+  e.preventDefault();
+});
+ov.addEventListener('pointermove', e=>{
+  if(!drag) return;
+  const p = evPos(e); drag.b = p;
+  if(S.mode === 'crop'){
+    S.crop = {x0:Math.min(drag.a.x,p.x), y0:Math.min(drag.a.y,p.y),
+              x1:Math.max(drag.a.x,p.x), y1:Math.max(drag.a.y,p.y)};
+    drawOverlay();
+  } else showLoupe(p, e);
+});
+ov.addEventListener('pointerup', e=>{
+  if(!drag) return;
+  const p = drag.b; drag = null; hideLoupe();
+  if(S.mode === 'crop'){
+    const c = S.crop;
+    if(c.x1-c.x0 < 40 || c.y1-c.y0 < 40){ S.crop = {x0:0,y0:0,x1:S.W-1,y1:S.H-1}; }
+    drawOverlay(); autoSwatches(); drawSwatches();
+  } else if(S.mode === 'scale'){
+    const k = S.pendingScale || 'a';
+    S.scale[k] = {y:p.y, v: S.scale[k] ? S.scale[k].v : null};
+    S.pendingScale = null; drawOverlay(); paintScaleState(); readScaleInputs();
+  } else {
+    const kind = S.pending ? (S.pending.startsWith('cloud') ? 'fill' : 'line') : 'line';
+    const col = sampleColor(p, kind);
+    if(S.pending){ assign(S.pending, col, p); S.pending = null; }
+    else openRoleSheet(col, p);
+  }
+  setHint();
+});
+
+/* 누른 자리 둘레에서 '같은 색이 가장 많이 모인' 색을 고른다.
+   선의 경계에 생기는 흐린 픽셀이나 배경을 잘못 집는 것을 줄여 준다. */
+function sampleColor(p, kind){
+  const R = 3, list = [];
+  for(let dy=-R; dy<=R; dy++) for(let dx=-R; dx<=R; dx++){
+    const x = p.x+dx, y = p.y+dy;
+    if(x<0||y<0||x>=S.W||y>=S.H) continue;
+    const i = (y*S.W+x)*4;
+    list.push([S.px[i], S.px[i+1], S.px[i+2]]);
+  }
+  if(!list.length) return [0,0,0];
+  const chroma = c => Math.max(c[0],c[1],c[2]) - Math.min(c[0],c[1],c[2]);
+  let pool = list;
+  if(kind !== 'fill'){
+    /* 선은 가늘어서 둘레가 거의 배경이다 — 색이 진한 픽셀만 후보로 둔다 */
+    const mx = Math.max.apply(null, list.map(chroma));
+    const cand = list.filter(c => chroma(c) >= Math.max(18, mx*0.6));
+    if(cand.length) pool = cand;
+  }
+  let best = pool[0], bs = -1;
+  for(const c of pool){
+    let cnt = 0;
+    for(const o of pool) if(dist2(c, o) < 15*15) cnt++;
+    if(cnt > bs){ bs = cnt; best = c; }
+  }
+  return best;
+}
+
+const loupe = $('#loupe'), lcx = $('#loupeCv').getContext('2d');
+function showLoupe(p, e){
+  const src = 26, out = 118;
+  lcx.imageSmoothingEnabled = false;
+  lcx.fillStyle = '#000'; lcx.fillRect(0,0,out,out);
+  lcx.drawImage(work, p.x-src/2, p.y-src/2, src, src, 0, 0, out, out);
+  lcx.strokeStyle = 'rgba(255,255,255,.95)'; lcx.lineWidth = 1.5;
+  lcx.beginPath(); lcx.moveTo(out/2, out/2-13); lcx.lineTo(out/2, out/2+13);
+  lcx.moveTo(out/2-13, out/2); lcx.lineTo(out/2+13, out/2); lcx.stroke();
+  lcx.strokeStyle = 'rgba(0,0,0,.6)'; lcx.lineWidth = 1;
+  lcx.strokeRect(out/2-4.5, out/2-4.5, 9, 9);
+  const r = stage.getBoundingClientRect();
+  let lx = e.clientX - r.left - 59, ly = e.clientY - r.top - 148;
+  if(ly < 4) ly = e.clientY - r.top + 34;
+  lx = Math.max(4, Math.min(r.width-122, lx));
+  ly = Math.max(4, Math.min(r.height-122, ly));
+  loupe.style.left = lx+'px'; loupe.style.top = ly+'px'; loupe.style.display = 'block';
+}
+function hideLoupe(){ loupe.style.display = 'none'; }
+
+/* ─────────────────────────────────────────────
+   모드 · 안내문
+   ───────────────────────────────────────────── */
+function setMode(m){
+  S.mode = m;
+  $$('.modebar button').forEach(b=> b.classList.toggle('on', b.dataset.mode === m));
+  setHint();
+}
+$$('.modebar button').forEach(b => b.onclick = ()=>{ S.pending = null; setMode(b.dataset.mode); });
+$('#btnFull').onclick = ()=>{ S.crop = {x0:0,y0:0,x1:S.W-1,y1:S.H-1}; drawOverlay(); autoSwatches(); drawSwatches(); };
+
+function setHint(){
+  const h = $('#hint');
+  if(S.mode === 'crop')
+    h.innerHTML = '✂️ <b>캔들이 그려진 칸만</b> 손가락으로 드래그해서 감싸 주세요. 거래량·MACD 칸과 오른쪽 가격 눈금은 빼는 게 좋습니다.';
+  else if(S.mode === 'scale')
+    h.innerHTML = S.pendingScale
+      ? '📍 지금 <b>' + (S.pendingScale==='a'?'위쪽':'아래쪽') + ' 눈금</b>의 높이를 차트에서 눌러 주세요.'
+      : '📏 아래 4번 칸에서 <b>높이 찍기</b>를 누른 다음 차트를 누르면 됩니다.';
+  else
+    h.innerHTML = S.pending
+      ? '🎨 <b>' + roleName(S.pending) + '</b> 위를 <b>꾹 눌러</b> 색을 고르세요. 확대경을 보면서 손가락을 움직이면 됩니다.'
+      : '🎨 선 위를 꾹 눌러 색을 고르면 <b>그 색이 무슨 지표인지</b> 고르는 창이 뜹니다. 아래 색 목록에서 골라도 됩니다.';
+}
+function roleName(k){
+  if(k.startsWith('ma:')){ const m = S.mas.find(x=>x.id===k); return m ? (m.period + '일선') : '이평선'; }
+  return ROLE[k] ? ROLE[k].nm : k;
+}
+
+/* ─────────────────────────────────────────────
+   색 자동 찾기
+   ───────────────────────────────────────────── */
+function autoSwatches(){ S.swatches = swatchesIn(S.crop); }
+function swatchesIn(c){
+  const map = new Map();
+  const stepX = Math.max(1, Math.round((c.x1-c.x0)/900)), stepY = Math.max(1, Math.round((c.y1-c.y0)/700));
+  let n = 0;
+  for(let y=c.y0; y<=c.y1; y+=stepY) for(let x=c.x0; x<=c.x1; x+=stepX){
+    const i = (y*S.W+x)*4, r = S.px[i], g = S.px[i+1], b = S.px[i+2];
+    const mx = Math.max(r,g,b), mn = Math.min(r,g,b);
+    n++;
+    if(mx < 42) continue;                 // 거의 검정 (배경)
+    if(mx - mn < 20) continue;            // 회색 계열 (배경·격자·글씨)
+    const key = ((r>>4)<<8) | ((g>>4)<<4) | (b>>4);
+    const e = map.get(key) || [0,0,0,0];
+    e[0]+=r; e[1]+=g; e[2]+=b; e[3]++; map.set(key, e);
+  }
+  let arr = Array.from(map.values())
+    .filter(e => e[3] >= Math.max(6, n*0.0004))
+    .map(e => ({c:[Math.round(e[0]/e[3]), Math.round(e[1]/e[3]), Math.round(e[2]/e[3])], n:e[3]}))
+    .sort((a,b)=> b.n - a.n).slice(0, 46);
+  const out = [];
+  for(const s of arr){
+    if(out.some(o => dist2(o.c, s.c) < 40*40)){ const o = out.find(o=>dist2(o.c,s.c) < 40*40); o.n += s.n; continue; }
+    out.push(s); if(out.length >= 12) break;
+  }
+  return out;
+}
+function drawSwatches(){
+  const box = $('#swatches');
+  if(!S.swatches.length){ box.innerHTML = ''; return; }
+  box.innerHTML = '<div style="font-size:11.5px;font-weight:800;color:var(--muted);width:100%">이 그림에서 찾은 색 — 눌러서 무슨 지표인지 골라 주세요</div>' +
+    S.swatches.map((s,i)=>{
+      const used = usedColor(s.c);
+      return '<button class="sw' + (used?' used':'') + '" data-i="' + i + '">' +
+        '<i style="background:' + rgb(s.c) + '"></i>' + (used || '지정') + '</button>';
+    }).join('');
+  box.querySelectorAll('button').forEach(b=>{
+    b.onclick = ()=> openRoleSheet(S.swatches[+b.dataset.i].c, null);
+  });
+}
+function usedColor(c){
+  for(const k in S.roles) if(S.roles[k] && dist2(S.roles[k].c, c) < 34*34) return roleName(k);
+  for(const m of S.mas) if(dist2(m.c, c) < 34*34) return m.period + '일선';
+  return null;
+}
+$('#btnAuto').onclick = ()=>{ autoSwatches(); drawSwatches(); setMode('pick'); };
+
+/* ─────────────────────────────────────────────
+   역할 고르는 창
+   ───────────────────────────────────────────── */
+const sheet = $('#sheet'), sheetBg = $('#sheetBg');
+function closeSheet(){ sheet.classList.remove('on'); sheetBg.classList.remove('on'); }
+sheetBg.onclick = closeSheet;
+
+function openRoleSheet(col, pt){
+  const opts = [];
+  Object.keys(ROLE).forEach(k => opts.push([k, ROLE[k].nm, ROLE[k].sub]));
+  const nextP = [5,20,60,120].find(p => !S.mas.some(m=>m.period===p)) || 20;
+  opts.splice(2, 0, ['ma-new', '이동평균선으로 쓰기', '기간은 다음 칸에서 고칠 수 있습니다 (기본 ' + nextP + '일)']);
+  sheet.innerHTML =
+    '<h3><span style="width:22px;height:22px;border-radius:7px;border:1px solid rgba(0,0,0,.15);background:' + rgb(col) + ';display:inline-block"></span>이 색을 무엇으로 읽을까요?</h3>' +
+    '<p style="font-size:12px;color:var(--muted);margin-top:6px">고른 색과 같은 색만 따라가서 읽습니다.</p>' +
+    opts.map(o => '<button class="opt" data-k="' + o[0] + '"><span style="flex:1">' + o[1] +
+      (o[2] ? '<small>' + o[2] + '</small>' : '') + '</span></button>').join('') +
+    '<button class="opt" data-k="cancel" style="justify-content:center;color:var(--muted)">닫기</button>';
+  sheet.querySelectorAll('button').forEach(b => b.onclick = ()=>{
+    const k = b.dataset.k;
+    closeSheet();
+    if(k === 'cancel') return;
+    if(k === 'ma-new'){
+      const id = 'ma:' + Date.now();
+      S.mas.push({id, period: nextP, c: col, pt});
+      S.mas.sort((a,b)=>a.period-b.period);
+    } else assign(k, col, pt);
+    paintRoles(); drawOverlay(); drawSwatches(); save();
+  });
+  sheetBg.classList.add('on'); sheet.classList.add('on');
+}
+
+function assign(key, col, pt){
+  if(key.startsWith('ma:')){
+    const m = S.mas.find(x=>x.id===key); if(m){ m.c = col; if(pt) m.pt = pt; }
+  } else S.roles[key] = {c: col, pt};
+  paintRoles(); drawOverlay(); drawSwatches(); save();
+}
+
+/* ─────────────────────────────────────────────
+   지표 목록 화면
+   ───────────────────────────────────────────── */
+function roleRow(key, name, sub, col, extra){
+  const has = !!col;
+  return '<div class="role' + (has?' set':'') + '">' +
+    '<span class="chip"' + (has ? ' style="background:' + rgb(col) + '"' : '') + '></span>' +
+    '<span class="nm">' + name + (sub ? '<small>' + sub + '</small>' : '') + '</span>' +
+    (extra || '') +
+    '<span class="act">' +
+      '<button data-act="pick" data-k="' + key + '">' + (has ? '다시' : '찍기') + '</button>' +
+      (has ? '<button class="del" data-act="del" data-k="' + key + '">지움</button>' : '') +
+    '</span></div>';
+}
+function paintRoles(){
+  for(const box in GROUPS){
+    $('#'+box).innerHTML = GROUPS[box].map(k =>
+      roleRow(k, ROLE[k].nm, ROLE[k].sub, S.roles[k] && S.roles[k].c)).join('');
+  }
+  $('#rolesMa').innerHTML = S.mas.length
+    ? S.mas.map(m => roleRow(m.id, '이동평균선', '기간을 적어 주세요', m.c,
+        '<span class="per"><input type="number" inputmode="numeric" data-per="' + m.id + '" value="' + m.period + '"></span>')).join('')
+    : '<p class="desc" style="margin:0">아직 없습니다. 아래 <b>＋ 이평선 추가</b>를 누르거나, 차트에서 선을 꾹 눌러 고르세요.</p>';
+  $$('.role button').forEach(b => b.onclick = ()=>{
+    const k = b.dataset.k;
+    if(b.dataset.act === 'del'){
+      if(k.startsWith('ma:')) S.mas = S.mas.filter(m=>m.id!==k); else delete S.roles[k];
+      paintRoles(); drawOverlay(); drawSwatches(); save();
+    } else {
+      S.pending = k; setMode('pick');
+      window.scrollTo({top: $('#card2').offsetTop - 60, behavior:'smooth'});
+    }
+  });
+  $$('input[data-per]').forEach(inp => inp.onchange = ()=>{
+    const m = S.mas.find(x=>x.id===inp.dataset.per);
+    if(m){ m.period = Math.max(1, Math.round(+inp.value || 1)); S.mas.sort((a,b)=>a.period-b.period); paintRoles(); save(); }
+  });
+  const ready = S.mas.some(m=>m.c) || S.roles.bbBand || S.roles.cloudUp || S.roles.cloudDown
+             || S.roles.tenkan || S.roles.kijun || (S.roles.candleUp && S.roles.candleDown);
+  $('#btnRun').disabled = !ready;
+  $('#runNote').textContent = ready ? '' : '캔들이나 이평선·볼린저·일목 중 하나라도 색을 찍으면 읽을 수 있습니다.';
+}
+$('#btnAddMa').onclick = ()=>{
+  const nextP = [5,20,60,120].find(p => !S.mas.some(m=>m.period===p)) || 20;
+  S.mas.push({id:'ma:'+Date.now(), period:nextP, c:null, pt:null});
+  S.mas.sort((a,b)=>a.period-b.period); paintRoles(); save();
+};
+
+/* ─────────────────────────────────────────────
+   가격 눈금
+   ───────────────────────────────────────────── */
+$('#btnScaleA').onclick = ()=>{ S.pendingScale='a'; setMode('scale'); window.scrollTo({top:$('#card2').offsetTop-60,behavior:'smooth'}); };
+$('#btnScaleB').onclick = ()=>{ S.pendingScale='b'; setMode('scale'); window.scrollTo({top:$('#card2').offsetTop-60,behavior:'smooth'}); };
+['#scaleAV','#scaleBV'].forEach(s => $(s).oninput = ()=>{ readScaleInputs(); paintScaleState(); });
+function readScaleInputs(){
+  const num = s => { const v = parseFloat(String(s).replace(/[^0-9.\-]/g,'')); return isFinite(v) ? v : null; };
+  if(S.scale.a) S.scale.a.v = num($('#scaleAV').value);
+  if(S.scale.b) S.scale.b.v = num($('#scaleBV').value);
+}
+function paintScaleState(){
+  const a = S.scale.a, b = S.scale.b, e = $('#scaleState');
+  if(calibrated()) e.innerHTML = '✅ 눈금을 맞췄습니다. 결과에 <b>실제 가격과 %</b>가 함께 나옵니다.';
+  else if(a || b) e.innerHTML = '높이 하나를 더 찍고 숫자까지 적으면 % 가 나옵니다.';
+  else e.innerHTML = '아직 찍지 않았습니다. 안 해도 방향·순서·교차는 그대로 읽습니다.';
+}
+function calibrated(){
+  const a = S.scale.a, b = S.scale.b;
+  return !!(a && b && a.v != null && b.v != null && a.y !== b.y && a.v !== b.v);
+}
+
+/* ─────────────────────────────────────────────
+   저장 (색 기억)
+   ───────────────────────────────────────────── */
+function save(){
+  try{
+    localStorage.setItem(LS, JSON.stringify({
+      roles: Object.fromEntries(Object.entries(S.roles).map(([k,v])=>[k,{c:v.c}])),
+      mas: S.mas.map(m=>({id:m.id, period:m.period, c:m.c})),
+      tol: S.tol
+    }));
+  }catch(e){}
+}
+function restore(){
+  try{
+    const d = JSON.parse(localStorage.getItem(LS) || '{}');
+    if(d.roles) for(const k in d.roles) if(ROLE[k] && d.roles[k].c) S.roles[k] = {c:d.roles[k].c, pt:null};
+    if(Array.isArray(d.mas)) S.mas = d.mas.filter(m=>m.c).map(m=>({id:m.id||'ma:'+Math.random(), period:m.period||20, c:m.c, pt:null}));
+    if(d.tol) S.tol = d.tol;
+  }catch(e){}
+}
+
+/* ─────────────────────────────────────────────
+   잡다한 도우미
+   ───────────────────────────────────────────── */
+function rgb(c){ return 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')'; }
+function dist2(a,b){ const r=a[0]-b[0], g=a[1]-b[1], bl=a[2]-b[2]; return r*r+g*g+bl*bl; }
+function fmt(n, d){ if(n==null || !isFinite(n)) return '-';
+  return n.toLocaleString('ko-KR', {minimumFractionDigits:d||0, maximumFractionDigits:d||0}); }
+function esc(s){ return String(s).replace(/[&<>]/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m])); }
+
+/* ─────────────────────────────────────────────
+   픽셀에서 선 뽑아내기
+   ───────────────────────────────────────────── */
+/* 찍은 색이 서로 비슷할 수 있으므로, 픽셀 하나는 '가장 가까운 색'에게만 준다 */
+function buildOwner(pal, rect){
+  const c = rect || S.crop, w = c.x1-c.x0+1, h = c.y1-c.y0+1;
+  const own = new Uint8Array(w*h);
+  for(let y=c.y0; y<=c.y1; y++){
+    let o = (y-c.y0)*w;
+    for(let x=c.x0; x<=c.x1; x++, o++){
+      const i = (y*S.W+x)*4, r = S.px[i], g = S.px[i+1], b = S.px[i+2];
+      let best = -1, bd = Infinity;
+      for(let k=0;k<pal.length;k++){
+        const p = pal[k].c, dr = r-p[0], dg = g-p[1], db = b-p[2];
+        const d = dr*dr + dg*dg + db*db;
+        if(d <= pal[k].t2 && d < bd){ bd = d; best = k; }
+      }
+      if(best >= 0) own[o] = best+1;
+    }
+  }
+  return {own, w, h, x0:c.x0, y0:c.y0};
+}
+function runsOf(O, k){
+  const y0 = O.y0, cols = [];
+  for(let x=0; x<O.w; x++){
+    const runs = []; let st = -1, gap = 0;
+    for(let y=0; y<O.h; y++){
+      if(O.own[y*O.w+x] === k+1){ if(st < 0) st = y; gap = 0; }
+      else if(st >= 0){ gap++; if(gap > 1){ runs.push([y0+st, y0+y-gap]); st = -1; gap = 0; } }
+    }
+    if(st >= 0) runs.push([y0+st, y0+O.h-1]);
+    cols.push(runs);
+  }
+  return cols;
+}
+/* 그려진 구간(처음 보인 열 ~ 마지막 열) 안에서 얼마나 찾았는지 */
+function spanCover(raw){
+  let f = -1, l = -1, n = 0;
+  for(let i=0;i<raw.length;i++) if(raw[i] != null){ if(f < 0) f = i; l = i; n++; }
+  if(f < 0) return 0;
+  return n / (l-f+1);
+}
+const runMid = r => (r[0]+r[1])/2, runLen = r => r[1]-r[0]+1;
+function median(a){ const b = a.slice().sort((x,y)=>x-y); return b[b.length>>1]; }
+
+function lineFrom(cols, maxThick){
+  const cand = cols.map(rs => rs.filter(r => runLen(r) <= maxThick).map(runMid));
+  const n = cand.length, out = new Array(n).fill(null);
+  let seed = cand.findIndex(a => a.length === 1);
+  if(seed < 0) seed = cand.findIndex(a => a.length > 0);
+  if(seed < 0) return {y:out, cover:0};
+  out[seed] = cand[seed].length === 1 ? cand[seed][0] : median(cand[seed]);
+  const near = (list, prev) => {
+    if(!list.length) return null;
+    if(prev == null) return median(list);
+    let best = list[0], bd = Infinity;
+    for(const v of list){ const d = Math.abs(v-prev); if(d < bd){ bd = d; best = v; } }
+    return best;
+  };
+  let last = out[seed];
+  for(let i=seed+1; i<n; i++){ const v = near(cand[i], last); out[i] = v; if(v != null) last = v; }
+  last = out[seed];
+  for(let i=seed-1; i>=0; i--){ const v = near(cand[i], last); out[i] = v; if(v != null) last = v; }
+  return {y: smooth(fill(out)), cover: spanCover(out), raw: out};
+}
+
+function bandFrom(cols, maxThick){
+  const up = [], lo = [], mid = [], seen = [];
+  let pu = null, pl = null;
+  cols.forEach(rs => {
+    const f = rs.filter(r => runLen(r) <= maxThick).sort((a,b)=>a[0]-b[0]);
+    if(!f.length){ up.push(null); lo.push(null); mid.push(null); seen.push(null); return; }
+    seen.push(1);
+    if(f.length >= 2){
+      const u = runMid(f[0]), l = runMid(f[f.length-1]);
+      up.push(u); lo.push(l); mid.push(f.length >= 3 ? runMid(f[1]) : null);
+      pu = u; pl = l; return;
+    }
+    const v = runMid(f[0]); mid.push(null);
+    if(pu == null || pl == null){ up.push(null); lo.push(null); return; }
+    if(Math.abs(v-pu) <= Math.abs(v-pl)){ up.push(v); lo.push(null); pu = v; }
+    else { up.push(null); lo.push(v); pl = v; }
+  });
+  return {up: smooth(fill(up)), lo: smooth(fill(lo)), mid: smooth(fill(mid)),
+          cover: spanCover(seen.map((v,i)=> (up[i]!=null && lo[i]!=null) ? 1 : null)),
+          midCover: spanCover(mid)};
+}
+
+function cloudFrom(colsA, colsB){
+  const n = (colsA || colsB).length, top = [], bot = [], who = [];
+  /* 칠해진 면은 옆 열에도 이어져야 한다 — 캔들·선의 경계 픽셀이 섞여 드는 것을 막는다 */
+  function joined(cols, i, r){
+    for(const j of [i-1, i+1]){
+      if(j < 0 || j >= cols.length) continue;
+      for(const q of cols[j]) if(runLen(q) >= 2 && q[1] >= r[0]-1 && q[0] <= r[1]+1) return true;
+    }
+    return false;
+  }
+  const solid = (cols, i) => cols ? cols[i].filter(r => runLen(r) >= 2 && joined(cols, i, r)) : [];
+  for(let i=0;i<n;i++){
+    const ra = solid(colsA, i);
+    const rb = solid(colsB, i);
+    const all = ra.concat(rb);
+    if(!all.length){ top.push(null); bot.push(null); who.push(null); continue; }
+    top.push(Math.min.apply(null, all.map(r=>r[0])));
+    bot.push(Math.max.apply(null, all.map(r=>r[1])));
+    const la = ra.reduce((s,r)=>s+runLen(r),0), lb = rb.reduce((s,r)=>s+runLen(r),0);
+    who.push(la === lb ? null : (la > lb ? 'up' : 'down'));
+  }
+  /* 캔들·선이 구름 위에 겹쳐 그려지면 가장자리가 잘려 보이므로 이웃 열로 다듬는다 */
+  const med5 = a => a.map((v,i)=>{
+    if(v == null) return null;
+    const w = [];
+    for(let k=-2;k<=2;k++) if(a[i+k] != null) w.push(a[i+k]);
+    return median(w);
+  });
+  return {top: fill(med5(top)), bot: fill(med5(bot)), who, cover: spanCover(top)};
+}
+
+function fill(a){
+  const out = a.slice(), n = out.length;
+  let first = out.findIndex(v => v != null);
+  if(first < 0) return out;
+  for(let i=0;i<first;i++) out[i] = out[first];
+  let last = first;
+  for(let i=first+1;i<n;i++){
+    if(out[i] == null) continue;
+    if(i > last+1){ const d = (out[i]-out[last])/(i-last); for(let k=last+1;k<i;k++) out[k] = out[last] + d*(k-last); }
+    last = i;
+  }
+  for(let i=last+1;i<n;i++) out[i] = out[last];
+  return out;
+}
+function smooth(a){
+  const n = a.length, out = a.slice();
+  for(let i=1;i<n-1;i++){
+    if(a[i-1]==null||a[i]==null||a[i+1]==null) continue;
+    out[i] = median([a[i-1], a[i], a[i+1]]);
+  }
+  return out;
+}
+
+/* 캔들 → 봉 단위로 묶기 */
+function candlesFrom(colsU, colsD, maxCol){
+  const n = (colsU || colsD).length, has = [];
+  for(let i=0;i<n;i++){
+    const a = colsU ? colsU[i].length : 0, b = colsD ? colsD[i].length : 0;
+    has.push(a + b > 0 && (maxCol == null || i <= maxCol));
+  }
+  const groups = [];
+  let st = -1;
+  for(let i=0;i<n;i++){
+    if(has[i] && st < 0) st = i;
+    else if(!has[i] && st >= 0){ groups.push([st, i-1]); st = -1; }
+  }
+  if(st >= 0) groups.push([st, n-1]);
+  /* 캔들끼리 붙어 한 덩어리가 되는 일이 잦아, 봉 간격으로 다시 나눈다 */
+  let ranges = groups, pitch0 = null;
+  if(groups.length >= 4){
+    /* 봉 간격: 붙어 버린 덩어리가 많으면 중앙값이 부풀기 때문에,
+       가장 촘촘한 간격을 기준으로 나머지를 그 배수로 환산해 구한다 */
+    const diffs = [];
+    for(let i=1;i<groups.length;i++) diffs.push(groups[i][0]-groups[i-1][0]);
+    const sorted = diffs.slice().sort((a,b)=>a-b);
+    const base = Math.max(2, sorted[Math.floor(sorted.length*0.25)] || sorted[0]);
+    const norm = diffs.map(d => d / Math.max(1, Math.round(d/base))).filter(d => d >= 2);
+    const pitch = norm.length ? median(norm) : median(diffs); pitch0 = pitch;
+    if(pitch >= 2){
+      ranges = [];
+      groups.forEach(([a,b])=>{
+        const w = b-a+1, k = Math.max(1, Math.round(w/pitch));
+        if(k === 1){ ranges.push([a,b]); return; }
+        for(let j=0;j<k;j++) ranges.push([a + Math.round(w*j/k), a + Math.round(w*(j+1)/k) - 1]);
+      });
+    }
+  }
+  const bars = [];
+  for(const [a,b] of ranges){
+    const w = b-a+1;
+    const rowsU = {}, rowsD = {};
+    let pu = 0, pd = 0;
+    for(let i=a;i<=b;i++){
+      (colsU ? colsU[i] : []).forEach(r=>{ pu += runLen(r);
+        for(let y=r[0]; y<=r[1]; y++) rowsU[y] = (rowsU[y]||0)+1; });
+      (colsD ? colsD[i] : []).forEach(r=>{ pd += runLen(r);
+        for(let y=r[0]; y<=r[1]; y++) rowsD[y] = (rowsD[y]||0)+1; });
+    }
+    if(!pu && !pd) continue;
+    const type = pu >= pd ? 'up' : 'down';
+    const rows = type === 'up' ? rowsU : rowsD;
+    const need = Math.max(1, Math.ceil(w * 0.6));
+    /* 몸통 후보 = 그 봉 너비를 거의 다 채우는 줄들이 이어진 덩어리
+       (몸통을 가로지르는 선 두께만큼은 이어진 것으로 본다) */
+    const ys = Object.keys(rows).map(Number).filter(y => rows[y] >= need).sort((p,q)=>p-q);
+    const cands = [];
+    let s0 = null, prev = null;
+    for(const y of ys){
+      if(prev == null || y > prev+5){ if(s0 != null) cands.push([s0, prev]); s0 = y; }
+      prev = y;
+    }
+    if(s0 != null) cands.push([s0, prev]);
+    if(!cands.length){
+      const all = [];
+      for(let i=a;i<=b;i++){ (colsU?colsU[i]:[]).forEach(r=>all.push(r)); (colsD?colsD[i]:[]).forEach(r=>all.push(r)); }
+      if(!all.length) continue;
+      cands.push([Math.min.apply(null, all.map(r=>r[0])), Math.max.apply(null, all.map(r=>r[1]))]);
+    }
+    bars.push({i0:a, i1:b, cx:(a+b)/2, type, cands});
+  }
+  if(!bars.length) return {bars:[], n, pitch: pitch0};
+
+  /* 몸통 하나 고르기 — 위아래 꼬리는 가운데 칸에서 몸통과 이어진 부분만 */
+  const setBody = (bar, cand) => {
+    bar.bodyTop = cand[0]; bar.bodyBot = cand[1];
+    let hi = cand[0], lo = cand[1];
+    const mid = Math.round((bar.i0+bar.i1)/2);
+    for(const arr of [colsU, colsD]){
+      if(!arr) continue;
+      for(const r of (arr[mid] || [])) if(r[1] >= cand[0]-1 && r[0] <= cand[1]+1){
+        hi = Math.min(hi, r[0]); lo = Math.max(lo, r[1]); }
+    }
+    bar.high = hi; bar.low = lo;
+    bar.close = bar.type === 'up' ? cand[0] : cand[1];
+    bar.open  = bar.type === 'up' ? cand[1] : cand[0];
+  };
+  bars.forEach(b => setBody(b, b.cands.reduce((x,y)=> (y[1]-y[0]) > (x[1]-x[0]) ? y : x)));
+
+  /* 차트 안 글씨처럼 엉뚱한 자리에 잡힌 몸통은 이웃 봉을 보고 다시 고른다 */
+  const ctr = b => (b.bodyTop + b.bodyBot)/2;
+  const spanY = Math.max(20, Math.max.apply(null, bars.map(b=>b.low)) - Math.min.apply(null, bars.map(b=>b.high)));
+  for(let pass=0; pass<2; pass++){
+    bars.forEach((b,i) => {
+      if(b.cands.length < 2) return;
+      const w = [];
+      for(let j=Math.max(0,i-3); j<=Math.min(bars.length-1,i+3); j++) if(j !== i) w.push(ctr(bars[j]));
+      if(w.length < 3) return;
+      const m = median(w);
+      if(Math.abs(ctr(b) - m) <= spanY*0.22) return;
+      let best = b.cands[0], bd = Infinity;
+      b.cands.forEach(c => { const d = Math.abs((c[0]+c[1])/2 - m); if(d < bd){ bd = d; best = c; } });
+      setBody(b, best);
+    });
+  }
+  const medW = bars.length > 4 ? median(bars.map(b=>b.i1-b.i0+1)) : 1;
+  let kept = bars.filter(b => (b.i1-b.i0+1) >= Math.max(1, medW*0.34) && (b.low-b.high+1) >= 3);
+  if(kept.length >= 8){
+    kept = kept.filter((b,i) => {
+      const w = [];
+      for(let j=Math.max(0,i-3); j<=Math.min(kept.length-1,i+3); j++) if(j !== i) w.push(ctr(kept[j]));
+      return w.length < 3 || Math.abs(ctr(b) - median(w)) <= spanY*0.3;
+    });
+  }
+  return {bars: kept, n, pitch: pitch0};
+}
+
+/* 가로 눈금선처럼 '모든 칸에서 같은 줄'에 있는 색인지 */
+function gridInfo(runs, cropY0, cropH){
+  const nCol = runs.length, cov = new Uint16Array(cropH);
+  runs.forEach(rs => rs.forEach(r => {
+    for(let y=Math.max(0,r[0]-cropY0); y<=Math.min(cropH-1, r[1]-cropY0); y++) cov[y]++;
+  }));
+  let lines = 0, x0 = -1, x1 = -1;
+  const hot = [];
+  for(let y=0;y<cropH;y++) if(cov[y] > nCol*0.6){ lines++; hot.push(y); }
+  if(lines >= 3){
+    runs.forEach((rs,x) => {
+      if(rs.some(r => hot.some(y => r[0] <= y+cropY0 && r[1] >= y+cropY0))){
+        if(x0 < 0) x0 = x; x1 = x;
+      }
+    });
+  }
+  return {isGrid: lines >= 3, lines, x0, x1};
+}
+
+/* ─────────────────────────────────────────────
+   분석
+   ───────────────────────────────────────────── */
+const DIRW = {up:'위로', down:'아래로', flat:'거의 옆으로'};
+function tag(d, t){ return d === 'up' ? '<b class="u">'+t+'</b>' : d === 'down' ? '<b class="d">'+t+'</b>' : '<b>'+t+'</b>'; }
+
+function analyze(){
+  const c = S.crop, n = c.x1-c.x0+1, H = c.y1-c.y0+1, cal = calibrated(), tol = S.tol;
+  const A = {n, H, cal, cards:[], dirs:[], covers:[], warns:[]};
+
+  /* 찍어 둔 색을 한 판에 모아 두고, 픽셀은 가장 가까운 색에만 준다 */
+  const pal = [], IDX = {};
+  const FILLT = 0.6;                                  /* 구름처럼 칠해진 면은 더 엄격히 */
+  const addC = (k, c) => { const t = tol * (k.indexOf('cloud') === 0 ? FILLT : 1);
+    IDX[k] = pal.length; pal.push({c, t2: t*t}); };
+  const masIn = S.mas.filter(m => m.c).slice().sort((a,b)=>a.period-b.period);
+  ['candleUp','candleDown','bbBand','bbMid','cloudUp','cloudDown','tenkan','kijun']
+    .forEach(k => { if(S.roles[k]) addC(k, S.roles[k].c); });
+  ['cloudUp','cloudDown'].forEach(k => {
+    const ex = S.roles[k] && S.roles[k].extra;
+    if(ex) ex.forEach((c2,i) => addC(k+'~'+i, c2));
+  });
+  const cloudRuns = k => {
+    if(!S.roles[k]) return null;
+    let base = runsK(k);
+    const ex = S.roles[k].extra || [];
+    ex.forEach((c2,i) => {
+      const key = k+'~'+i; if(IDX[key] == null) return;
+      const b2 = runsOf(O, IDX[key]);
+      base = base.map((rs,x) => rs.concat(b2[x]).sort((p,q)=> p[0]-q[0]));
+    });
+    return base;
+  };
+  masIn.forEach((m,i) => addC('ma'+i, m.c));
+  const O = buildOwner(pal);
+  const barLim = S.barMaxCol == null ? n-1 : Math.max(10, Math.min(n-1, S.barMaxCol - c.x0));
+  const runsK = k => runsOf(O, IDX[k]);
+  const runsLine = k => runsOf(O, IDX[k]).slice(0, barLim+1);   /* 선은 캔들이 끝나는 곳까지 */
+  const thick = Math.max(5, Math.round(H*0.02));
+
+  A.val = y => {
+    if(!cal) return (c.y1 - y);
+    const a = S.scale.a, b = S.scale.b;
+    return a.v + (y - a.y) * (b.v - a.v) / (b.y - a.y);
+  };
+  A.pct = (y1, y0) => cal ? (A.val(y1) - A.val(y0)) / Math.abs(A.val(y0)) * 100 : null;
+  A.hpct = dy => dy / H * 100;                       // 차트 높이 대비 몇 %
+  A.money = y => cal ? fmt(A.val(y), Math.abs(A.val(y)) < 100 ? 2 : 0) : null;
+
+  /* 캔들 */
+  let cd = null;
+  if(S.roles.candleUp || S.roles.candleDown){
+    const cu = S.roles.candleUp ? runsK('candleUp') : null;
+    const cdn = S.roles.candleDown ? runsK('candleDown') : null;
+    cd = candlesFrom(cu, cdn, S.barMaxCol == null ? null : S.barMaxCol - c.x0);
+    if(cd.bars.length < 4) cd = null;
+  }
+  A.bars = cd ? cd.bars : null;
+  A.nowI = A.bars ? Math.round(A.bars[A.bars.length-1].cx) : n-1;
+  A.colsPerBar = A.bars && A.bars.length > 1 ? (A.bars[A.bars.length-1].cx - A.bars[0].cx) / (A.bars.length-1) : null;
+  A.priceY = A.bars ? A.bars[A.bars.length-1].close : null;
+  A.barsAgo = i => {
+    if(!A.bars) return null;
+    let k = 0; for(let j=0;j<A.bars.length;j++) if(A.bars[j].cx <= i) k = j;
+    return A.bars.length-1-k;
+  };
+  A.lb = Math.max(3, Math.round(n * (A.bars ? Math.min(0.25, Math.max(0.08, 10/A.bars.length)) : 0.12)));
+  A.lbBars = () => A.bars ? (Math.max(1, A.barsAgo(Math.max(0, A.nowI - A.lb))) + '봉') : '구간';
+
+  A.classify = (f, pc) => {
+    let d = Math.abs(f) < 1.0 ? 'flat' : (f > 0 ? 'up' : 'down');
+    if(pc != null && Math.abs(pc) < 0.4) d = 'flat';
+    const strong = d !== 'flat' && Math.abs(f) >= 3.5 && (pc == null || Math.abs(pc) >= 1.5);
+    return {d, strong, txt: DIRW[d] + (strong ? ' (뚜렷하게)' : '')};
+  };
+  A.dir = (s, i1) => {
+    const b = Math.min(i1 == null ? A.nowI : i1, s.length-1), a = Math.max(0, b - A.lb);
+    if(s[a] == null || s[b] == null) return null;
+    const f = A.hpct(s[a] - s[b]), pc = A.pct(s[b], s[a]), k = A.classify(f, pc);
+    return {d:k.d, f, pct:pc, bars: A.bars ? Math.max(1, A.barsAgo(a)) : null, txt:k.txt};
+  };
+  A.crossOf = (a, b) => {                            // a가 b를 뚫은 마지막 지점
+    const minRun = Math.max(3, Math.round((A.colsPerBar || 3) * 1.5));
+    const runs = [];
+    for(let i=0;i<n;i++){
+      if(a[i]==null||b[i]==null) continue;
+      const s = Math.sign(b[i]-a[i]); if(s===0) continue;
+      const t = runs[runs.length-1];
+      if(t && t.s===s) t.i1 = i; else runs.push({s, i0:i, i1:i});
+    }
+    const keep = runs.filter(r => r.i1-r.i0+1 >= minRun);
+    if(keep.length < 2) return null;
+    const lastR = keep[keep.length-1], prevR = keep[keep.length-2];
+    if(lastR.s === prevR.s) return null;
+    return {i: lastR.i0, up: lastR.s > 0, bars: A.barsAgo(lastR.i0),
+            frac: (n-1-lastR.i0)/n};
+  };
+
+  /* ── 캔들 카드 ── */
+  if(A.bars){
+    const bs = A.bars, last = bs[bs.length-1];
+    const closes = bs.map(b => b.close);
+    const dirS = closes.map(v=>v);
+    const look = Math.min(bs.length-1, Math.max(3, Math.round(bs.length*0.1)));
+    const rise = closes[closes.length-1-look] - closes[closes.length-1];
+    const f = A.hpct(rise), d = A.classify(f, A.pct(closes[closes.length-1], closes[closes.length-1-look])).d;
+    const hi = Math.min.apply(null, bs.map(b=>b.high)), lo = Math.max.apply(null, bs.map(b=>b.low));
+    const posPct = (lo - last.close) / (lo - hi) * 100;
+    const facts = [
+      '읽은 캔들: 약 <b>' + bs.length + '개</b>' + (cal ? ' · 마지막 캔들 종가 약 <b>' + A.money(last.close) + '</b>' : ''),
+      '마지막 캔들은 ' + (last.type === 'up' ? '<b class="u">양봉(오르며 끝난 봉)</b>' : '<b class="d">음봉(내리며 끝난 봉)</b>'),
+      '최근 <b>' + look + '봉</b> 동안 ' + tag(d, DIRW[d]) + (cal ? ' (<b>' + (A.pct(closes[closes.length-1], closes[closes.length-1-look]) >= 0 ? '+' : '') + fmt(A.pct(closes[closes.length-1], closes[closes.length-1-look]), 2) + '%</b>)' : ' (차트 높이의 ' + fmt(Math.abs(f),1) + '%만큼)'),
+      '보이는 구간의 <b>가장 낮은 값 0 · 가장 높은 값 100</b>으로 보면 지금은 <b>' + fmt(Math.max(0, Math.min(100, posPct)), 0) + '</b> 자리'
+        + (cal ? ' (구간 최고 ' + A.money(hi) + ' · 최저 ' + A.money(lo) + ')' : '')
+    ];
+    A.cards.push({t:'캔들 · 가격', badge: d, facts,
+      mean: '캔들은 <b>해석이 필요한 지표가 아니라 값 그 자체</b>입니다. 아래 지표들은 모두 이 값을 재료로 계산된 것이라, 캔들이 지금 어디에 있는지가 모든 지표 읽기의 기준이 됩니다.',
+      edu: '<b>양봉·음봉</b> — 국내 차트는 올라서 끝난 봉을 빨강, 내려서 끝난 봉을 파랑으로 그립니다(해외는 반대인 경우가 많습니다). 몸통은 시가와 종가 사이, 위아래 꼬리는 그 사이에 닿았던 최고·최저입니다.'});
+    A.dirs.push(d);
+  }
+
+  /* ── 이동평균선 ── */
+  const mas = masIn.map((m,i) => {
+    const r = lineFrom(runsOf(O, IDX['ma'+i]).slice(0, barLim+1), thick);
+    return {period:m.period, y:r.y, cover:r.cover};
+  });
+  mas.forEach(m => A.covers.push({nm:m.period+'일선', v:m.cover}));
+
+  if(mas.length){
+    const facts = [], nowI = A.nowI;
+    let up = 0, down = 0;
+    mas.forEach(m => {
+      const d = A.dir(m.y);
+      if(d){ if(d.d==='up') up++; else if(d.d==='down') down++;
+        facts.push('<b>' + m.period + '일선</b>은 최근 ' + (d.bars ? d.bars + '봉' : '구간') + ' 동안 ' + tag(d.d, d.txt)
+          + (cal ? ' (' + (d.pct>=0?'+':'') + fmt(d.pct,2) + '%, 지금 ' + A.money(m.y[nowI]) + ')' : ''));
+      }
+    });
+    if(A.priceY != null){
+      const rel = mas.map(m => {
+        const above = A.priceY < m.y[nowI];
+        const gap = cal ? A.val(A.priceY)/A.val(m.y[nowI])*100 : null;
+        return {p:m.period, above, gap};
+      });
+      facts.push('가격은 ' + rel.map(r => r.p + '일선 ' + (r.above ? '<b class="u">위</b>' : '<b class="d">아래</b>')).join(' · '));
+      if(cal) facts.push('이격도(가격 ÷ 이평선 × 100): ' + rel.map(r => r.p + '일 <b>' + fmt(r.gap,1) + '</b>').join(' · '));
+    }
+    let order = 'mix';
+    if(mas.length >= 2){
+      const vs = mas.map(m => m.y[nowI]);
+      const asc = vs.every((v,i)=> i===0 || v > vs[i-1]);   // y가 점점 아래 = 짧은 선이 위
+      const desc = vs.every((v,i)=> i===0 || v < vs[i-1]);
+      order = asc ? 'up' : desc ? 'down' : 'mix';
+      facts.push('선 순서: ' + mas.map(m=>m.period+'일').join(' · ') + ' → ' +
+        (order==='up' ? '<b class="u">정배열</b> (짧은 선이 위에서부터 차례로)' :
+         order==='down' ? '<b class="d">역배열</b> (긴 선이 위에서부터 차례로)' :
+         '<b>혼조</b> (순서가 섞여 있음)'));
+    }
+    for(let i=0;i<mas.length-1;i++){
+      const x = A.crossOf(mas[i].y, mas[i+1].y);
+      if(x && x.frac < 0.75){
+        facts.push('<b>' + mas[i].period + '일선</b>이 <b>' + mas[i+1].period + '일선</b>을 ' +
+          (x.bars != null ? '약 <b>' + x.bars + '봉 전</b>' : '최근 구간에서') + ' ' +
+          (x.up ? '<b class="u">위로 뚫었습니다 (골든크로스)</b>' : '<b class="d">아래로 뚫었습니다 (데드크로스)</b>'));
+      }
+    }
+    let sc = up - down + (order==='up'?1:order==='down'?-1:0);
+    if(A.priceY != null && mas.length) sc += (mas.every(m=>A.priceY < m.y[nowI]) ? 1 : mas.every(m=>A.priceY > m.y[nowI]) ? -1 : 0);
+    const d = sc >= 2 ? 'up' : sc <= -2 ? 'down' : 'flat';
+    A.dirs.push(d);
+    A.cards.push({t:'이동평균선', badge:d, facts,
+      mean: '지금 읽은 그대로 적으면 — ' + (order==='up' ? '<b>정배열</b>: 최근에 산 사람들의 평균 단가가 예전에 산 사람들보다 높게 쌓여 있는 모양입니다.' :
+        order==='down' ? '<b>역배열</b>: 예전에 산 사람들의 평균 단가가 더 높게 남아 있는 모양입니다.' :
+        '<b>혼조</b>: 기간마다 평균 단가가 엇갈려서, 어느 한쪽으로 정리되지 않은 모양입니다.') +
+        ' 교과서에서는 정배열을 상승 추세가 정돈된 상태, 역배열을 하락 추세가 정돈된 상태, 혼조를 방향을 고르는 구간이라고 부릅니다.',
+      edu: '<b>이동평균선</b>은 최근 N일 종가의 평균을 이어 그린 선으로, <b>그 기간에 산 사람들의 평균 단가</b>에 가깝습니다. 짧은 선일수록 값에 빨리 반응하고, 긴 선일수록 천천히 움직입니다. 짧은 선이 긴 선을 위로 지나가는 것을 <b>골든크로스</b>, 아래로 지나가는 것을 <b>데드크로스</b>라고 부릅니다. <b>이격도</b>는 가격이 평균에서 얼마나 멀어졌는지를 100 기준으로 본 숫자입니다.'});
+  }
+
+  /* ── 볼린저밴드 ── */
+  if(S.roles.bbBand){
+    const bb = bandFrom(runsLine('bbBand'), thick);
+    A.covers.push({nm:'볼린저 상·하단', v:bb.cover});
+    const nowI = A.nowI;
+    const width = bb.up.map((v,i)=> (v==null||bb.lo[i]==null) ? null : bb.lo[i]-v);
+    const wNow = width[nowI];
+    const wSort = width.filter(v=>v!=null).slice().sort((a,b)=>a-b);
+    const q = p => wSort[Math.min(wSort.length-1, Math.floor(wSort.length*p))];
+    const facts = [];
+    let midY = bb.midCover > 0.5 ? bb.mid : null;
+    if(!midY && S.roles.bbMid){
+      const r = lineFrom(runsLine('bbMid'), thick);
+      if(r.cover > 0.4){ midY = r.y; A.covers.push({nm:'볼린저 중심선', v:r.cover}); }
+    }
+    if(!midY) midY = bb.up.map((v,i)=> (v==null||bb.lo[i]==null) ? null : (v+bb.lo[i])/2);
+
+    const wOk = wNow != null && wNow > Math.max(2, H*0.004);
+    let pb = null;
+    if(A.priceY != null && wOk){
+      pb = (bb.lo[nowI] - A.priceY) / wNow;
+      const where = pb > 1 ? '<b class="u">상단선 바깥</b>' : pb > 0.8 ? '<b class="u">상단선에 바짝 붙음</b>' :
+        pb > 0.55 ? '중심선 위쪽' : pb > 0.45 ? '거의 중심선' : pb > 0.2 ? '중심선 아래쪽' :
+        pb > 0 ? '<b class="d">하단선에 바짝 붙음</b>' : '<b class="d">하단선 바깥</b>';
+      facts.push('밴드 안 위치(%B): <b>' + fmt(Math.max(-0.2, Math.min(1.2, pb))*100, 0) + '</b> / 100 → ' + where);
+    }
+    const wRel = wNow / (q(0.5) || 1);
+    const squeeze = !wOk ? 'mid' : wNow <= q(0.25) ? 'tight' : wNow >= q(0.75) ? 'wide' : 'mid';
+    if(wOk) facts.push('밴드 폭: 보이는 구간 <b>중간값의 ' + fmt(wRel*100, 0) + '%</b> → ' +
+      (squeeze==='tight' ? '<b>좁아진 상태 (수축 · 스퀴즈)</b>' : squeeze==='wide' ? '<b>넓어진 상태 (확장)</b>' : '보통'));
+    else facts.push('밴드 <b>상단·하단이 한 줄로만 잡혔습니다</b> — 폭은 읽지 못했습니다 (색을 다시 찍어 보세요)');
+    const wd = A.dir(width.map(v => v==null?null:-v));   // 폭이 커지면 '위로'
+    if(wd) facts.push('밴드 폭은 최근 ' + (wd.bars ? wd.bars+'봉' : '구간') + ' 동안 ' +
+      (wd.d==='up' ? '<b>벌어지는 중</b>' : wd.d==='down' ? '<b>좁아지는 중</b>' : '<b>거의 그대로</b>'));
+    const md = A.dir(midY);
+    if(md) facts.push('중심선(20일 평균 자리)은 ' + tag(md.d, md.txt) +
+      (cal ? ' (지금 ' + A.money(midY[nowI]) + ')' : ''));
+    if(cal && wOk) facts.push('지금 상단 <b>' + A.money(bb.up[nowI]) + '</b> · 하단 <b>' + A.money(bb.lo[nowI]) + '</b>');
+    let walk = 0;
+    if(A.bars && A.priceY != null && wOk){
+      const last5 = A.bars.slice(-5);
+      last5.forEach(b => { const i = Math.round(b.cx), w = bb.lo[i]-bb.up[i];
+        if(w > 0.5){ const v = (bb.lo[i]-b.close)/w; if(v > 0.85) walk++; else if(v < 0.15) walk--; } });
+      if(Math.abs(walk) >= 3) facts.push('최근 5봉 중 <b>' + Math.abs(walk) + '봉</b>이 ' +
+        (walk>0 ? '<b class="u">상단선에 붙어 있었습니다 (밴드 타기)</b>' : '<b class="d">하단선에 붙어 있었습니다 (밴드 타기)</b>'));
+    }
+    let bsc = 0;
+    if(pb != null){ bsc += pb > 0.8 ? 1 : pb < 0.2 ? -1 : pb > 0.55 ? 0.5 : pb < 0.45 ? -0.5 : 0; }
+    if(md) bsc += md.d === 'up' ? 1 : md.d === 'down' ? -1 : 0;
+    const d = bsc >= 1 ? 'up' : bsc <= -1 ? 'down' : 'flat';
+    A.dirs.push(d);
+    A.cards.push({t:'볼린저밴드', badge:d, facts,
+      mean: (squeeze==='tight'
+        ? '밴드가 <b>좁아진 상태</b>입니다. 교과서에서는 이것을 <b>변동성이 줄어든 구간(스퀴즈)</b>이라 부르고, 값이 좁은 폭 안에서만 움직이고 있다는 뜻으로 읽습니다. 방향을 알려주는 신호는 아닙니다.'
+        : squeeze==='wide'
+        ? '밴드가 <b>넓어진 상태</b>입니다. 값이 평소보다 크게 흔들리고 있다는 뜻이고, 이런 구간을 <b>확장 구간</b>이라고 부릅니다.'
+        : '밴드 폭이 <b>평소 수준</b>입니다.') +
+        (pb != null ? (pb > 0.8 ? ' 그리고 가격은 <b>상단선</b> 쪽에 있습니다. 상단선 근처는 "많이 올랐다"는 표시일 뿐, 그 자체로 방향을 뒤집는 신호로 읽지는 않습니다.'
+          : pb < 0.2 ? ' 그리고 가격은 <b>하단선</b> 쪽에 있습니다. 하단선 근처는 "많이 내렸다"는 표시일 뿐, 그 자체로 방향을 뒤집는 신호로 읽지는 않습니다.' : '') : ''),
+      edu: '<b>볼린저밴드</b>는 20일 이동평균선(중심선)에서 <b>표준편차의 2배</b>만큼 위아래로 벌린 띠입니다. 값이 평소보다 얼마나 흔들리는지를 폭으로 보여 줍니다. 폭이 좁아지는 것을 <b>수축(스퀴즈)</b>, 벌어지는 것을 <b>확장</b>이라고 하고, 가격이 밴드 안 어디쯤인지를 0~100으로 나타낸 것이 <b>%B</b>입니다. 한쪽 선에 붙어서 계속 가는 모습은 <b>밴드 타기(band walking)</b>라고 부릅니다.'});
+  }
+
+  /* ── 일목균형표 ── */
+  const hasCloud = S.roles.cloudUp || S.roles.cloudDown;
+  if(hasCloud || S.roles.tenkan || S.roles.kijun){
+    const facts = [];
+    let d = 'flat', sc = 0;
+    let cl = null;
+    if(hasCloud){
+      cl = cloudFrom(cloudRuns('cloudUp'), cloudRuns('cloudDown'));
+      A.covers.push({nm:'구름', v:cl.cover});
+      const i = A.nowI;
+      if(cl.top[i] != null){
+        const p = A.priceY;
+        if(p != null){
+          const pos = p < cl.top[i] ? 'above' : p > cl.bot[i] ? 'below' : 'in';
+          const gap = pos==='above' ? cl.top[i]-p : pos==='below' ? p-cl.bot[i] : 0;
+          facts.push('가격은 구름 ' + (pos==='above' ? '<b class="u">위</b>' : pos==='below' ? '<b class="d">아래</b>' : '<b>속</b>') +
+            (pos!=='in' ? '에 있습니다 (구름 경계에서 차트 높이의 ' + fmt(A.hpct(gap),1) + '%'
+              + (cal ? ', ' + fmt(Math.abs(A.pct(p, pos==='above'?cl.top[i]:cl.bot[i])),2) + '%' : '') + ' 떨어짐)' : '에 들어와 있습니다'));
+          sc += pos==='above' ? 2 : pos==='below' ? -2 : 0;
+        }
+        const th = cl.bot[i]-cl.top[i];
+        facts.push('지금 자리 구름 두께: 차트 높이의 <b>' + fmt(A.hpct(th),1) + '%</b> → ' +
+          (A.hpct(th) > 6 ? '<b>두꺼운 편</b>' : A.hpct(th) < 2 ? '<b>얇은 편</b>' : '보통'));
+        const wNow = cl.who[i], wEnd = cl.who[n-1];
+        if(wNow) facts.push('지금 구름 색: ' + (wNow==='up' ? '<b class="u">양운</b> (선행1이 위)' : '<b class="d">음운</b> (선행2가 위)'));
+        if(wNow && wEnd && wNow !== wEnd)
+          facts.push('오른쪽 <b>선행 구간</b>에서 구름 색이 ' + (wEnd==='up' ? '<b class="u">양운</b>' : '<b class="d">음운</b>') + '으로 <b>바뀝니다 (구름 전환)</b>');
+        const thEnd = cl.bot[n-1]-cl.top[n-1];
+        if(isFinite(thEnd)) facts.push('앞쪽(선행 구간) 구름 두께: 차트 높이의 <b>' + fmt(A.hpct(thEnd),1) + '%</b>');
+        if(wEnd) sc += wEnd==='up' ? 1 : -1;
+      }
+    }
+    let ten = null, kij = null;
+    if(S.roles.tenkan){ const r = lineFrom(runsLine('tenkan'), thick);
+      if(r.cover > 0.3){ ten = r.y; A.covers.push({nm:'전환선', v:r.cover}); } }
+    if(S.roles.kijun){ const r = lineFrom(runsLine('kijun'), thick);
+      if(r.cover > 0.3){ kij = r.y; A.covers.push({nm:'기준선', v:r.cover}); } }
+    if(ten){ const t = A.dir(ten); if(t){ facts.push('전환선은 ' + tag(t.d, t.txt) + (cal ? ' (지금 ' + A.money(ten[A.nowI]) + ')' : '')); sc += t.d==='up'?0.5:t.d==='down'?-0.5:0; } }
+    if(kij){ const t = A.dir(kij); if(t){ facts.push('기준선은 ' + tag(t.d, t.txt) + (cal ? ' (지금 ' + A.money(kij[A.nowI]) + ')' : '')); sc += t.d==='up'?0.5:t.d==='down'?-0.5:0; } }
+    if(ten && kij){
+      const above = ten[A.nowI] < kij[A.nowI];
+      facts.push('전환선이 기준선 ' + (above ? '<b class="u">위</b>에 있습니다 (호전)' : '<b class="d">아래</b>에 있습니다 (역전)'));
+      sc += above ? 1 : -1;
+      const x = A.crossOf(ten, kij);
+      if(x && x.frac < 0.7) facts.push('전환선이 기준선을 ' + (x.bars != null ? '약 <b>' + x.bars + '봉 전</b>' : '최근에') + ' ' +
+        (x.up ? '<b class="u">위로</b>' : '<b class="d">아래로</b>') + ' 지나갔습니다');
+    }
+    if(kij && A.priceY != null)
+      facts.push('가격은 기준선 ' + (A.priceY < kij[A.nowI] ? '<b class="u">위</b>' : '<b class="d">아래</b>'));
+    d = sc >= 1.5 ? 'up' : sc <= -1.5 ? 'down' : 'flat';
+    A.dirs.push(d);
+    A.cards.push({t:'일목균형표', badge:d, facts,
+      mean: '일목균형표는 <b>가격이 구름의 어느 쪽에 있는지</b>를 가장 크게 봅니다. 구름 위는 그동안의 매수 균형이 위쪽에 있다는 뜻으로, 구름 아래는 그 반대로 읽습니다. 구름 속은 균형이 잡히지 않은 구간이라 <b>방향을 판단하지 않는 자리</b>로 봅니다. 구름이 두꺼울수록 그 구간을 지나가기 어려운 벽으로 봅니다.',
+      edu: '구름 색은 <b>따뜻한 색(붉은 계열)을 양운</b>으로 보고 읽었습니다 — 국내 증권사 기본 설정 기준이라, 색을 바꿔 쓰신다면 반대로 보셔야 합니다. ' +
+        '<b>일목균형표</b>는 전환선(9), 기준선(26), 선행스팬1·2, 후행스팬으로 이뤄집니다. 선행스팬 1과 2 사이를 칠한 것이 <b>구름</b>이고, 26칸 앞에 미리 그려지기 때문에 차트 오른쪽 끝에 <b>앞으로의 구름</b>이 먼저 보입니다. 선행1이 위면 <b>양운</b>, 선행2가 위면 <b>음운</b>이라 하고, 색이 바뀌는 자리를 <b>구름 전환</b>이라고 부릅니다. 전환선이 기준선 위로 올라간 상태를 <b>호전</b>, 아래로 내려간 상태를 <b>역전</b>이라고 합니다.'});
+  }
+  paneCards(A);
+  return A;
+}
+
+/* ═════════════════════════════════════════════
+   사진만 넣으면 알아서 읽기
+   ─ 범례의 색 네모와 그림에서 쓰인 색을 모으고,
+     캔들에서 뽑은 종가로 이동평균·일목 값을 직접 계산해
+     어느 선이 몇 일선인지 맞춰 봅니다.
+   ═════════════════════════════════════════════ */
+const MA_SET = [3,5,7,9,10,12,15,20,25,26,30,33,40,50,60,75,90,100,112,120,130,150,180,200,224,240];
+/* 흰 바탕·연회색 같은 '배경'만 걸러낸다 (옅은 구름색과 검은 선은 남겨야 한다) */
+const isBgColor = c => (Math.max(c[0],c[1],c[2]) - Math.min(c[0],c[1],c[2])) < 20
+                       && Math.min(c[0],c[1],c[2]) > 198;
+const STD_MA = [5,10,20,60,120,200,240];
+const warmth = c => c[0] - c[2];
+
+/* 범례에 찍힌 작은 색 네모(■) 찾기 — 검은 선 색도 여기서 얻는다 */
+function findChips(){
+  const W = S.W, H = S.H, lim = Math.min(H-1, Math.round(H*0.6)), out = [];
+  const at = (x,y) => { const i = (y*W+x)*4; return [S.px[i], S.px[i+1], S.px[i+2]]; };
+  const near = (a,b,t) => dist2(a,b) < t*t;
+  for(let y=3; y<lim; y+=2){
+    let x = 1;
+    while(x < W-1){
+      const c = at(x,y);
+      let x2 = x;
+      while(x2+1 < W && near(at(x2+1,y), c, 20)) x2++;
+      const w = x2-x+1;
+      if(w >= 5 && w <= 30 && !isBgColor(c)){
+        const cx = Math.round((x+x2)/2);
+        let y0 = y, y1 = y;
+        while(y0-1 >= 0 && near(at(cx,y0-1), c, 20)) y0--;
+        while(y1+1 < H && near(at(cx,y1+1), c, 20)) y1++;
+        const h = y1-y0+1;
+        if(h >= 5 && h <= 30 && Math.abs(h-w) <= Math.max(5, w*0.7)){
+          let fill = 0, tot = 0;
+          for(let yy=y0; yy<=y1; yy++) for(let xx=x; xx<=x2; xx++){ tot++; if(near(at(xx,yy), c, 26)) fill++; }
+          if(tot && fill/tot > 0.86) out.push({c, x, y0, y1, w, h});
+        }
+      }
+      x = x2+1;
+    }
+  }
+  /* 같은 네모를 여러 줄에서 잡은 것만 합친다 (같은 색이 범례에 두 번 나올 수 있으므로
+     색이 같다고 지우면 안 된다 — 기준선과 60일선이 둘 다 초록인 경우가 있다) */
+  const res = [];
+  out.forEach(o => {
+    if(!res.some(r => dist2(r.c, o.c) < 26*26 && Math.abs(r.x-o.x) < Math.max(r.w,o.w)
+                      && o.y0 <= r.y1+2 && o.y1 >= r.y0-2)) res.push(o);
+  });
+  return res;
+}
+
+/* 한 번 훑어서 색마다 열별 개수와 세로 길이 통계를 낸다 */
+function colorScan(O, nPal){
+  const W = O.w, H = O.h, col = [];
+  const runN = new Int32Array(nPal), runSum = new Int32Array(nPal), runMax = new Int32Array(nPal);
+  for(let k=0;k<nPal;k++) col.push(new Uint16Array(W));
+  for(let x=0; x<W; x++){
+    let cur = 0, len = 0;
+    for(let y=0; y<H; y++){
+      const k = O.own[y*W+x];
+      if(k) col[k-1][x]++;
+      if(k === cur){ len++; continue; }
+      if(cur){ runN[cur-1]++; runSum[cur-1] += len; if(len > runMax[cur-1]) runMax[cur-1] = len; }
+      cur = k; len = 1;
+    }
+    if(cur){ runN[cur-1]++; runSum[cur-1] += len; if(len > runMax[cur-1]) runMax[cur-1] = len; }
+  }
+  return {col, runN, runSum, runMax};
+}
+
+/* 봉 값으로 만든 '정답표'와 견줘 이 선이 무엇인지 맞춘다 */
+function makeTemplates(bars){
+  const n = bars.length, cl = bars.map(b=>b.close), hi = bars.map(b=>b.high), lo = bars.map(b=>b.low);
+  const sma = N => { const o = new Array(n).fill(null); let s = 0;
+    for(let i=0;i<n;i++){ s += cl[i]; if(i>=N) s -= cl[i-N]; if(i>=N-1) o[i] = s/N; } return o; };
+  const mid = N => { const o = new Array(n).fill(null);
+    for(let i=N-1;i<n;i++){ let a = Infinity, b = -Infinity;
+      for(let j=i-N+1;j<=i;j++){ if(hi[j] < a) a = hi[j]; if(lo[j] > b) b = lo[j]; }
+      o[i] = (a+b)/2; } return o; };
+  const t9 = mid(9), t26 = mid(26), t52 = mid(52);
+  const spanA = t9.map((v,i)=> (v==null||t26[i]==null) ? null : (v+t26[i])/2);
+  const out = [];
+  MA_SET.forEach(N => { if(N < n*0.9) out.push({kind:'ma', N, label:N+'일선', v:sma(N), shift:0}); });
+  if(n > 12) out.push({kind:'tenkan', label:'전환선(9)',  v:t9,   shift:0});
+  if(n > 30) out.push({kind:'kijun',  label:'기준선(26)', v:t26,  shift:0});
+  if(n > 34) out.push({kind:'spanA',  label:'선행스팬1',  v:spanA, shift:26});
+  if(n > 58) out.push({kind:'spanB',  label:'선행스팬2',  v:t52,  shift:26});
+  if(n > 34) out.push({kind:'chikou', label:'후행스팬',   v:cl,   shift:-26});
+  return out;
+}
+function matchLine(y, bars, tpls){
+  const at = i => { const j = Math.round(bars[i].cx); return (j>=0 && j<y.length) ? y[j] : null; };
+  const res = [];
+  for(const t of tpls){
+    let s = 0, m = 0;
+    for(let i=0;i<bars.length;i++){
+      const j = i + t.shift; if(j < 0 || j >= bars.length) continue;
+      const a = t.v[i]; if(a == null) continue;
+      const b = at(j); if(b == null) continue;
+      const d = b - a; s += d*d; m++;
+    }
+    if(m >= Math.max(8, bars.length*0.2)) res.push({t, e: Math.sqrt(s/m), m});
+  }
+  res.sort((a,b)=> a.e - b.e);
+  return res[0] || null;
+}
+
+/* 가격 칸 아래에 있는 거래량·보조지표 칸 찾기 */
+function findPanes(O1, pal, W, H, bars, up, dn){
+  const out = [], px0 = S.crop.x0, px1 = Math.min(W-1, S.barMaxCol), wide = px1-px0+1;
+  if(wide < 40) return out;
+  /* 바탕색과 가로 눈금선은 빼고 센다 — 안 그러면 그림 전체가 한 덩어리가 된다 */
+  const nk = pal.length, per = [], tot = new Int32Array(nk), wideRow = new Int32Array(nk);
+  for(let y=0; y<H; y++){
+    const c = new Int32Array(nk), row = y*W;
+    for(let x=px0; x<=px1; x++){ const k = O1.own[row+x]; if(k) c[k-1]++; }
+    for(let k=0;k<nk;k++){ tot[k] += c[k]; if(c[k] > wide*0.5) wideRow[k]++; }
+    per.push(c);
+  }
+  const skip = new Uint8Array(nk), area = wide*H;
+  for(let k=0;k<nk;k++) if(tot[k] > area*0.12 || wideRow[k] > H*0.04) skip[k] = 1;
+  const rows = new Int32Array(H);
+  for(let y=0; y<H; y++){
+    let n = 0;
+    for(let k=0;k<nk;k++) if(!skip[k]) n += per[y][k];
+    rows[y] = n;
+  }
+  const bands = [];
+  let st = -1, gap = 0;
+  for(let y=0; y<H; y++){
+    if(rows[y] >= 2){ if(st < 0) st = y; gap = 0; }
+    else if(st >= 0){ gap++; if(gap > 12){ bands.push([st, y-gap]); st = -1; } }
+  }
+  if(st >= 0) bands.push([st, H-1]);
+
+  bands.filter(b => {
+    if(b[0] <= S.crop.y1 + 2 || b[1]-b[0] <= 24) return false;
+    let tot = 0;
+    for(let y=b[0]; y<=b[1]; y++) tot += rows[y];
+    return tot > wide*0.6;                                   /* 내용이 어느 정도 있는 칸만 */
+  }).forEach(b => {
+    const rect = {x0:px0, y0:b[0], x1:px1, y1:b[1]};
+    const P = buildOwner(pal.map(c => ({c, t2:44*44})), rect);
+    const iu = pal.findIndex(c => dist2(c, up) < 1), id = pal.findIndex(c => dist2(c, dn) < 1);
+    /* 거래량: 캔들 색 막대가 칸 바닥에 나란히 붙어 있다 */
+    const cu = iu >= 0 ? runsOf(P, iu) : null, cd2 = id >= 0 ? runsOf(P, id) : null;
+    let base = -1, onBase = 0, barsSeen = 0;
+    if(cu || cd2){
+      for(let x=0; x<rect.x1-rect.x0+1; x++){
+        const rs = (cu ? cu[x] : []).concat(cd2 ? cd2[x] : []);
+        rs.forEach(r => { if(r[1] > base) base = r[1]; });
+      }
+      bars.forEach(bar => {
+        const rs = [];
+        for(let x=Math.round(bar.i0); x<=Math.round(bar.i1); x++){
+          if(cu && cu[x]) rs.push.apply(rs, cu[x]);
+          if(cd2 && cd2[x]) rs.push.apply(rs, cd2[x]);
+        }
+        if(!rs.length) return;
+        barsSeen++;
+        if(Math.max.apply(null, rs.map(r=>r[1])) >= base-5) onBase++;
+      });
+    }
+    if(barsSeen > bars.length*0.5 && onBase > barsSeen*0.7){
+      out.push({kind:'vol', y0:b[0], y1:b[1], base});   /* runsOf 는 이미 그림 전체 기준 y 를 준다 */
+      return;
+    }
+    /* 보조지표: 가늘게 이어지는 선이 있는 칸 */
+    const thick = Math.max(4, Math.round((b[1]-b[0])*0.06));
+    const cols = [];
+    pal.forEach((c,k) => {
+      if(k === iu || k === id) return;
+      const runs = runsOf(P, k);
+      let any = 0, thin = 0;
+      runs.forEach(rs => { if(!rs.length) return; any++;
+        if(rs.every(r => runLen(r) <= thick)) thin++; });
+      if(any > (rect.x1-rect.x0)*0.5 && thin > any*0.7) cols.push({c, any});
+    });
+    if(cols.length) out.push({kind:'osc', y0:b[0], y1:b[1],
+      colors: cols.sort((a,b2)=> b2.any - a.any).slice(0,3).map(o => o.c)});
+  });
+  return out.slice(0, 4);
+}
+
+function autoRead(){
+  const W = S.W, H = S.H, full = {x0:0, y0:0, x1:W-1, y1:H-1};
+  const fail = why => ({ok:false, why});
+  if(!S.px) return fail('그림이 없습니다');
+
+  /* 1) 후보 색 모으기 */
+  let pal = [];
+  const add = c => { if(!isBgColor(c) && !pal.some(p => dist2(p,c) < 26*26)) pal.push(c); };
+  /* 그림에서 실제로 얼마나 쓰였는지 (범례 네모 색 중 진짜 쓰이는 것만 고르려고) */
+  const usage = c => { let n = 0;
+    for(let y=0; y<H; y+=4) for(let x=0; x<W; x+=4){
+      const i = (y*W+x)*4, dr = S.px[i]-c[0], dg = S.px[i+1]-c[1], db = S.px[i+2]-c[2];
+      if(dr*dr+dg*dg+db*db < 30*30) n++;
+    }
+    return n; };
+  const chips = findChips();
+  chips.forEach(k => { k.row = Math.round(k.y0/14); });
+  const dupColor = c => chips.filter(k => dist2(k.c, c) < 26*26).length >= 2;
+  chips.sort((a,b)=> (a.row - b.row) || (a.x - b.x));
+  /* 같은 색이 범례에 두 번 나올 수 있어(기준선과 60일선이 둘 다 초록 등)
+     찾을 줄을 정해 줄 수 있게 한다 */
+  const chipIdx = (c, row) => { let bi = -1, bd = 26*26;
+    chips.forEach((k,i)=>{ if(row != null && k.row !== row) return;
+      const d = dist2(k.c, c); if(d < bd){ bd = d; bi = i; } }); return bi; };
+  swatchesIn(full).forEach(s2 => add(s2.c));           /* 많이 쓰인 색 먼저 */
+  chips.map(k => ({k, n: usage(k.c)}))                 /* 범례 색은 실제로 쓰인 순서로 */
+       .filter(o => o.n >= 60).sort((a,b)=> b.n - a.n)
+       .forEach(o => add(o.k.c));
+  if(pal.length < 2) return fail('차트에서 쓰인 색을 찾지 못했습니다');
+  pal = pal.slice(0, 26);
+  const O1 = buildOwner(pal.map(c => ({c, t2: 44*44})), full);
+  const sc = colorScan(O1, pal.length);
+  const st = pal.map((c,k) => {
+    let first = -1, last = -1, tot = 0, groups = 0, on = false;
+    for(let x=0; x<W; x++){
+      const v = sc.col[k][x]; tot += v;
+      if(v >= 2){ if(first < 0) first = x; last = x; if(!on){ groups++; on = true; } } else on = false;
+    }
+    return {c, k, first, last, tot, groups, span: last-first+1,
+            mean: sc.runN[k] ? sc.runSum[k]/sc.runN[k] : 0, max: sc.runMax[k]};
+  });
+
+  /* 2) 캔들 색 두 가지 = 세로로 길쭉한 덩어리가 넓게 흩어져 있는 색 */
+  const cc = st.filter(v => v.span > W*0.3 && v.groups >= 12 && v.mean >= 2.2 && v.max >= 8)
+               .sort((a,b) => b.tot - a.tot).slice(0, 2);
+  if(cc.length < 2 || cc[1].tot < cc[0].tot*0.06) return fail('캔들을 찾지 못했습니다');
+
+  /* 3) 가격 칸 고르기 (아래 거래량 칸과 나눈다) */
+  const rows = new Int32Array(H);
+  for(let y=0; y<H; y++){
+    let n = 0; const row = y*W;
+    for(let x=0; x<W; x++){ const k = O1.own[row+x]; if(k === cc[0].k+1 || k === cc[1].k+1) n++; }
+    rows[y] = n;
+  }
+  const bands = []; let st0 = -1, gap = 0;
+  for(let y=0; y<H; y++){
+    if(rows[y] >= 3){ if(st0 < 0) st0 = y; gap = 0; }
+    else if(st0 >= 0){ gap++; if(gap > 8){ bands.push([st0, y-gap]); st0 = -1; } }
+  }
+  if(st0 >= 0) bands.push([st0, H-1]);
+  const band = bands.sort((a,b) => (b[1]-b[0]) - (a[1]-a[0]))[0];
+  if(!band || band[1]-band[0] < H*0.08) return fail('캔들이 그려진 칸을 찾지 못했습니다');
+
+  /* 4) 봉 세기 → 자를 영역 정하기 */
+  const bandRect = {x0:0, y0:band[0], x1:W-1, y1:band[1]};
+  const Ob = buildOwner([{c:cc[0].c, t2:44*44}, {c:cc[1].c, t2:44*44}], bandRect);
+  const cd0 = candlesFrom(runsOf(Ob,0), runsOf(Ob,1), null);
+  if(cd0.bars.length < 10) return fail('봉을 세지 못했습니다');
+  const bs0 = cd0.bars;
+  const pitch = Math.max(2, cd0.pitch || median(bs0.slice(1).map((b,i)=> b.cx - bs0[i].cx)) || 5);
+  const medH0 = median(bs0.map(b => b.low-b.high+1));
+  let real = bs0.filter(b => (b.low-b.high+1) >= Math.max(3, medH0*0.1));
+  if(real.length < 10) return fail('봉을 세지 못했습니다');
+  /* 캔들은 일정한 간격으로 늘어서 있다 — 그 규칙이 이어지는 가장 긴 구간만 남긴다.
+     (현재가 딱지·눈금·차트 안 글씨는 간격이 제멋대로라 여기서 걸러진다) */
+  const seq = [[real[0]]];
+  for(let i=1;i<real.length;i++){
+    const d = real[i].cx - real[i-1].cx, k = Math.round(d/pitch);
+    if(k >= 1 && k <= 4 && Math.abs(d - k*pitch) <= pitch*0.35) seq[seq.length-1].push(real[i]);
+    else seq.push([real[i]]);
+  }
+  real = seq.sort((a,b)=> b.length - a.length)[0];
+  if(real.length < 10) return fail('봉을 세지 못했습니다');
+  const bx0 = real[0].i0, bx1 = real[real.length-1].i1;
+  let top = band[0], bot = band[1];
+  const padY = Math.round((bot-top)*0.03);
+  let y0 = Math.max(0, top - padY);
+  chips.forEach(k => { if(k.y1 < top) y0 = Math.max(y0, k.y1 + 3); });   /* 범례는 넣지 않는다 */
+  S.crop = {x0: Math.max(0, bx0-2), y0,
+            x1: Math.min(W-1, bx1 + Math.round(27*pitch)), y1: Math.min(H-1, bot + padY)};
+  S.barMaxCol = bx1 + 2;
+
+  /* 5) 양봉·음봉 가리기 — 시가가 앞 봉 종가와 이어지는 쪽이 맞다 */
+  const flipErr = flip => {
+    let e = 0;
+    for(let i=1;i<real.length;i++){
+      const b = real[i], p = real[i-1];
+      const bUp = flip ? b.type !== 'up' : b.type === 'up';
+      const pUp = flip ? p.type !== 'up' : p.type === 'up';
+      e += Math.abs((bUp ? b.bodyBot : b.bodyTop) - (pUp ? p.bodyTop : p.bodyBot));
+    }
+    return e;
+  };
+  let up = cc[0].c, dn = cc[1].c;
+  const e0 = flipErr(false), e1 = flipErr(true);
+  if(Math.min(e0,e1) > 0 && Math.abs(e0-e1)/Math.max(e0,e1) > 0.03){ if(e1 < e0){ up = cc[1].c; dn = cc[0].c; } }
+  else if(warmth(cc[1].c) > warmth(cc[0].c)){ up = cc[1].c; dn = cc[0].c; }   /* 못 가리면 붉은 쪽을 양봉으로 */
+
+  /* 6) 자른 영역에서 나머지 색이 무엇인지 맞추기 */
+  S.roles = {}; S.mas = [];
+  S.roles.candleUp = {c: up, pt: null};
+  S.roles.candleDown = {c: dn, pt: null};
+  const others = st.filter(v => dist2(v.c, up) > 20*20 && dist2(v.c, dn) > 20*20 && v.tot > 400);
+  const pal2 = [{c:up, t2:44*44}, {c:dn, t2:44*44}]
+    .concat(others.map(v => ({c: v.c, t2: 44*44})));
+  const Oc = buildOwner(pal2, S.crop);
+  const cd = candlesFrom(runsOf(Oc,0), runsOf(Oc,1), S.barMaxCol - S.crop.x0);
+  if(cd.bars.length < 10) return fail('봉을 세지 못했습니다');
+  const bars = cd.bars, cropH = S.crop.y1-S.crop.y0+1, nCol = S.crop.x1-S.crop.x0+1;
+  const tpls = makeTemplates(bars);
+  const thick = Math.max(5, Math.round(cropH*0.02));
+  const found = [{label:'양봉', c:up}, {label:'음봉', c:dn}];
+  const fills = [], lines = [], grids = [];
+
+  const lim = Math.max(10, Math.min(nCol-1, S.barMaxCol - S.crop.x0));
+  const tallY = Math.max(9, cropH*0.018);
+  others.forEach((v,i) => {
+    const runs = runsOf(Oc, i+2);
+    let tallCol = 0, twoCol = 0, anyCol = 0, px = 0;
+    runs.forEach((rs,x) => {
+      if(!rs.length) return;
+      anyCol++;
+      let mx = 0;
+      rs.forEach(r => { const L = runLen(r); px += L; if(L > mx) mx = L; });
+      if(mx >= tallY) tallCol++;                                   /* 한 줄이 통째로 두꺼운 칸 */
+      if(x <= lim && rs.filter(r => runLen(r) <= thick).length >= 2) twoCol++;
+    });
+    if(!anyCol) return;
+    const item = {v, runs, lruns: runs.slice(0, lim+1), chip: chipIdx(v.c),
+                  tall: tallCol/nCol, two: twoCol/(lim+1), any: anyCol/nCol, dens: px/anyCol};
+    /* 구름은 증권사마다 통째로 칠하기도 하고 세로 빗금으로 그리기도 한다.
+       둘 다 '위아래 두 줄이 있고 그 사이가 색으로 차 있는' 모양이 된다.
+       바탕색(칸 전체를 덮는 색)은 뺀다 */
+    if(item.dens > cropH*0.4) return;
+    const gi = gridInfo(runs, S.crop.y0, cropH);
+    item.grid = gi.lines;
+    if(gi.isGrid){ grids.push({item, gi}); return; }         /* 가로 눈금선 */
+    if((item.two >= 0.4 && item.dens >= 7) || (item.tall >= 0.12 && item.dens >= 8)) fills.push(item);
+    else lines.push(item);
+  });
+
+  /* 구름 = 넓게 칠해진 면. 붉은 쪽을 양운으로 본다 */
+  /* 띠 모양 중 가운데가 이동평균과 맞으면 볼린저밴드, 아니면 구름 */
+  const clouds = [];
+  fills.forEach(item => {
+    if(!S.roles.bbBand && item.two >= 0.5){
+      const bb = bandFrom(item.lruns, thick);
+      const mid = bb.up.map((u,i)=> (u==null||bb.lo[i]==null) ? null : (u+bb.lo[i])/2);
+      const hit = matchLine(mid, bars, tpls.filter(t => t.kind === 'ma' && t.N >= 10 && t.N <= 30));
+      if(hit && hit.e < cropH*0.02){
+        S.roles.bbBand = {c: item.v.c, pt:null};
+        found.push({label:'볼린저밴드 (중심 ' + hit.t.N + '일)', c:item.v.c, e:hit.e/cropH});
+        item.done = 1; return;
+      }
+    }
+    clouds.push(item);
+  });
+  if(clouds.length){
+    /* 구름은 두 가지 색으로 칠해진다 — 따뜻한 쪽이 양운, 찬 쪽이 음운.
+       같은 계열을 여러 톤으로 겹쳐 그리는 경우가 많아 그 톤들을 함께 쓴다 */
+    const warm = clouds.filter(f => warmth(f.v.c) > 6).sort((a,b)=> b.any - a.any);
+    const cool = clouds.filter(f => warmth(f.v.c) < -6).sort((a,b)=> b.any - a.any);
+    if(warm.length){
+      S.roles.cloudUp = {c: warm[0].v.c, pt:null, extra: warm.slice(1,3).map(f=>f.v.c)};
+      found.push({label:'구름 · 양운', c: warm[0].v.c});
+    }
+    if(cool.length){
+      S.roles.cloudDown = {c: cool[0].v.c, pt:null, extra: cool.slice(1,3).map(f=>f.v.c)};
+      found.push({label:'구름 · 음운', c: cool[0].v.c});
+    }
+  }
+
+  /* 선 = 이평선·전환선·기준선 (정답표와 견줘 이름을 붙인다) */
+  const used = {};
+  lines.forEach(item => {
+    if(item.two > 0.5){                                   /* 위아래 두 줄 = 볼린저 */
+      const bb = bandFrom(item.lruns, thick);
+      const mid = bb.up.map((u,i)=> (u==null||bb.lo[i]==null) ? null : (u+bb.lo[i])/2);
+      const hit = matchLine(mid, bars, tpls.filter(t=>t.kind==='ma'));
+      if(hit && hit.e < cropH*0.03){
+        S.roles.bbBand = {c: item.v.c, pt:null};
+        found.push({label:'볼린저밴드 (중심 ' + hit.t.N + '일)', c:item.v.c, e:hit.e/cropH});
+        item.done = 1; return;
+      }
+    }
+    const ln = lineFrom(item.lruns, thick);
+    if(ln.cover < 0.45) return;
+    const hit = matchLine(ln.y, bars, tpls);
+    if(!hit || hit.e > cropH*0.022) return;
+    const t = hit.t, err = hit.e/cropH;
+    if(t.kind === 'ma'){
+      if(used['ma'+t.N]) return;
+      used['ma'+t.N] = 1;
+      S.mas.push({id:'ma:'+t.N+':'+Math.random().toString(36).slice(2,6), period:t.N, c:item.v.c, pt:null, chip:item.chip});
+      found.push({label:t.N+'일선', c:item.v.c, e:err, dup: dupColor(item.v.c)});
+      item.done = 1;
+    } else if(t.kind === 'tenkan' && !S.roles.tenkan){
+      S.roles.tenkan = {c:item.v.c, pt:null}; found.push({label:'전환선(9)', c:item.v.c, e:err}); item.done = 1;
+    } else if(t.kind === 'kijun' && !S.roles.kijun){
+      S.roles.kijun = {c:item.v.c, pt:null}; found.push({label:'기준선(26)', c:item.v.c, e:err}); item.done = 1;
+    } else if(t.kind === 'spanA' || t.kind === 'spanB' || t.kind === 'chikou'){
+      found.push({label:t.label, c:item.v.c, e:err, side:true});
+    }
+  });
+
+  /* 보이는 봉보다 긴 이평선(60·120·200일 등)은 계산으로 확인할 수 없다.
+     매끈하게 이어지는 선이면 범례에 놓인 차례대로 흔히 쓰는 기간을 넣어 둔다 */
+  const known = S.mas.filter(m => m.chip >= 0).sort((a,b)=> a.chip - b.chip);
+  const maRow = known.length ? chips[known[0].chip].row : null;
+  const clean = lines.filter(it => !it.done && it.dens < 8 && it.tall < 0.05
+                                   && it.two < 0.15 && it.any > 0.55)
+                     .map(it => { it.chip = chipIdx(it.v.c, maRow); return it; })
+                     .filter(it => it.chip >= 0);
+  if(clean.length && known.length){
+    {
+      const anchor = known[0], ai = STD_MA.indexOf(anchor.period);
+      if(ai >= 0){
+        const seq = known.concat(clean.map(it => ({chip:it.chip, item:it})))
+                         .sort((a,b)=> a.chip - b.chip);
+        const base = seq.findIndex(x => x.chip === anchor.chip);
+        seq.forEach((x, i) => {
+          if(!x.item) return;
+          const N = STD_MA[ai + (i - base)];
+          if(!N || used['ma'+N]) return;
+          const ln2 = lineFrom(x.item.lruns, thick);
+          if(ln2.cover < 0.5) return;
+          used['ma'+N] = 1;
+          S.mas.push({id:'ma:'+N+':'+Math.random().toString(36).slice(2,6), period:N, c:x.item.v.c, pt:null});
+          found.push({label:N+'일선', c:x.item.v.c, guess:true, dup: dupColor(x.item.v.c)});
+        });
+      }
+    }
+  }
+  S.panes = findPanes(O1, pal, W, H, bars, up, dn);
+  if(S.panes.length) found.push({label:'아래 칸 ' + S.panes.length + '개', c:[120,120,140], side:true});
+  S.mas.sort((a,b)=> a.period - b.period);
+  const dbg = grids.map(g => ({c:g.item.v.c, kind:'눈금', tall:0, dens:+g.item.dens.toFixed(1), any:+g.item.any.toFixed(2), grid:g.gi.lines}))
+    .concat(fills.map(f => ({c:f.v.c, kind:'면', tall:+f.tall.toFixed(2), dens:+f.dens.toFixed(1), any:+f.any.toFixed(2), grid:f.grid})))
+    .concat(lines.map(f => ({c:f.v.c, kind:'선', tall:+f.tall.toFixed(2), dens:+f.dens.toFixed(1), any:+f.any.toFixed(2), two:+f.two.toFixed(2), grid:f.grid, done:!!f.done})));
+  return {ok:true, found, bars: bars.length, pitch, chips: chips.length, pal: pal.length, dbg};
+}
+
+/* ═════════════════════════════════════════════
+   아래 칸 읽기 — 거래량과 보조지표(RSI·MACD·스토캐스틱)
+   캔들에서 뽑은 값으로 지표를 직접 계산해 그려진 선과 맞춰 봅니다.
+   ═════════════════════════════════════════════ */
+function sma(a, n){
+  const o = new Array(a.length).fill(null);
+  let s = 0, c = 0;
+  for(let i=0;i<a.length;i++){
+    if(a[i] == null){ s = 0; c = 0; continue; }
+    s += a[i]; c++;
+    if(c > n){ s -= a[i-n]; c = n; }
+    if(c === n) o[i] = s/n;
+  }
+  return o;
+}
+function ema(a, n){
+  const o = new Array(a.length).fill(null), k = 2/(n+1);
+  let e = null;
+  for(let i=0;i<a.length;i++){ if(a[i] == null) continue;
+    e = e == null ? a[i] : a[i]*k + e*(1-k); o[i] = e; }
+  return o;
+}
+function rsiOf(v, n){
+  const o = new Array(v.length).fill(null);
+  let au = 0, ad = 0;
+  for(let i=1;i<v.length;i++){
+    const d = v[i]-v[i-1], u = Math.max(0,d), w = Math.max(0,-d);
+    if(i <= n){ au += u/n; ad += w/n; if(i === n) o[i] = 100 - 100/(1 + au/(ad || 1e-9)); }
+    else { au = (au*(n-1)+u)/n; ad = (ad*(n-1)+w)/n; o[i] = 100 - 100/(1 + au/(ad || 1e-9)); }
+  }
+  return o;
+}
+function stochOf(v, hi, lo, n, sm){
+  const k = new Array(v.length).fill(null);
+  for(let i=n-1;i<v.length;i++){
+    let h = -Infinity, l = Infinity;
+    for(let j=i-n+1;j<=i;j++){ if(hi[j] > h) h = hi[j]; if(lo[j] < l) l = lo[j]; }
+    k[i] = (v[i]-l)/((h-l) || 1e-9)*100;
+  }
+  return sm > 1 ? sma(k, sm) : k;
+}
+/* 그려진 선과 계산값을 견줘 눈금(값↔픽셀)까지 찾아낸다 */
+function fitSeries(y, bars, vals){
+  const xs = [], ys = [];
+  for(let i=0;i<bars.length;i++){
+    const v = vals[i]; if(v == null || !isFinite(v)) continue;
+    const yy = y[Math.round(bars[i].cx)]; if(yy == null) continue;
+    xs.push(v); ys.push(yy);
+  }
+  const n = xs.length;
+  if(n < 20) return null;
+  const mx = xs.reduce((a,b)=>a+b,0)/n, my = ys.reduce((a,b)=>a+b,0)/n;
+  let sxy = 0, sxx = 0, syy = 0;
+  for(let i=0;i<n;i++){ const dx = xs[i]-mx, dy = ys[i]-my; sxy += dx*dy; sxx += dx*dx; syy += dy*dy; }
+  if(sxx <= 0 || syy <= 0) return null;
+  const a = sxy/sxx, r = sxy/Math.sqrt(sxx*syy);
+  return {a, b: my - a*mx, r, n};
+}
+function oscCandidates(bars){
+  const v = bars.map(b => -b.close), hi = bars.map(b => -b.high), lo = bars.map(b => -b.low);
+  const out = [];
+  [14, 9].forEach(n => out.push({key:'rsi', p:n, label:'RSI(' + n + ')', v: rsiOf(v, n), pct:true}));
+  [[5,1],[9,1],[12,1],[14,1],[5,3],[9,3],[12,5],[14,3],[10,6]].forEach(([n,sm]) => {
+    const k = stochOf(v, hi, lo, n, sm);
+    out.push({key:'k', p:n+(sm>1?','+sm:''), label:'스토캐스틱 %K', v:k, pct:true});
+    out.push({key:'d', p:n+(sm>1?','+sm:''), label:'스토캐스틱 %D', v:sma(k, sm >= 5 ? 5 : 3), pct:true});
+  });
+  const e12 = ema(v,12), e26 = ema(v,26);
+  const macd = v.map((_,i)=> (e12[i]==null||e26[i]==null) ? null : e12[i]-e26[i]);
+  out.push({key:'macd', p:'12,26', label:'MACD', v:macd});
+  out.push({key:'sig', p:'9', label:'MACD 시그널', v:ema(macd,9)});
+  return out;
+}
+
+function paneCards(A){
+  if(!A.bars || !S.panes || !S.panes.length) return;
+  const cands = oscCandidates(A.bars);
+  S.panes.forEach(p => {
+    const rect = {x0:S.crop.x0, y0:p.y0, x1:Math.min(S.crop.x1, S.barMaxCol == null ? S.crop.x1 : S.barMaxCol), y1:p.y1};
+    if(rect.x1 - rect.x0 < 30) return;
+    if(p.kind === 'vol') volCard(A, rect, p);
+    else oscCard(A, rect, p, cands);
+  });
+}
+
+function volCard(A, rect, p){
+  const pal = [{c:S.roles.candleUp.c, t2:44*44}, {c:S.roles.candleDown.c, t2:44*44}];
+  const O = buildOwner(pal, rect);
+  const cu = runsOf(O,0), cd = runsOf(O,1);
+  const base = p.base != null ? p.base : rect.y1;
+  const hs = [], types = [];
+  A.bars.forEach(b => {
+    let top = Infinity, pu = 0, pd = 0;
+    for(let x=Math.round(b.i0); x<=Math.round(b.i1); x++){
+      (cu[x]||[]).forEach(r => { if(r[0] < top) top = r[0]; pu += runLen(r); });
+      (cd[x]||[]).forEach(r => { if(r[0] < top) top = r[0]; pd += runLen(r); });
+    }
+    if(!isFinite(top)){ hs.push(null); types.push(null); return; }
+    hs.push(Math.max(0, base - top)); types.push(pu >= pd ? 'up' : 'down');
+  });
+  const got = hs.filter(v => v != null);
+  if(got.length < 10) return;
+  const last = hs[hs.length-1];
+  const recent = got.slice(-20), med = median(recent);
+  const ratio = med > 0 ? last/med : 1;
+  const a5 = got.slice(-5), b20 = got.slice(-25, -5);
+  const avg = x => x.reduce((s,v)=>s+v,0)/(x.length||1);
+  const trend = b20.length >= 5 ? avg(a5)/(avg(b20) || 1) : 1;
+  let mi = 0; hs.forEach((v,i)=>{ if(v != null && v > (hs[mi]||0)) mi = i; });
+  const facts = [
+    '마지막 봉 거래량은 최근 20봉 중간값의 <b>' + fmt(ratio*100, 0) + '%</b>' +
+      (ratio > 1.8 ? ' → <b>크게 늘어난 날</b>' : ratio > 1.2 ? ' → 조금 많은 편' :
+       ratio < 0.5 ? ' → <b>크게 줄어든 날</b>' : ratio < 0.8 ? ' → 조금 적은 편' : ' → 보통'),
+    '최근 5봉 평균이 그 앞 20봉 평균의 <b>' + fmt(trend*100, 0) + '%</b>' +
+      (trend > 1.2 ? ' → <b>늘어나는 중</b>' : trend < 0.8 ? ' → <b>줄어드는 중</b>' : ' → 비슷'),
+    '가장 큰 거래량은 <b>약 ' + (A.bars.length-1-mi) + '봉 전</b>입니다',
+    '마지막 봉은 ' + (types[types.length-1] === 'up' ? '<b class="u">오른 날</b>' : '<b class="d">내린 날</b>') + '의 거래량입니다'
+  ];
+  A.cards.push({t:'거래량', badge:'flat',
+    badgeText: ratio > 1.8 ? '평소보다 많음' : ratio < 0.5 ? '평소보다 적음' : '평소 수준',
+    facts,
+    mean: '거래량은 <b>방향을 말해 주는 지표가 아니라 관심의 크기</b>입니다. ' +
+      '값이 움직일 때 거래량이 함께 늘면 그 움직임에 참여한 사람이 많았다는 뜻이고, ' +
+      '거래량 없이 움직였다면 적은 손바뀜으로 생긴 값이라는 뜻으로 읽습니다.',
+    edu: '<b>거래량</b>은 그 기간에 사고팔린 주식 수입니다. 국내 차트는 오른 날을 빨강, 내린 날을 파랑으로 칠합니다. ' +
+      '거래량이 갑자기 크게 늘어난 자리는 <b>사람들의 생각이 갈린 자리</b>로 보고, 나중에 그 가격대를 눈여겨보는 경우가 많습니다.'});
+}
+
+function oscCard(A, rect, p, cands){
+  const pal = p.colors.map(c => ({c, t2:44*44}));
+  const O = buildOwner(pal, rect);
+  const thick = Math.max(4, Math.round((rect.y1-rect.y0)*0.08));
+  const got = [];
+  p.colors.forEach((c,i) => {
+    const ln = lineFrom(runsOf(O, i), thick);
+    if(ln.cover < 0.75) return;
+    let best = null;
+    cands.forEach(cd => {
+      const f = fitSeries(ln.y, A.bars, cd.v);
+      if(!f || f.a >= 0 || f.r > -0.93) return;
+      if(cd.pct){                                   /* 0~100 짜리는 눈금이 말이 돼야 한다 */
+        const vs = A.bars.map(b => { const y = ln.y[Math.round(b.cx)]; return y == null ? null : (y - f.b)/f.a; })
+                         .filter(v => v != null);
+        if(!vs.length) return;
+        const lo = Math.min.apply(null, vs), hi = Math.max.apply(null, vs);
+        if(lo < -25 || hi > 125) return;
+      }
+      if(!best || f.r < best.f.r) best = {cd, f};
+    });
+    if(!best) return;
+    const fam = best.cd.key === 'rsi' ? 'rsi'
+              : (best.cd.key === 'k' || best.cd.key === 'd') ? 'stoch' : 'macd';
+    let rough = 0, cnt = 0;
+    for(let j=1;j<A.bars.length;j++){
+      const y1 = ln.y[Math.round(A.bars[j].cx)], y0 = ln.y[Math.round(A.bars[j-1].cx)];
+      if(y1 != null && y0 != null){ rough += Math.abs(y1-y0); cnt++; }
+    }
+    got.push({c, y:ln.y, cd:best.cd, f:best.f, fam, rough: cnt ? rough/cnt : 0});
+  });
+  if(!got.length) return;
+  /* 같은 지표의 두 선은 '더 출렁이는 쪽'이 원래 선, 매끈한 쪽이 평균선(시그널·%D) */
+  const famOf = f => got.filter(g => g.fam === f).sort((a,b)=> b.rough - a.rough);
+  const val = (g, col) => { const y = g.y[col]; return y == null ? null : (y - g.f.b)/g.f.a; };
+  const now = A.nowI;
+  const dirOf = g => {
+    const a = Math.max(0, now - A.lb), v0 = val(g, a), v1 = val(g, now);
+    if(v0 == null || v1 == null) return null;
+    const d = v1 - v0, sc = g.cd.pct ? 3 : Math.abs(v0)*0.05 + 1e-9;
+    return {d: Math.abs(d) < sc ? 'flat' : (d > 0 ? 'up' : 'down'), delta:d};
+  };
+
+  const rsi = famOf('rsi')[0];
+  if(rsi){
+    const v = val(rsi, now), dd = dirOf(rsi);
+    const zone = v >= 70 ? '<b class="u">70 위</b> — 교과서에서 <b>과매수 구간</b>이라 부르는 자리' :
+                 v <= 30 ? '<b class="d">30 아래</b> — 교과서에서 <b>과매도 구간</b>이라 부르는 자리' :
+                 v >= 50 ? '50 위 (가운데보다 높은 쪽)' : '50 아래 (가운데보다 낮은 쪽)';
+    A.cards.push({t:'RSI', badge: v >= 55 ? 'up' : v <= 45 ? 'down' : 'flat',
+      facts: ['지금 값은 <b>약 ' + fmt(v, 0) + '</b> / 100 <span style="color:var(--muted)">(' + rsi.cd.label + '로 읽음)</span>',
+              zone,
+              '최근 ' + A.lbBars() + ' 동안 ' + (dd ? tag(dd.d, DIRW[dd.d]) : '-')],
+      mean: '오른 폭과 내린 폭을 견줘 <b>어느 쪽 힘이 더 셌는지</b>를 0~100으로 나타낸 값입니다. ' +
+        '70 위·30 아래를 과매수·과매도라고 부르지만, <b>추세가 셀 때는 한쪽에 오래 머무릅니다</b>. ' +
+        '그 자체로 방향이 바뀐다는 뜻은 아닙니다.',
+      edu: '<b>RSI</b>는 정해진 기간(보통 14) 동안 오른 날의 평균 상승폭과 내린 날의 평균 하락폭을 견줍니다. ' +
+        '값이 클수록 그동안 오른 힘이 셌다는 뜻입니다.'});
+    A.dirs.push(v >= 55 ? 'up' : v <= 45 ? 'down' : 'flat');
+  }
+
+  const st = famOf('stoch');
+  if(st.length){
+    const k = st[0], d = st[1] || null;
+    const kv = val(k, now), dv = d ? val(d, now) : null;
+    const facts = ['%K는 <b>약 ' + fmt(kv,0) + '</b>' + (dv != null ? ' · %D는 <b>약 ' + fmt(dv,0) + '</b>' : '')];
+    facts.push(kv >= 80 ? '<b class="u">80 위</b> — 과매수 구간이라 부르는 자리' :
+               kv <= 20 ? '<b class="d">20 아래</b> — 과매도 구간이라 부르는 자리' : '20~80 사이');
+    if(d){
+      facts.push('%K가 %D <b>' + (kv > dv ? '위' : '아래') + '</b>에 있습니다');
+      const x = A.crossOf(k.y, d.y);
+      if(x && x.frac < 0.6) facts.push('%K가 %D를 ' + (x.bars != null ? '약 <b>' + x.bars + '봉 전</b>' : '최근에') + ' ' +
+        (x.up ? '<b class="u">위로</b>' : '<b class="d">아래로</b>') + ' 지나갔습니다');
+    }
+    const dd = dirOf(k);
+    if(dd) facts.push('%K는 최근 ' + A.lbBars() + ' 동안 ' + tag(dd.d, DIRW[dd.d]));
+    const bd = dv != null ? (kv > dv ? 'up' : 'down') : (kv >= 50 ? 'up' : 'down');
+    A.cards.push({t:'스토캐스틱', badge: bd, facts,
+      mean: '요즘 값이 <b>최근 고점과 저점 사이 어디쯤</b>에서 끝나는지를 0~100으로 본 것입니다. ' +
+        '80 위는 최근 범위의 위쪽에서, 20 아래는 아래쪽에서 끝나고 있다는 뜻입니다. ' +
+        '오르는 흐름이 셀 때는 80 위에 계속 붙어 있기도 합니다.',
+      edu: '<b>스토캐스틱</b>의 %K는 (지금 값 − 최근 최저) ÷ (최근 최고 − 최근 최저) × 100이고, ' +
+        '%D는 %K를 며칠 평균 낸 선입니다. 두 선이 엇갈리는 자리를 흔히 봅니다.'});
+    A.dirs.push(bd);
+  }
+
+  const mm = famOf('macd');
+  if(mm.length){
+    const md = mm[0], sg = mm[1] || null;
+    const mv = val(md, now), sv = sg ? val(sg, now) : null;
+    const above0 = md.y[now] < md.f.b;
+    const facts = ['MACD 선이 <b>0선 ' + (above0 ? '<b class="u">위</b>' : '<b class="d">아래</b>') + '</b>에 있습니다'];
+    if(sg){
+      facts.push('MACD가 시그널 <b>' + (mv > sv ? '위' : '아래') + '</b>에 있습니다');
+      const x = A.crossOf(md.y, sg.y);
+      if(x && x.frac < 0.6) facts.push('MACD가 시그널을 ' + (x.bars != null ? '약 <b>' + x.bars + '봉 전</b>' : '최근에') + ' ' +
+        (x.up ? '<b class="u">위로</b>' : '<b class="d">아래로</b>') + ' 지나갔습니다');
+      const a = Math.max(0, now - A.lb);
+      const hNow = Math.abs(mv - sv), hPast = Math.abs(val(md,a) - val(sg,a));
+      if(isFinite(hNow) && isFinite(hPast))
+        facts.push('두 선의 벌어진 정도(막대그래프)는 최근 ' + A.lbBars() + ' 동안 ' +
+          (hNow > hPast*1.1 ? '<b>커지는 중</b>' : hNow < hPast*0.9 ? '<b>줄어드는 중</b>' : '<b>비슷</b>'));
+    }
+    const dd = dirOf(md);
+    if(dd) facts.push('MACD 선은 최근 ' + A.lbBars() + ' 동안 ' + tag(dd.d, DIRW[dd.d]));
+    const bd = sv != null ? (mv > sv ? 'up' : 'down') : (above0 ? 'up' : 'down');
+    A.cards.push({t:'MACD', badge: bd, facts,
+      mean: '짧은 기간 평균과 긴 기간 평균이 <b>얼마나 벌어져 있는지</b>를 그린 것입니다. ' +
+        '0선 위는 짧은 평균이 긴 평균보다 위에 있다는 뜻이고, 시그널선과 엇갈리는 자리를 흔히 봅니다.',
+      edu: '<b>MACD</b>는 12일 지수이동평균 − 26일 지수이동평균이고, 그 값을 다시 9일 평균 낸 것이 <b>시그널선</b>입니다. ' +
+        '둘의 차이를 막대그래프(히스토그램)로 그립니다.'});
+    A.dirs.push(bd);
+  }
+}
+
+/* ─────────────────────────────────────────────
+   결과 그리기
+   ───────────────────────────────────────────── */
+const BADGE = {up:['up','위를 향한 모양'], down:['down','아래를 향한 모양'], flat:['flat','방향이 뚜렷하지 않음']};
+$('#btnRun').onclick = ()=>{
+  const btn = $('#btnRun');
+  btn.innerHTML = '<span class="spin">◠</span> 읽는 중…'; btn.disabled = true;
+  setTimeout(()=>{
+    let A;
+    try{ A = analyze(); }
+    catch(e){ $('#results').innerHTML = '<div class="card"><div class="warn">읽는 중에 문제가 생겼습니다: ' + esc(e.message) + '</div></div>';
+      btn.innerHTML = '지표 읽기'; btn.disabled = false; return; }
+    renderResult(A);
+    btn.innerHTML = '지표 다시 읽기'; btn.disabled = false;
+    window.scrollTo({top: $('#results').offsetTop - 60, behavior:'smooth'});
+  }, 30);
+};
+
+function renderResult(A){
+  const up = A.dirs.filter(d=>d==='up').length, dn = A.dirs.filter(d=>d==='down').length,
+        fl = A.dirs.filter(d=>d==='flat').length;
+  let html = '';
+  html += '<div class="rcard" style="background:var(--brand);color:#fff;border-color:var(--brand)">' +
+    '<div class="rhead"><h3 style="color:#fff">읽은 결과 정리</h3></div>' +
+    '<p style="font-size:13px;line-height:1.8;margin-top:9px;color:#efeaff">' +
+      '지표 <b>' + A.dirs.length + '개</b>를 읽었고 그중 <b style="color:#ffb3ad">위를 향한 모양 ' + up + '</b> · ' +
+      '<b style="color:#a9c6ff">아래를 향한 모양 ' + dn + '</b> · <b>뚜렷하지 않음 ' + fl + '</b> 입니다.<br>' +
+      '이건 점수가 아니라 <b>지금 화면에 그려진 모양을 세어 본 것</b>입니다. ' +
+      '이 앱은 사고팔라는 이야기는 하지 않습니다.</p>' +
+    (A.bars ? '' : '<p style="font-size:11.5px;color:#cfc6e6;margin-top:8px">캔들 색을 찍으면 봉 개수와 가격 위치까지 함께 읽을 수 있습니다.</p>') +
+    (A.cal ? '' : '<p style="font-size:11.5px;color:#cfc6e6;margin-top:8px">가격 눈금을 맞추면 %와 실제 가격도 함께 나옵니다.</p>') +
+    '</div>';
+
+  A.cards.forEach(c => {
+    const b = BADGE[c.badge] || BADGE.flat;
+    html += '<div class="rcard">' +
+      '<div class="rhead"><h3>' + c.t + '</h3><span class="badge ' + b[0] + '">' + b[1] + '</span></div>' +
+      '<ul class="facts">' + c.facts.map(f => '<li>' + f + '</li>').join('') + '</ul>' +
+      (c.mean ? '<div class="mean"><b>지금 이 모양은</b><br>' + c.mean + '</div>' : '') +
+      (c.edu ? '<div class="edu"><b>이 지표가 뭔가요</b><br>' + c.edu + '</div>' : '') +
+      '</div>';
+  });
+
+  const bad = A.covers.filter(c => c.v < 0.55);
+  html += '<div class="rcard"><div class="rhead"><h3>얼마나 잘 읽었나</h3></div>' +
+    '<ul class="facts">' + A.covers.map(c =>
+      '<li>' + c.nm + ': 가로 폭의 <b>' + fmt(c.v*100,0) + '%</b>에서 그 색을 찾았습니다' +
+      (c.v < 0.55 ? ' — <b class="d">덜 읽혔습니다</b>' : '') + '</li>').join('') +
+      (A.bars ? '<li>캔들: <b>약 ' + A.bars.length + '봉</b>을 찾았습니다 (붙어 있는 봉은 봉 간격으로 나눠 셉니다)</li>' : '') + '</ul>' +
+    (bad.length ? '<div class="warn">' + bad.map(c=>c.nm).join(' · ') + ' 은(는) 색이 잘 안 잡혔습니다. ' +
+      '해당 선 위를 <b>확대경으로 정확히</b> 다시 찍거나, 캔들 영역을 조금 더 좁게 잘라 보세요. ' +
+      '겹쳐 그려진 선은 원래 일부만 보입니다.</div>' : '') +
+    '<p class="note">이 앱은 그림의 <b>색만 보고</b> 선을 따라갑니다. 값을 계산해서 얻은 게 아니라 화면에서 읽은 것이라, ' +
+    '선이 겹치거나 색이 비슷하면 조금씩 어긋날 수 있습니다.</p></div>';
+
+  html += '<div class="rcard"><button class="btn" id="btnSaveLog">📌 기록에 담기</button>' +
+    '<div class="btn-row"><button class="btn ghost" id="btnCopy">결과를 글로 복사하기</button></div>' +
+    '<p class="note">담아 두면 <b>기록</b> 칸에서 언제든 다시 볼 수 있습니다. 이 폰 안에만 저장됩니다.</p></div>';
+
+  S.lastA = A;
+  $('#results').innerHTML = html;
+  $('#btnSaveLog').onclick = openSaveSheet;
+  $('#btnCopy').onclick = ()=>{
+    const txt = A.cards.map(c => '[' + c.t + '] ' + (BADGE[c.badge]||BADGE.flat)[1] + '\n' +
+      c.facts.map(f => ' · ' + strip(f)).join('\n') + '\n → ' + strip(c.mean || '')).join('\n\n') +
+      '\n\n※ 차트에 그려진 지표 모양을 그대로 읽은 것이며, 사고팔라는 판단이 아닙니다.';
+    navigator.clipboard.writeText(txt).then(
+      ()=>{ $('#btnCopy').textContent = '복사했습니다 ✓'; setTimeout(()=>$('#btnCopy').textContent='결과를 글로 복사하기', 1600); },
+      ()=>{ $('#btnCopy').textContent = '복사가 안 됩니다'; });
+  };
+}
+function strip(h){ return String(h).replace(/<[^>]*>/g,'').replace(/\s+/g,' ').trim(); }
+
+/* ─────────────────────────────────────────────
+   자동으로 읽기 — 화면
+   ───────────────────────────────────────────── */
+function autoButtons(){
+  return '<div class="btn-row">' +
+    '<button class="btn ghost sm" id="btnManual">손으로 고치기</button>' +
+    '<button class="btn ghost sm" id="btnRedo">자동으로 다시</button>' +
+    '<button class="btn ghost sm" id="btnOther2">다른 사진</button></div>';
+}
+function bindAutoButtons(){
+  const m = $('#btnManual'), r = $('#btnRedo'), o = $('#btnOther2');
+  if(m) m.onclick = ()=>{
+    const box = $('#manual'); box.classList.toggle('hidden');
+    if(!box.classList.contains('hidden')) window.scrollTo({top: box.offsetTop - 60, behavior:'smooth'});
+  };
+  if(r) r.onclick = ()=> runAuto();
+  if(o) o.onclick = ()=> $('#file').click();
+}
+function runAuto(){
+  const box = $('#autoBody');
+  $('#cardAuto').classList.remove('hidden');
+  box.innerHTML = '<p class="desc"><span class="spin">◠</span> 사진에서 캔들과 보조지표를 찾는 중…</p>';
+  window.scrollTo({top: $('#cardAuto').offsetTop - 60, behavior:'smooth'});
+  setTimeout(()=>{
+    let r;
+    try{ r = autoRead(); }catch(e){ r = {ok:false, why:e.message}; }
+    if(!r.ok){
+      S.barMaxCol = null;
+      box.innerHTML = '<p class="desc">자동으로는 못 읽었습니다 — <b>' + esc(r.why) + '</b>.<br>' +
+        '아래에서 <b>캔들 영역을 자르고 색을 찍어</b> 주시면 그대로 읽습니다.</p>' + autoButtons();
+      bindAutoButtons();
+      $('#manual').classList.remove('hidden');
+      setMode('crop'); fitCanvas(); paintRoles(); drawSwatches();
+      return;
+    }
+    fitCanvas(); paintRoles(); autoSwatches(); drawSwatches(); save();
+    const chip = f => '<span class="sw' + (f.side?'':' used') + '"><i style="background:' + rgb(f.c) + '"></i>' +
+      f.label + (f.guess ? ' <b style="color:var(--gold)">짐작</b>' : '') + '</span>';
+    const main = r.found.filter(f => !f.side);
+    const notes = [];
+    if(r.found.some(f => f.guess))
+      notes.push('화면에 보이는 봉보다 <b>긴 이평선</b>(60·120·200일 등)은 캔들로 확인할 수 없어, 범례에 놓인 차례대로 <b>흔히 쓰는 기간</b>을 넣었습니다. 다르면 고쳐 주세요.');
+    if(r.found.some(f => f.dup))
+      notes.push('차트에 <b>같은 색을 쓰는 지표가 둘 이상</b> 있습니다. 그 색은 섞여서 읽힐 수 있습니다.');
+    notes.push('빠진 지표가 있으면 <b>손으로 고치기</b>에서 색을 찍어 더할 수 있습니다.');
+    box.innerHTML =
+      '<p class="desc">캔들 <b>약 ' + r.bars + '개</b>를 찾았고, 아래 지표를 읽었습니다. ' +
+        '자른 영역과 찍은 색은 <b>아래 그림</b>에 표시해 두었습니다.</p>' +
+      '<div class="swatches">' + main.map(chip).join('') + '</div>' +
+      '<div class="hint">' + notes.join('<br>') + '</div>' + autoButtons();
+    bindAutoButtons();
+    $('#btnRun').click();
+  }, 40);
+}
+
+/* ─────────────────────────────────────────────
+   기록 — 읽은 결과를 담아 두고 나중에 다시 보기
+   ───────────────────────────────────────────── */
+const LOG = 'chart-reader:log';
+function loadLog(){ try{ return JSON.parse(localStorage.getItem(LOG) || '[]'); }catch(e){ return []; } }
+function saveLog(arr){
+  for(let i=0;i<8;i++){
+    try{ localStorage.setItem(LOG, JSON.stringify(arr)); return true; }
+    catch(e){ if(arr.length < 2) return false; arr.pop(); }        /* 자리가 모자라면 오래된 것부터 */
+  }
+  return false;
+}
+function thumbURL(){
+  const c = S.crop, sw = c.x1-c.x0+1, sh = c.y1-c.y0+1;
+  const w = Math.min(220, sw), h = Math.max(1, Math.round(sh*w/sw));
+  const cv2 = document.createElement('canvas'); cv2.width = w; cv2.height = h;
+  const g = cv2.getContext('2d');
+  g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+  g.fillStyle = '#fff'; g.fillRect(0,0,w,h);
+  g.drawImage(work, c.x0, c.y0, sw, sh, 0, 0, w, h);
+  try{ return cv2.toDataURL('image/jpeg', 0.55); }catch(e){ return ''; }
+}
+function logTitles(){
+  const t = [];
+  loadLog().forEach(e => { if(e.title && t.indexOf(e.title) < 0) t.push(e.title); });
+  return t;
+}
+function openSaveSheet(){
+  const A = S.lastA;
+  if(!A) return;
+  const names = logTitles().slice(0, 8);
+  const today = new Date();
+  sheet.innerHTML =
+    '<h3>📌 이 결과를 기록에 담기</h3>' +
+    '<p style="font-size:12px;color:var(--muted);margin-top:6px">종목 이름을 적어 두면 나중에 <b>같은 종목끼리 모아</b> 볼 수 있습니다.</p>' +
+    '<div style="margin-top:10px"><input id="logName" type="text" placeholder="예: SK하이닉스" value=""></div>' +
+    (names.length ? '<div class="chips" style="margin-top:9px">' +
+      names.map(n => '<button data-nm="' + esc(n) + '">' + esc(n) + '</button>').join('') + '</div>' : '') +
+    '<button class="btn" id="logOk" style="margin-top:12px">담기</button>' +
+    '<button class="opt" data-k="cancel" style="justify-content:center;color:var(--muted)">닫기</button>';
+  sheet.querySelectorAll('[data-nm]').forEach(b => b.onclick = ()=>{ $('#logName').value = b.dataset.nm; });
+  sheet.querySelector('[data-k="cancel"]').onclick = closeSheet;
+  $('#logOk').onclick = ()=>{
+    const nm = ($('#logName').value || '').trim() ||
+      (today.getMonth()+1) + '월 ' + today.getDate() + '일 차트';
+    const up = A.dirs.filter(d=>d==='up').length, dn = A.dirs.filter(d=>d==='down').length,
+          fl = A.dirs.filter(d=>d==='flat').length;
+    const entry = {
+      id: 'e' + Date.now(), at: Date.now(), title: nm, thumb: thumbURL(), cal: !!A.cal,
+      sum: {up, dn, fl}, bars: A.bars ? A.bars.length : null,
+      cards: A.cards.map(c => ({t:c.t, badge:c.badge, badgeText:c.badgeText || null,
+                                facts: c.facts.map(strip)}))
+    };
+    const arr = loadLog();
+    arr.unshift(entry);
+    const ok = saveLog(arr);
+    closeSheet();
+    paintLog();
+    const btn = $('#btnSaveLog');
+    if(btn){ btn.textContent = ok ? '기록에 담았습니다 ✓' : '자리가 모자라 담지 못했습니다';
+      setTimeout(()=>{ if($('#btnSaveLog')) $('#btnSaveLog').textContent = '📌 기록에 담기'; }, 1800); }
+  };
+  sheetBg.classList.add('on'); sheet.classList.add('on');
+  setTimeout(()=>{ const i = $('#logName'); if(i) i.focus(); }, 220);
+}
+
+let logFilter = null, logOpen = {};
+function paintLog(){
+  const arr = loadLog(), box = $('#secLog');
+  if(!arr.length){
+    box.innerHTML = '<div class="card"><h2><span class="step">📌</span>기록</h2>' +
+      '<p class="desc">아직 담아 둔 것이 없습니다.<br>차트를 읽은 뒤 결과 아래 <b>📌 기록에 담기</b>를 누르면 여기에 쌓입니다.<br><br>' +
+      '같은 종목을 여러 날 담아 두면 <b>지표가 어떻게 달라졌는지</b> 죽 훑어볼 수 있습니다.</p></div>';
+    return;
+  }
+  const titles = [];
+  arr.forEach(e => { if(titles.indexOf(e.title) < 0) titles.push(e.title); });
+  if(logFilter && titles.indexOf(logFilter) < 0) logFilter = null;
+  const list = logFilter ? arr.filter(e => e.title === logFilter) : arr;
+  const B = {up:['up','위'], down:['down','아래'], flat:['flat','중립']};
+  box.innerHTML =
+    '<div class="card"><h2><span class="step">📌</span>기록 <span style="font-size:12px;font-weight:700;color:var(--muted)">' + arr.length + '개</span></h2>' +
+    '<p class="desc">담아 둔 결과입니다. 눌러서 자세히 보고, 필요 없으면 지우면 됩니다. ' +
+    '이 기록은 <b>이 폰 안에만</b> 있습니다.</p></div>' +
+    (titles.length > 1 ? '<div class="chips"><button class="' + (logFilter?'':'on') + '" data-f="">전체</button>' +
+      titles.map(t => '<button class="' + (logFilter===t?'on':'') + '" data-f="' + esc(t) + '">' + esc(t) + '</button>').join('') + '</div>' : '') +
+    list.map(e => {
+      const d = new Date(e.at);
+      const when = d.getFullYear() + '.' + (d.getMonth()+1) + '.' + d.getDate() + ' ' +
+        String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+      const open = !!logOpen[e.id];
+      return '<div class="logrow">' +
+        (e.thumb ? '<img src="' + e.thumb + '" alt="">' : '') +
+        '<div class="info"><div class="ttl">' + esc(e.title) + '</div>' +
+        '<div class="dt">' + when + (e.bars ? ' · 약 ' + e.bars + '봉' : '') + '</div>' +
+        '<div class="sum">' +
+          '<span class="badge up">위 ' + e.sum.up + '</span>' +
+          '<span class="badge down">아래 ' + e.sum.dn + '</span>' +
+          '<span class="badge flat">중립 ' + e.sum.fl + '</span></div>' +
+        '<div class="acts">' +
+          '<button data-o="' + e.id + '">' + (open ? '접기' : '자세히') + '</button>' +
+          '<button data-r="' + e.id + '">이름</button>' +
+          '<button data-x="' + e.id + '" style="color:var(--muted)">지움</button></div>' +
+        (open ? '<div class="logdetail">' + e.cards.map(c =>
+            '<h4>' + esc(c.t) + ' <span style="font-weight:700;color:var(--muted)">' +
+            esc(c.badgeText || (B[c.badge]||B.flat)[1]) + '</span></h4><ul>' +
+            c.facts.map(f => '<li>' + esc(f) + '</li>').join('') + '</ul>').join('') + '</div>' : '') +
+        '</div></div>';
+    }).join('');
+  box.querySelectorAll('[data-f]').forEach(b => b.onclick = ()=>{ logFilter = b.dataset.f || null; paintLog(); });
+  box.querySelectorAll('[data-o]').forEach(b => b.onclick = ()=>{
+    logOpen[b.dataset.o] = !logOpen[b.dataset.o]; paintLog(); });
+  box.querySelectorAll('[data-r]').forEach(b => b.onclick = ()=>{
+    const arr2 = loadLog(), e = arr2.find(x => x.id === b.dataset.r);
+    if(!e) return;
+    const nm = prompt('이름을 적어 주세요', e.title);
+    if(nm == null) return;
+    e.title = nm.trim() || e.title; saveLog(arr2); paintLog();
+  });
+  box.querySelectorAll('[data-x]').forEach(b => b.onclick = ()=>{
+    if(!confirm('이 기록을 지울까요?')) return;
+    saveLog(loadLog().filter(x => x.id !== b.dataset.x)); paintLog();
+  });
+}
+
+/* ─────────────────────────────────────────────
+   지표 사전
+   ───────────────────────────────────────────── */
+$('#secDict').innerHTML = `
+<div class="card dict">
+  <h3>이 앱이 하는 일</h3>
+  <p>차트 캡처에서 <b>색을 보고 선을 따라간 다음</b>, 그 선들이 지금 어떤 모양으로 놓여 있는지를 말로 옮겨 줍니다.
+  올라간다·내려간다·사라·팔라 같은 <b>판단은 하지 않습니다</b>. 교과서에서 그 모양을 뭐라고 부르고
+  어떤 뜻으로 읽는지까지만 적습니다.</p>
+  <p>값을 직접 계산하는 게 아니라 <b>그림을 읽는</b> 방식이라, 선이 겹치거나 색이 비슷하면 조금 어긋날 수 있습니다.
+  결과의 <b>얼마나 잘 읽었나</b> 칸을 같이 보세요.</p>
+</div>
+
+<div class="card dict">
+  <h3>📉 이동평균선 (MA)</h3>
+  <p>최근 N일 종가의 평균을 이어 그린 선입니다. <b>그 기간에 산 사람들의 평균 단가</b>에 가깝다고 보면 쉽습니다.
+  5·20·60·120일이 많이 쓰이고, 짧을수록 값에 빨리 반응합니다.</p>
+  <ul>
+    <li><span class="k">정배열</span> 짧은 선이 위, 긴 선이 아래로 차례로 놓인 모양 — 상승 추세가 정돈된 상태</li>
+    <li><span class="k">역배열</span> 그 반대 — 하락 추세가 정돈된 상태</li>
+    <li><span class="k">골든크로스</span> 짧은 선이 긴 선을 <b>위로</b> 지나감</li>
+    <li><span class="k">데드크로스</span> 짧은 선이 긴 선을 <b>아래로</b> 지나감</li>
+    <li><span class="k">이격도</span> 가격 ÷ 이평선 × 100. 100이면 평균과 같고, 멀어질수록 평균에서 떨어져 있다는 뜻</li>
+  </ul>
+  <p>선 자체는 <b>지나간 값의 평균</b>이라 항상 가격보다 늦게 움직입니다. 그래서 방향이 자주 바뀌는 구간에서는
+  교차 신호가 자주 뒤집힙니다.</p>
+</div>
+
+<div class="card dict">
+  <h3>🎈 볼린저밴드</h3>
+  <p>가운데 <b>20일 이동평균선</b>을 놓고, 거기서 <b>표준편차의 2배</b>만큼 위아래로 벌려 만든 띠입니다.
+  값이 평소보다 얼마나 흔들리는지를 <b>띠의 폭</b>으로 보여 줍니다.</p>
+  <ul>
+    <li><span class="k">수축 · 스퀴즈</span> 폭이 좁아진 구간. 변동성이 줄었다는 뜻이며 <b>방향을 알려주지는 않습니다</b></li>
+    <li><span class="k">확장</span> 폭이 벌어진 구간. 값이 크게 흔들리는 중</li>
+    <li><span class="k">%B</span> 밴드 안에서 가격의 위치. 0이면 하단선, 100이면 상단선</li>
+    <li><span class="k">밴드 타기</span> 한쪽 선에 붙어서 계속 가는 모습. 추세가 강할 때 나타납니다</li>
+  </ul>
+  <p>상단선에 닿았다는 건 <b>평소보다 많이 올랐다</b>는 표시일 뿐, 그것만으로 방향이 바뀐다는 뜻은 아닙니다.
+  하단선도 마찬가지입니다.</p>
+</div>
+
+<div class="card dict">
+  <h3>☁️ 일목균형표</h3>
+  <p>다섯 개의 선으로 <b>가격·시간의 균형</b>을 보는 지표입니다. 이름이 어려워 보이지만 실제로 가장 많이 보는 건
+  <b>가격이 구름의 어느 쪽에 있는가</b> 하나입니다.</p>
+  <ul>
+    <li><span class="k">전환선</span> 최근 9칸의 (최고+최저)÷2</li>
+    <li><span class="k">기준선</span> 최근 26칸의 (최고+최저)÷2 — 중심 역할</li>
+    <li><span class="k">선행스팬1</span> (전환선+기준선)÷2 를 <b>26칸 앞</b>에 그림</li>
+    <li><span class="k">선행스팬2</span> 최근 52칸의 (최고+최저)÷2 를 <b>26칸 앞</b>에 그림</li>
+    <li><span class="k">구름</span> 선행스팬 1·2 사이를 칠한 띠. 26칸 앞까지 미리 그려져 있습니다</li>
+    <li><span class="k">후행스팬</span> 오늘 종가를 <b>26칸 뒤</b>에 그린 선</li>
+  </ul>
+  <p><b>양운</b>은 선행1이 위인 구름, <b>음운</b>은 선행2가 위인 구름이고, 그 색이 바뀌는 자리를 <b>구름 전환</b>이라고 합니다.
+  구름이 두꺼울수록 그 구간을 지나기 어려운 벽으로 보고, 얇을수록 쉽게 지나갈 수 있는 구간으로 봅니다.
+  <b>구름 속</b>에 있을 때는 균형이 잡히지 않은 구간이라 방향을 말하지 않는 것이 원칙입니다.</p>
+  <p><span class="k">호전</span> 전환선이 기준선 위 · <span class="k">역전</span> 전환선이 기준선 아래</p>
+</div>
+
+<div class="card dict">
+  <h3>📊 거래량</h3>
+  <p>그 기간에 <b>사고팔린 주식 수</b>입니다. 방향을 알려 주는 지표가 아니라 <b>관심의 크기</b>로 읽습니다.
+  값이 움직일 때 거래량이 함께 늘면 그 움직임에 참여한 사람이 많았다는 뜻이고,
+  거래량 없이 움직였다면 적은 손바뀜으로 생긴 값이라는 뜻입니다.
+  국내 차트는 오른 날을 빨강, 내린 날을 파랑으로 칠합니다.</p>
+</div>
+
+<div class="card dict">
+  <h3>🌡️ RSI</h3>
+  <p>정해진 기간(보통 14일) 동안 <b>오른 날의 평균 상승폭과 내린 날의 평균 하락폭</b>을 견줘
+  0~100으로 나타낸 값입니다. 값이 클수록 그동안 오른 힘이 셌다는 뜻입니다.</p>
+  <ul>
+    <li><span class="k">70 위</span> 과매수 구간이라 부릅니다</li>
+    <li><span class="k">30 아래</span> 과매도 구간이라 부릅니다</li>
+    <li><span class="k">50</span> 오른 힘과 내린 힘이 비슷했던 자리</li>
+  </ul>
+  <p>다만 <b>추세가 셀 때는 70 위(또는 30 아래)에 오래 머무릅니다</b>.
+  그 자체로 방향이 바뀐다는 뜻은 아닙니다.</p>
+</div>
+
+<div class="card dict">
+  <h3>〽️ MACD</h3>
+  <p><b>12일 지수이동평균 − 26일 지수이동평균</b>입니다. 짧은 평균과 긴 평균이 얼마나 벌어져 있는지를 그립니다.
+  그 값을 다시 9일 평균 낸 것이 <b>시그널선</b>이고, 둘의 차이를 막대그래프로 그린 것이 <b>히스토그램</b>입니다.</p>
+  <ul>
+    <li><span class="k">0선 위</span> 짧은 평균이 긴 평균보다 위에 있다는 뜻</li>
+    <li><span class="k">시그널 교차</span> MACD가 시그널을 위/아래로 지나가는 자리를 흔히 봅니다</li>
+    <li><span class="k">히스토그램</span> 커지면 두 평균이 더 벌어지는 중, 줄어들면 좁혀지는 중</li>
+  </ul>
+</div>
+
+<div class="card dict">
+  <h3>🎚️ 스토캐스틱</h3>
+  <p>요즘 값이 <b>최근 고점과 저점 사이 어디쯤</b>에서 끝나는지를 0~100으로 본 것입니다.</p>
+  <ul>
+    <li><span class="k">%K</span> (지금 값 − 최근 최저) ÷ (최근 최고 − 최근 최저) × 100</li>
+    <li><span class="k">%D</span> %K를 며칠 평균 낸 선</li>
+    <li><span class="k">80 위 · 20 아래</span> 과매수·과매도 구간이라 부릅니다</li>
+  </ul>
+  <p>오르는 흐름이 셀 때는 80 위에 계속 붙어 있기도 합니다.</p>
+</div>
+
+<div class="card dict">
+  <h3>🕯️ 캔들</h3>
+  <p>한 칸이 하루(또는 1분·1주 등 정한 기간)입니다. 몸통은 <b>시가와 종가 사이</b>, 위아래 꼬리는 그 기간에 닿았던
+  <b>최고·최저</b>입니다. 국내 차트는 <b class="k" style="background:var(--up-s);color:var(--up)">빨강 = 오름</b>,
+  <b class="k" style="background:var(--down-s);color:var(--down)">파랑 = 내림</b>으로 그립니다(해외는 반대인 경우가 많습니다).</p>
+</div>
+
+<div class="card dict">
+  <h3>📌 기록</h3>
+  <p>읽은 결과 아래 <b>기록에 담기</b>를 누르면 종목 이름과 함께 저장됩니다.
+  <b>기록</b> 칸에서 담아 둔 것을 죽 훑어보고, 같은 종목끼리 모아 볼 수도 있습니다.
+  같은 종목을 여러 날 담아 두면 <b>지표가 어떻게 달라졌는지</b> 비교하기 좋습니다.</p>
+  <p>기록은 <b>이 폰(브라우저) 안에만</b> 저장됩니다. 어디로도 올라가지 않고,
+  브라우저 저장 공간을 비우면 함께 지워집니다.</p>
+</div>
+
+<div class="card dict">
+  <h3>🎯 잘 읽히게 캡처하는 법</h3>
+  <ul>
+    <li>거래량·RSI·MACD 같은 <b>아래 칸도 함께</b> 캡처하면 그 칸까지 읽습니다</li>
+    <li>오른쪽 <b>가격 눈금과 현재가 딱지</b>는 영역에서 빼는 편이 정확합니다</li>
+    <li>선 색이 서로 너무 비슷하면 구분이 어렵습니다 — 증권사 앱에서 색을 바꾸면 훨씬 잘 읽힙니다</li>
+    <li>확대해서 캡처할수록 선이 굵게 잡혀서 잘 읽힙니다</li>
+    <li>한 번 찍은 색은 <b>기억해 뒀다가</b> 다음 캡처에도 그대로 씁니다</li>
+  </ul>
+</div>
+
+<div class="card dict">
+  <h3>⚖️ 꼭 알아 두세요</h3>
+  <p>보조지표는 모두 <b>지나간 값으로 만든 계산</b>입니다. 앞으로를 알려주는 도구가 아니라,
+  지금까지의 값이 어떤 모양으로 쌓였는지 보기 쉽게 바꿔 놓은 것입니다.</p>
+  <p>이 앱의 설명은 <b>지표를 읽는 일반적인 방법</b>일 뿐이며, 특정 종목을 사거나 팔라는 권유가 아닙니다.
+  투자 판단과 그 결과는 언제나 <b>본인의 몫</b>입니다.</p>
+</div>`;
+
+/* ─────────────────────────────────────────────
+   탭 · 시작
+   ───────────────────────────────────────────── */
+const TABS = [['tabRead','secRead'], ['tabLog','secLog'], ['tabDict','secDict']];
+TABS.forEach(([tb, sc]) => $('#'+tb).onclick = ()=>{
+  TABS.forEach(([t2, s2]) => {
+    $('#'+t2).classList.toggle('on', t2 === tb);
+    $('#'+s2).classList.toggle('hidden', s2 !== sc);
+  });
+  if(sc === 'secLog') paintLog();
+  window.scrollTo({top:0});
+});
+
+restore(); paintRoles(); setHint(); paintLog();
+</script>
+</body>
+</html>

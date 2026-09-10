@@ -96,7 +96,9 @@ section.pane{padding-bottom:28px}
 
 /* ---------- fridge ---------- */
 .kpi{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-.kpi>div{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px;text-align:center}
+.kpi>div,.kpi>button{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px;
+  text-align:center;width:100%;transition:.15s}
+.kpi>button:active{transform:scale(.97)}
 .kpi .n{font-size:19px;font-weight:900}
 .kpi .l{font-size:11px;color:var(--muted);margin-top:1px}
 .kpi .n.red{color:var(--red)}.kpi .n.orange{color:var(--orange)}
@@ -112,7 +114,7 @@ section.pane{padding-bottom:28px}
 .qbtn:hover{background:var(--lime-d)}
 .del{color:#b9b6a6;font-size:15px;padding:2px 4px;flex:none}
 .del:hover{color:var(--red)}
-.qty{font-size:12.5px;font-weight:800;min-width:56px;text-align:right}
+.qty{font-size:12.5px;font-weight:800;min-width:56px;text-align:right;background:none;flex:none}
 
 /* ---------- week ---------- */
 .wknav{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
@@ -297,6 +299,15 @@ const EMOJI_HINTS = [
 ];
 /* 분류별 기본 소비기한(일) */
 const SHELF = {'단백질':3,'채소':6,'유제품·계란':14,'면·곡물':60,'소스·양념':180,'기타':30};
+/* 보관 위치 */
+const PLACES = ['냉장','냉동','실온'];
+function guessPlace(name, cat){
+  if(/냉동|아이스|얼린/.test(name)) return '냉동';
+  if(cat==='소스·양념') return '실온';
+  if(cat==='면·곡물') return /밥|떡/.test(name) ? '냉장' : '실온';
+  if(/양파|감자|고구마|마늘(?!.*다진)/.test(name)) return '실온';
+  return '냉장';
+}
 
 const $ = s => document.querySelector(s);
 const el = (h) => { const d=document.createElement('div'); d.innerHTML=h.trim(); return d.firstElementChild; };
@@ -320,11 +331,16 @@ function guessEmoji(name){ for(const [re,e] of EMOJI_HINTS) if(re.test(name)) re
 const normName = s => String(s||'').replace(/\(.*?\)/g,'').replace(/\s/g,'').toLowerCase();
 function sameItem(a,b){ const x=normName(a), y=normName(b); return !!x && x===y; }
 /* 단위 정규화: kg→g, L→ml */
+/* 무게·부피·계량스푼을 g 하나로 환산해 비교한다.
+   이래야 "저염간장 300ml 있는데 3큰술이 없다"고 하지 않는다. (요리용은 1ml≈1g로 본다) */
+const UNIT_BASE = { g:1, kg:1000, ml:1, L:1000, 큰술:15, 작은술:5, 컵:200 };
 function normUnit(qty,unit){
-  if(unit==='kg') return [qty*1000,'g'];
-  if(unit==='L') return [qty*1000,'ml'];
-  if(unit==='작은술') return [qty/3,'큰술'];   // 1큰술 = 3작은술 (같은 재료가 두 줄로 갈라지지 않게)
-  return [qty,unit];
+  const f = UNIT_BASE[unit];
+  return f ? [qty*f, 'g'] : [qty, unit];   // 개·대·모처럼 세는 단위는 그대로
+}
+function fromBase(base, unit){             // 보여줄 때는 원래 쓰던 단위로 되돌린다
+  const f = UNIT_BASE[unit];
+  return f ? base/f : base;
 }
 function stepOf(unit){ return unit==='g'?50 : unit==='ml'?100 : unit==='큰술'||unit==='작은술'?1 : 1; }
 function roundBuy(q,unit){
@@ -336,7 +352,8 @@ function roundBuy(q,unit){
 /* ============================================================
    1. 상태 (localStorage 자동 저장)
    ============================================================ */
-let state, ui = { tab:'week', weekOffset:0, monthOffset:0, menuFilter:'전체' };
+let state, ui = { tab:'week', weekOffset:0, monthOffset:0, menuFilter:'전체',
+                  addOpen:false, fq:'', fFilter:'all', fPlace:'전체', fSort:'exp' };
 
 let applyingRemote = false;
 function writeLocal(){
@@ -518,7 +535,8 @@ function shoppingNeeds(dates){
     for(const ing of r.ingredients){
       const [q,u] = normUnit(ing.qty*f, ing.unit);
       const k = normName(ing.name)+'|'+u;
-      if(!need[k]) need[k] = {name:ing.name, unit:u, need:0, cat:guessCat(ing.name)};
+      // need는 환산값(g)으로 모으고, 보여줄 때는 레시피에 적힌 단위로 되돌린다
+      if(!need[k]) need[k] = {name:ing.name, unit:u, disp:ing.unit, need:0, cat:guessCat(ing.name)};
       need[k].need += q;
     }
   }
@@ -674,9 +692,24 @@ function render(){
 /* ---------- 4-1. 냉장고 ---------- */
 function viewFridge(){
   const t = iso(today());
-  const items = [...state.fridge].sort((a,b)=> (a.expDate||'9').localeCompare(b.expDate||'9'));
-  const soon = items.filter(i=>{ const d=dayDiff(i.expDate,t); return d>=0 && d<=2; }).length;
-  const over = items.filter(i=> dayDiff(i.expDate,t)<0 ).length;
+  const all = state.fridge;
+  const soon = all.filter(i=>{ const d=dayDiff(i.expDate,t); return i.expDate && d>=0 && d<=2; }).length;
+  const over = all.filter(i=> i.expDate && dayDiff(i.expDate,t)<0 ).length;
+
+  // 검색 · 상태 · 보관 위치로 걸러내기
+  const q = ui.fq.trim().toLowerCase();
+  let items = all.filter(i=>{
+    if(q && !i.name.toLowerCase().includes(q)) return false;
+    if(ui.fPlace!=='전체' && (i.place||guessPlace(i.name,i.cat))!==ui.fPlace) return false;
+    const d = i.expDate? dayDiff(i.expDate,t) : 9999;
+    if(ui.fFilter==='soon' && !(i.expDate && d>=0 && d<=2)) return false;
+    if(ui.fFilter==='over' && !(i.expDate && d<0)) return false;
+    return true;
+  });
+  items.sort((a,b)=>
+    ui.fSort==='name'   ? a.name.localeCompare(b.name,'ko') :
+    ui.fSort==='recent' ? (b.buyDate||'').localeCompare(a.buyDate||'') :
+                          (a.expDate||'9999').localeCompare(b.expDate||'9999'));
 
   const groups = CATS.map(c=>{
     const list = items.filter(i=>i.cat===c);
@@ -687,30 +720,67 @@ function viewFridge(){
 
   const quick = ['계란','대파','양파','두부','닭가슴살','우유','애호박','당근','토마토','곤약면']
     .map(n=>`<button class="chip line" data-act="quickadd" data-name="${n}">＋ ${n}</button>`).join('');
+  const on = (k,v)=> ui[k]===v ? 'on' : 'line';
+
+  const emptyMsg = !all.length
+    ? '냉장고가 비어 있어요.<br>＋ 재료 추가로 담으면 그걸로 식단을 짜 드릴게요.'
+    : `조건에 맞는 재료가 없어요.<br><button class="btn ghost sm" style="margin-top:8px" data-act="fridgeReset">필터 지우기</button>`;
 
   return `<section class="pane stack">
     <div class="kpi">
-      <div><div class="n">${items.length}</div><div class="l">보관 중</div></div>
-      <div><div class="n orange">${soon}</div><div class="l">2일 내 소진</div></div>
-      <div><div class="n red">${over}</div><div class="l">기한 지남</div></div>
+      <button data-act="fFilter" data-f="all" style="border-color:${ui.fFilter==='all'?'var(--green)':'var(--line)'}">
+        <div class="n">${all.length}</div><div class="l">보관 중</div></button>
+      <button data-act="fFilter" data-f="soon" style="border-color:${ui.fFilter==='soon'?'var(--orange)':'var(--line)'}">
+        <div class="n orange">${soon}</div><div class="l">2일 내 소진</div></button>
+      <button data-act="fFilter" data-f="over" style="border-color:${ui.fFilter==='over'?'var(--red)':'var(--line)'}">
+        <div class="n red">${over}</div><div class="l">기한 지남</div></button>
     </div>
 
+    ${ui.addOpen ? `
     <div class="card pad">
-      <div style="font-size:13px;font-weight:800;margin-bottom:8px">냉장고에 담기</div>
-      <div class="add-grid">
-        <input id="fName" placeholder="재료 이름 (예: 소고기 우둔살)">
-        <input id="fQty" type="number" inputmode="decimal" placeholder="수량" step="0.5">
-        <select id="fUnit">${UNITS.map(u=>`<option ${u==='g'?'selected':''}>${u}</option>`).join('')}</select>
+      <div class="row" style="justify-content:space-between;margin-bottom:9px">
+        <div style="font-size:13px;font-weight:800">냉장고에 담기</div>
+        <button class="x" data-act="closeAdd">✕</button>
       </div>
-      <div class="add-grid2">
-        <select id="fCat"><option value="">분류 자동</option>${CATS.map(c=>`<option>${c}</option>`).join('')}</select>
-        <input id="fExp" type="date" title="소비기한">
+      <div class="field" style="margin-top:0"><label>재료 이름</label>
+        <input id="fName" placeholder="예: 소고기 우둔살"></div>
+      <div class="g3" style="margin-top:8px">
+        <div><label class="tiny" style="font-weight:800;color:var(--muted)">수량</label>
+          <input id="fQty" type="number" inputmode="decimal" placeholder="1" step="0.5"></div>
+        <div><label class="tiny" style="font-weight:800;color:var(--muted)">단위</label>
+          <select id="fUnit">${UNITS.map(u=>`<option ${u==='g'?'selected':''}>${u}</option>`).join('')}</select></div>
+        <div><label class="tiny" style="font-weight:800;color:var(--muted)">보관</label>
+          <select id="fPlaceSel">${PLACES.map(p=>`<option ${p==='냉장'?'selected':''}>${p}</option>`).join('')}</select></div>
       </div>
-      <button class="btn block" style="margin-top:9px" data-act="addFridge">＋ 담기</button>
-      <div class="row wrap" style="margin-top:10px;gap:5px">${quick}</div>
+      <div class="g2" style="margin-top:8px">
+        <div><label class="tiny" style="font-weight:800;color:var(--muted)">분류</label>
+          <select id="fCat"><option value="">자동으로 정하기</option>${CATS.map(c=>`<option>${c}</option>`).join('')}</select></div>
+        <div><label class="tiny" style="font-weight:800;color:var(--muted)">소비기한</label>
+          <input id="fExp" type="date"></div>
+      </div>
+      <label class="row tiny" style="margin-top:7px;gap:6px;font-weight:700;color:var(--muted)">
+        <input type="checkbox" id="fNoExp" style="width:auto"> 소비기한 모름 (알림 안 받기)
+      </label>
+      <button class="btn block" style="margin-top:10px" data-act="addFridge">＋ 담기</button>
+      <div class="tiny muted" style="margin:10px 0 5px;font-weight:700">자주 담는 재료</div>
+      <div class="row wrap" style="gap:5px">${quick}</div>
+    </div>` : `
+    <button class="btn block" data-act="openAdd">＋ 재료 추가</button>`}
+
+    <div class="card pad" style="padding:11px">
+      <input id="fSearch" placeholder="🔍 재료 검색" value="${esc(ui.fq)}" data-act="noop">
+      <div class="row wrap" style="gap:5px;margin-top:9px">
+        ${['전체',...PLACES].map(p=>`<button class="chip ${on('fPlace',p)}" data-act="fPlace" data-p="${p}">${p}</button>`).join('')}
+        <div class="grow"></div>
+        <select id="fSortSel" style="width:auto;padding:5px 8px;font-size:11.5px;border-radius:9px">
+          <option value="exp" ${ui.fSort==='exp'?'selected':''}>기한 가까운 순</option>
+          <option value="recent" ${ui.fSort==='recent'?'selected':''}>최근 등록순</option>
+          <option value="name" ${ui.fSort==='name'?'selected':''}>이름순</option>
+        </select>
+      </div>
     </div>
 
-    ${items.length? groups : `<div class="card"><div class="empty">냉장고가 비어 있어요.<br>위에서 재료를 담으면 그걸로 식단을 짜 드릴게요.</div></div>`}
+    ${items.length? groups : `<div class="card"><div class="empty">${emptyMsg}</div></div>`}
   </section>`;
 }
 function fridgeRow(i){
@@ -719,15 +789,17 @@ function fridgeRow(i){
     d<0 ? `<span class="tag warn">기한 지남</span>` :
     d<=2 ? `<span class="tag soon">D-${d}</span>` :
     d<=5 ? `<span class="tag">D-${d}</span>` : '';
+  const step = stepOf(i.unit);
+  const place = i.place || guessPlace(i.name, i.cat);
   return `<div class="item">
-    <div class="grow">
+    <button class="grow" style="text-align:left" data-act="editItem" data-id="${i.id}">
       <div class="nm">${esc(i.name)} ${badge}</div>
-      <div class="sub">${i.expDate? '소비기한 '+i.expDate.slice(5).replace('-','/') : '기한 미입력'}</div>
-    </div>
-    <div class="qty">${nice(i.qty)}${i.unit}</div>
-    <button class="qbtn" data-act="qty" data-id="${i.id}" data-d="-1">−</button>
-    <button class="qbtn" data-act="qty" data-id="${i.id}" data-d="1">＋</button>
-    <button class="del" data-act="delFridge" data-id="${i.id}">✕</button>
+      <div class="sub">${place} · ${i.expDate? '소비기한 '+i.expDate.slice(5).replace('-','/') : '기한 모름'}</div>
+    </button>
+    <button class="qty" data-act="editItem" data-id="${i.id}"
+      style="text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px">${nice(i.qty)}${i.unit}</button>
+    <button class="qbtn" data-act="qty" data-id="${i.id}" data-d="-1" style="font-size:10px">−${step}</button>
+    <button class="qbtn" data-act="qty" data-id="${i.id}" data-d="1" style="font-size:10px">+${step}</button>
   </div>`;
 }
 
@@ -797,11 +869,16 @@ function viewWeek(){
     ${todayR? `<div class="card today-card">
       <div class="em">${todayR.emoji||'🍽️'}</div>
       <div class="grow">
-        <div class="tiny" style="color:var(--orange);font-weight:800">오늘의 메뉴</div>
+        <div class="tiny" style="color:var(--orange);font-weight:800">오늘의 메뉴
+          ${todayPlan.cooked? '<span class="tag ok">완료</span>':''}</div>
         <div style="font-size:15px;font-weight:900">${esc(todayR.name)}</div>
         <div class="tiny muted">⏱ ${todayR.minutes||'-'}분 · ${todayR.kcal||'-'}kcal · 단백질 ${todayR.protein||'-'}g</div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn sm" data-act="openRecipe" data-id="${todayR.id}">레시피 →</button>
+          ${todayPlan.cooked? '' :
+            `<button class="btn orange sm" data-act="cookDone" data-id="${todayR.id}">🍳 요리 완료</button>`}
+        </div>
       </div>
-      <button class="btn sm" data-act="openRecipe" data-id="${todayR.id}">레시피 →</button>
     </div>`:''}
 
     ${uniq.length? `<div class="sec-title"><h2>주말 밀프렙 조리 순서</h2><p>오래 걸리는 것부터</p></div>
@@ -874,22 +951,37 @@ function viewShop(){
   }).join('');
   const checkedCount = needs.filter(n=>state.checked[normName(n.name)+'|'+n.unit]).length
                      + extras.filter(e=>e.done).length;
+  const planDays = dates.filter(d=>planOf(d)).length;
+  const extrasOpen = extras.filter(e=>!e.done).length;
+
+  /* 식단이 없을 때 "재료가 모두 있어요"는 사실이 아니므로 상태별로 문구를 나눈다 */
+  const banner = planDays===0
+    ? `<div class="b1">이번 주 식단이 아직 없어요</div>
+       <div class="b2">직접 추가 ${extrasOpen}개</div>
+       <div class="b3">이번 주 식단을 등록하면 필요한 재료를 계산해 드려요</div>`
+    : `<div class="b1">이번 주 식단 기준 · ${state.settings.people}인 × ${planDays}일</div>
+       <div class="b2">식단 부족 재료 ${needs.length}개 · 직접 추가 ${extrasOpen}개</div>
+       <div class="b3">냉장고에 있는 만큼은 이미 빼고 계산했어요</div>`;
+
+  const needsArea = planDays===0
+    ? `<div class="card"><div class="empty">이번 주 식단을 등록하면<br>부족한 재료를 여기에 모아 드려요.
+         <br><button class="btn sm" style="margin-top:10px" data-act="goWeek">🍱 이번 주 식단 짜러 가기</button></div></div>`
+    : needs.length
+      ? groups
+      : `<div class="card"><div class="empty">이번 주 식단에 필요한 재료는<br>냉장고에 다 있어요 👍</div></div>`;
 
   return `<section class="pane stack">
-    <div class="banner">
-      <div class="b1">이번 주 식단 기준 · ${state.settings.people}인 × ${dates.filter(d=>planOf(d)).length}일</div>
-      <div class="b2">더 사야 할 재료 ${needs.length + extras.filter(e=>!e.done).length}가지</div>
-      <div class="b3">냉장고에 있는 만큼은 이미 빼고 계산했어요</div>
-    </div>
+    <div class="banner">${banner}</div>
 
     <div class="row wrap">
       <button class="btn sm" data-act="buyDone">✅ 담은 것 냉장고에 넣기 (${checkedCount})</button>
       <button class="btn ghost sm" data-act="copyShop">📋 목록 복사</button>
     </div>
 
-    ${needs.length? groups : `<div class="card"><div class="empty">이번 주 식단에 필요한 재료가<br>냉장고에 모두 있어요 👍</div></div>`}
+    ${planDays>0 && needs.length? `<div class="sec-title"><h2>식단에서 부족한 재료</h2><p>${needs.length}개</p></div>`:''}
+    ${needsArea}
 
-    <div class="sec-title"><h2>직접 추가</h2><p>생필품·간식도 같이</p></div>
+    <div class="sec-title"><h2>직접 추가한 항목</h2><p>생필품·간식도 같이</p></div>
     <div class="card pad">
       <div class="add-grid">
         <input id="xName" placeholder="예: 두유">
@@ -914,9 +1006,10 @@ function shopRow(n){
     <button class="cb ${on?'on':''}" data-act="check" data-k="${esc(k)}">✓</button>
     <div class="grow">
       <div class="nm" style="font-size:13.5px;font-weight:700">${esc(n.name)}</div>
-      <div class="tiny muted">필요 ${nice(n.need)}${n.unit}${n.have>0? ` · 보유 ${nice(n.have)}${n.unit}`:' · 재고 없음'}</div>
+      <div class="tiny muted">필요 ${nice(fromBase(n.need,n.disp))}${n.disp}${
+        n.have>0? ` · 보유 ${nice(fromBase(n.have,n.disp))}${n.disp}`:' · 재고 없음'}</div>
     </div>
-    <div class="qty" style="color:var(--orange)">${nice(roundBuy(n.short,n.unit))}${n.unit}</div>
+    <div class="qty" style="color:var(--orange)">${nice(roundBuy(fromBase(n.short,n.disp),n.disp))}${n.disp}</div>
   </div>`;
 }
 
@@ -928,18 +1021,21 @@ function viewMoney(){
   const rows = state.expenses.filter(inMonth).sort((a,b)=>b.date.localeCompare(a.date));
   const total = rows.reduce((a,e)=>a+(+e.amount||0),0);
 
-  const prev = new Date(y,m-1,1);
-  const prevTotal = state.expenses.filter(e=>{ const d=parseISO(e.date);
-    return d.getFullYear()===prev.getFullYear() && d.getMonth()===prev.getMonth(); })
-    .reduce((a,e)=>a+(+e.amount||0),0);
-  const diff = total - prevTotal;
-
   const budget = +state.settings.budget||0;
   const pct = budget? Math.min(100, total/budget*100) : 0;
   const daysInMonth = new Date(y,m+1,0).getDate();
   const isThisMonth = ui.monthOffset===0;
   const dayN = isThisMonth? new Date().getDate() : daysInMonth;
   const pace = dayN? Math.round(total/dayN*daysInMonth) : 0;
+
+  /* 이번 달은 아직 진행 중이므로 지난달 "같은 기간"과 비교해야 공정하다 */
+  const prev = new Date(y,m-1,1);
+  const prevRows = state.expenses.filter(e=>{ const d=parseISO(e.date);
+    return d.getFullYear()===prev.getFullYear() && d.getMonth()===prev.getMonth(); });
+  const prevTotal = prevRows.filter(e=> parseISO(e.date).getDate() <= dayN )
+    .reduce((a,e)=>a+(+e.amount||0),0);
+  const diff = total - prevTotal;
+  const cmpLabel = isThisMonth? `지난달 같은 기간(1~${dayN}일)보다` : '지난달보다';
 
   const byCat = Object.keys(EXP_TYPES).map(k=>({k, sum: rows.filter(e=>e.type===k).reduce((a,e)=>a+(+e.amount||0),0)}))
                  .sort((a,b)=>b.sum-a.sum);
@@ -961,8 +1057,11 @@ function viewMoney(){
       <div class="tiny muted">이번 달 식비</div>
       <div class="big-won">${won(total)}</div>
       <div class="tiny muted" style="margin-top:3px">
-        ${prevTotal? (diff>=0? `지난달보다 <b style="color:var(--red)">${won(Math.abs(diff))} 더 씀</b>` : `지난달보다 <b style="color:var(--green)">${won(Math.abs(diff))} 아낌</b>`) : '지난달 기록 없음'}
-        ${isThisMonth? ` · 이 속도면 월 ${won(pace)}` : ''}
+        ${prevTotal
+          ? (diff>=0 ? `${cmpLabel} <b style="color:var(--red)">${won(Math.abs(diff))} 더 씀</b>`
+                     : `${cmpLabel} <b style="color:var(--green)">${won(Math.abs(diff))} 덜 씀</b>`)
+          : '지난달 같은 기간 기록 없음'}
+        ${isThisMonth? `<br>이대로 가면 월말에 약 <b>${won(pace)}</b> 예상` : ''}
       </div>
       ${budget? `<div style="margin-top:11px">
         <div class="row tiny" style="justify-content:space-between;margin-bottom:5px">
@@ -1094,7 +1193,9 @@ function drawRecipe(r){
         <div class="dots">${steps.map((_,i)=>`<i class="${i===cookStep?'on':''}"></i>`).join('')}</div>
       </div></div>`:''}
 
-    <div class="row" style="margin-top:14px">
+    <button class="btn orange block" style="margin-top:14px" data-act="cookDone" data-id="${r.id}">
+      🍳 요리 완료 — 쓴 재료 빼기</button>
+    <div class="row" style="margin-top:8px">
       <button class="btn ghost sm grow" data-act="editRecipe" data-id="${r.id}">✏️ 수정</button>
       <button class="btn ghost sm" data-act="planToday" data-id="${r.id}">📅 오늘 메뉴로</button>
       <button class="btn ghost sm" data-act="delRecipe" data-id="${r.id}">🗑</button>
@@ -1123,7 +1224,7 @@ function drawRecipeForm(captureMode){
         : `<div class="drop" id="drop">
              <div class="di">📷</div>
              <div class="dt">캡처 이미지를 끌어놓거나 탭해서 선택</div>
-             <div class="ds">스마트폰에서는 <b>붙여넣기(Ctrl/⌘+V)</b>도 돼요<br>이미지는 메뉴판 카드 사진으로도 쓰입니다</div>
+             <div class="ds">폰에서는 <b>사진 선택</b>, 또는 아래 칸을 <b>길게 눌러 붙여넣기</b><br>이미지는 메뉴판 카드 사진으로도 쓰입니다</div>
            </div>`}
       <input type="file" id="file" accept="image/*" class="hidden">
       ${d.image? `<button class="btn ghost sm block" style="margin-top:8px" data-act="ocr">🔍 이미지에서 글자 자동 인식 (OCR)</button>
@@ -1142,12 +1243,17 @@ function drawRecipeForm(captureMode){
       <div><label class="tiny" style="font-weight:800;color:var(--muted)">이모지</label>
         <input id="rEmoji" value="${esc(d.emoji)}" placeholder="🥢" maxlength="4"></div>
     </div>
-    <div class="g4" style="grid-template-columns:1fr 1fr 1fr 1fr">
-      <input id="rKcal" type="number" inputmode="numeric" value="${d.kcal}" placeholder="kcal">
-      <input id="rProtein" type="number" inputmode="numeric" value="${d.protein}" placeholder="단백질g">
-      <input id="rMin" type="number" inputmode="numeric" value="${d.minutes}" placeholder="분">
-      <input id="rServ" type="number" inputmode="numeric" value="${d.servings}" placeholder="기준 인분">
+    <div class="g4" style="grid-template-columns:1fr 1fr 1fr 1fr;margin-top:8px">
+      <div><label class="tiny" style="font-weight:800;color:var(--muted)">칼로리</label>
+        <input id="rKcal" type="number" inputmode="numeric" value="${d.kcal}" placeholder="360"></div>
+      <div><label class="tiny" style="font-weight:800;color:var(--muted)">단백질(g)</label>
+        <input id="rProtein" type="number" inputmode="numeric" value="${d.protein}" placeholder="27"></div>
+      <div><label class="tiny" style="font-weight:800;color:var(--muted)">조리(분)</label>
+        <input id="rMin" type="number" inputmode="numeric" value="${d.minutes}" placeholder="25"></div>
+      <div><label class="tiny" style="font-weight:800;color:var(--muted)">몇 인분</label>
+        <input id="rServ" type="number" inputmode="numeric" value="${d.servings}" placeholder="2"></div>
     </div>
+    <div class="tiny muted" style="margin-top:4px">칼로리·단백질은 <b>1인분 기준</b>으로 적어 주세요.</div>
     <div class="field"><label>태그 (쉼표로 구분)</label>
       <input id="rTags" value="${esc((d.tags||[]).join(', '))}" placeholder="저탄수, 고단백, 밀프렙"></div>
     <div class="g2" style="margin-top:8px">
@@ -1365,6 +1471,69 @@ function openSyncInvite(){
     <button class="btn orange block" style="margin-top:8px" data-act="copyInvite">📋 링크 복사</button>
   </div>`);
 }
+/* ---------- 재료 수정 (수량을 직접 입력) ---------- */
+function openItemEdit(id){
+  const i = state.fridge.find(f=>f.id===id); if(!i) return;
+  const place = i.place || guessPlace(i.name, i.cat);
+  openModal(`<div class="modal">
+    <div class="mhead"><h3>${esc(i.name)}</h3><button class="x" data-act="close">✕</button></div>
+    <div class="g2">
+      <div><label class="tiny" style="font-weight:800;color:var(--muted)">수량</label>
+        <input id="eQty" type="number" inputmode="decimal" step="0.5" value="${i.qty}"></div>
+      <div><label class="tiny" style="font-weight:800;color:var(--muted)">단위</label>
+        <select id="eUnit">${UNITS.map(u=>`<option ${u===i.unit?'selected':''}>${u}</option>`).join('')}</select></div>
+    </div>
+    <div class="g2" style="margin-top:8px">
+      <div><label class="tiny" style="font-weight:800;color:var(--muted)">보관</label>
+        <select id="ePlace">${PLACES.map(p=>`<option ${p===place?'selected':''}>${p}</option>`).join('')}</select></div>
+      <div><label class="tiny" style="font-weight:800;color:var(--muted)">분류</label>
+        <select id="eCat">${CATS.map(c=>`<option ${c===i.cat?'selected':''}>${c}</option>`).join('')}</select></div>
+    </div>
+    <div class="field"><label>소비기한</label>
+      <input id="eExp" type="date" value="${i.expDate||''}">
+      <label class="row tiny" style="margin-top:7px;gap:6px;font-weight:700;color:var(--muted)">
+        <input type="checkbox" id="eNoExp" style="width:auto" ${i.expDate?'':'checked'}> 소비기한 모름
+      </label>
+    </div>
+    <button class="btn block" style="margin-top:12px" data-act="saveItem" data-id="${i.id}">저장</button>
+    <button class="btn ghost block sm" style="margin-top:7px;color:var(--red)" data-act="delFridge" data-id="${i.id}">🗑 냉장고에서 빼기</button>
+  </div>`);
+}
+
+/* ---------- 요리 완료 → 쓴 만큼 냉장고에서 빼기 ---------- */
+let cookUndo = null;
+function openCookDone(recipeId, servings, dateKey){
+  const r = recipeById(recipeId); if(!r) return;
+  const f = (servings||state.settings.people||2)/(r.servings||2);
+  const list = stockList();
+  const rows = r.ingredients.map((ing,k)=>{
+    const need = +(ing.qty*f).toFixed(2);
+    const [nq,nu] = normUnit(need, ing.unit);
+    const s = findStock(list, ing.name, nu);
+    const have = s? s.qty : 0;
+    const enough = have >= nq-0.001;
+    return `<div class="g4" style="grid-template-columns:auto 1.6fr 1fr auto;align-items:center">
+      <button class="cb ${enough?'on':''}" data-act="useTgl" data-k="${k}">✓</button>
+      <div style="min-width:0">
+        <div style="font-size:12.5px;font-weight:700">${esc(ing.name)}</div>
+        <div class="tiny muted">${have>0? `보유 ${nice(have)}${nu}` : '냉장고에 없음'}</div>
+      </div>
+      <input type="number" inputmode="decimal" step="0.5" data-use="${k}" value="${nice(need)}">
+      <span class="tiny muted">${ing.unit}</span>
+    </div>`;
+  }).join('');
+  openModal(`<div class="modal" id="cookBox" data-recipe="${r.id}" data-date="${dateKey||''}">
+    <div class="mhead">
+      <div><h3>요리 완료</h3>
+        <div class="tiny muted">${r.emoji||''} ${esc(r.name)} · ${servings}인분</div></div>
+      <button class="x" data-act="close">✕</button>
+    </div>
+    <div class="tiny muted" style="line-height:1.7">실제로 쓴 만큼만 남기고 고치세요.
+      체크를 풀면 그 재료는 냉장고에서 빼지 않습니다.</div>
+    <div class="ing-box" style="margin-top:10px">${rows}</div>
+    <button class="btn block" style="margin-top:12px" data-act="applyCook">🍳 냉장고에 반영하기</button>
+  </div>`);
+}
 function openJoinByLink(){
   openModal(`<div class="modal">
     <div class="mhead"><h3>초대 링크로 참여하기</h3><button class="x" data-act="close">✕</button></div>
@@ -1445,9 +1614,72 @@ document.addEventListener('click', async (e)=>{
     if(!name){ toast('재료 이름을 적어 주세요'); return; }
     const unit = $('#fUnit').value;
     const cat = $('#fCat').value || guessCat(name);
-    const exp = $('#fExp').value || iso(addDays(today(), SHELF[cat]||14));
-    addToFridge({name, qty: isFinite(qty)&&qty>0? qty:1, unit, cat, expDate:exp});
+    const noExp = $('#fNoExp').checked;
+    const exp = noExp ? '' : ($('#fExp').value || iso(addDays(today(), SHELF[cat]||14)));
+    addToFridge({name, qty: isFinite(qty)&&qty>0? qty:1, unit, cat, expDate:exp,
+                 place: $('#fPlaceSel').value});
     save(); render(); toast(`${name} 담았어요`); break;
+  }
+  case 'openAdd': ui.addOpen = true; render(); setTimeout(()=>$('#fName')?.focus(),50); break;
+  case 'closeAdd': ui.addOpen = false; render(); break;
+  case 'fFilter': ui.fFilter = (ui.fFilter===b.dataset.f? 'all' : b.dataset.f); render(); break;
+  case 'fPlace': ui.fPlace = b.dataset.p; render(); break;
+  case 'fridgeReset': ui.fq=''; ui.fFilter='all'; ui.fPlace='전체'; render(); break;
+  case 'editItem': openItemEdit(id); break;
+  case 'saveItem': {
+    const it = state.fridge.find(f=>f.id===id); if(!it) break;
+    const q = parseFloat($('#eQty').value);
+    if(!isFinite(q) || q<0){ toast('수량을 확인해 주세요'); break; }
+    if(q===0){ state.fridge = state.fridge.filter(f=>f.id!==id); }
+    else {
+      it.qty = q; it.unit = $('#eUnit').value; it.place = $('#ePlace').value; it.cat = $('#eCat').value;
+      it.expDate = $('#eNoExp').checked ? '' : $('#eExp').value;
+    }
+    save(); closeModal(); render(); toast(q===0? '냉장고에서 뺐어요' : '저장했어요'); break;
+  }
+
+  /* ---- 요리 완료 → 재고 차감 ---- */
+  case 'cookDone': {
+    const p = planOf(iso(today()));
+    openCookDone(id, (p && p.recipeId===id ? p.servings : state.settings.people)||2, p&&p.recipeId===id? iso(today()):'');
+    break;
+  }
+  case 'useTgl': b.classList.toggle('on'); break;
+  case 'applyCook': {
+    const box = $('#cookBox'), r = recipeById(box.dataset.recipe);
+    cookUndo = JSON.parse(JSON.stringify(state.fridge));      // 되돌리기용
+    const used = [];
+    box.querySelectorAll('[data-use]').forEach(inp=>{
+      const k = +inp.dataset.use;
+      const on = box.querySelector(`[data-act="useTgl"][data-k="${k}"]`).classList.contains('on');
+      const amount = parseFloat(inp.value);
+      if(!on || !isFinite(amount) || amount<=0) return;
+      const ing = r.ingredients[k];
+      const [q,u] = normUnit(amount, ing.unit);
+      const hit = state.fridge.find(f=>sameItem(f.name,ing.name) && normUnit(f.qty,f.unit)[1]===u);
+      if(!hit) return;
+      const [hq] = normUnit(hit.qty, hit.unit);
+      const left = Math.max(0, +fromBase(hq-q, hit.unit).toFixed(2));   // 300ml는 계속 ml로
+      used.push(`${ing.name} ${nice(amount)}${ing.unit}`);
+      if(left<=0) state.fridge = state.fridge.filter(f=>f.id!==hit.id);
+      else hit.qty = left;
+    });
+    if(box.dataset.date && state.plan[box.dataset.date]) state.plan[box.dataset.date].cooked = true;
+    save(); closeModal(); render();
+    openModal(`<div class="modal">
+      <div class="mhead"><h3>냉장고에 반영했어요</h3><button class="x" data-act="close">✕</button></div>
+      <div class="tiny muted" style="line-height:1.8">${used.length
+        ? '뺀 재료<br><b>'+used.map(esc).join('</b> · <b>')+'</b>'
+        : '뺄 재료가 없었어요. 냉장고에 등록된 이름과 레시피 재료 이름이 같아야 차감됩니다.'}</div>
+      <button class="btn ghost block sm" style="margin-top:12px" data-act="undoCook">↩︎ 되돌리기</button>
+      <button class="btn block sm" style="margin-top:7px" data-act="close">확인</button>
+    </div>`);
+    break;
+  }
+  case 'undoCook': {
+    if(!cookUndo){ toast('되돌릴 내용이 없어요'); break; }
+    state.fridge = cookUndo; cookUndo = null;
+    save(); closeModal(); render(); toast('되돌렸어요'); break;
   }
   case 'quickadd': {
     const name = b.dataset.name, cat = guessCat(name);
@@ -1464,6 +1696,7 @@ document.addEventListener('click', async (e)=>{
 
   /* ---- 주간 ---- */
   case 'week': ui.weekOffset += +b.dataset.d; render(); break;
+  case 'goWeek': ui.tab='week'; render(); window.scrollTo(0,0); break;
   case 'autoplan': autoPlan(weekDates(), true); render(); toast('냉장고 재료를 우선해서 짰어요'); break;
   case 'rotate': rotate(weekDates()); render(); toast('메뉴를 순환시켰어요'); break;
   case 'clearWeek': weekDates().forEach(d=>delete state.plan[d]); save(); render(); break;
@@ -1537,7 +1770,7 @@ document.addEventListener('click', async (e)=>{
   case 'delExtra': state.extras = state.extras.filter(e=>e.id!==id); save(); render(); break;
   case 'copyShop': {
     const needs = shoppingNeeds(weekDates()).filter(n=>n.short>0.001);
-    const text = '🛒 이번 주 장보기\n' + needs.map(n=>`· ${n.name} ${nice(roundBuy(n.short,n.unit))}${n.unit}`).join('\n')
+    const text = '🛒 이번 주 장보기\n' + needs.map(n=>`· ${n.name} ${nice(roundBuy(fromBase(n.short,n.disp),n.disp))}${n.disp}`).join('\n')
       + (state.extras.filter(e=>!e.done).length? '\n'+state.extras.filter(e=>!e.done).map(e=>`· ${e.name} ${nice(e.qty)}${e.unit}`).join('\n') : '');
     try{ await navigator.clipboard.writeText(text); toast('장보기 목록을 복사했어요'); }
     catch{ prompt('복사해서 쓰세요', text); }
@@ -1549,7 +1782,7 @@ document.addEventListener('click', async (e)=>{
     needs.forEach(x=>{ const k = normName(x.name)+'|'+x.unit;
       if(state.checked[k]){
         const cat = x.cat;
-        addToFridge({name:x.name, qty: roundBuy(x.short,x.unit), unit:x.unit, cat,
+        addToFridge({name:x.name, qty: roundBuy(fromBase(x.short,x.disp), x.disp), unit:x.disp, cat,
                      expDate: iso(addDays(today(), SHELF[cat]||14))});
         delete state.checked[k]; n++;
       }});
@@ -1674,7 +1907,19 @@ document.addEventListener('click', async (e)=>{
   }
 });
 
+/* 검색어는 다시 그리면 사라지므로 입력 중에는 목록만 갱신한다 */
+document.addEventListener('input', (e)=>{
+  if(e.target.id==='fSearch'){
+    ui.fq = e.target.value;
+    clearTimeout(window.__fqT);
+    window.__fqT = setTimeout(()=>{
+      const pos = e.target.selectionStart; render();
+      const el = $('#fSearch'); if(el){ el.focus(); el.setSelectionRange(pos,pos); }
+    }, 220);
+  }
+});
 document.addEventListener('change', (e)=>{
+  if(e.target.id==='fSortSel'){ ui.fSort = e.target.value; render(); return; }
   const s = e.target.closest('[data-act="setDay"]');
   if(s){
     const d = s.dataset.date;
@@ -1686,10 +1931,14 @@ document.addEventListener('change', (e)=>{
 $('#fab').addEventListener('click', ()=>openRecipeForm(null,true));
 
 /* 냉장고 병합 담기 */
-function addToFridge({name,qty,unit,cat,expDate}){
+function addToFridge({name,qty,unit,cat,expDate,place}){
   const hit = state.fridge.find(f=>sameItem(f.name,name) && f.unit===unit);
-  if(hit){ hit.qty = +(hit.qty+qty).toFixed(2); if(expDate) hit.expDate = expDate; }
-  else state.fridge.push({id:uid(), name, cat: cat||guessCat(name), qty, unit, buyDate: iso(today()), expDate});
+  if(hit){ hit.qty = +(hit.qty+qty).toFixed(2); if(expDate) hit.expDate = expDate; hit.buyDate = iso(today()); }
+  else {
+    const c = cat||guessCat(name);
+    state.fridge.push({id:uid(), name, cat:c, qty, unit, buyDate: iso(today()), expDate,
+                       place: place || guessPlace(name, c)});
+  }
 }
 
 /* ============================================================
@@ -1847,6 +2096,7 @@ async function copyText(text, okMsg){
 state = load() || blankState();
 if(!state.sync) state.sync = { enabled:false };      // 예전 버전에서 넘어온 경우
 if(!state.seeded && !state.recipes.length) { seed(); writeLocal(); }
+state.fridge.forEach(f=>{ if(!f.place) f.place = guessPlace(f.name, f.cat); });  // 예전 기록 보완
 ui.tab = 'week';
 render();
 syncStart();
