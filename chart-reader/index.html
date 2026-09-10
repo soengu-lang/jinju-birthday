@@ -132,6 +132,9 @@ section.tab{padding-top:4px}
 .facts li .d{color:var(--down);font-weight:800}
 .mean{margin-top:11px;background:var(--soft);border-radius:12px;padding:11px 12px;font-size:12.5px;line-height:1.75}
 .mean b{font-weight:800;color:var(--brand)}
+.watch{margin-top:8px;background:var(--gold-s);border:1px solid #f0dcbb;border-radius:12px;
+  padding:10px 12px;font-size:12.3px;line-height:1.75;color:#7a5518}
+.watch b{font-weight:800;color:#6b4713}
 .edu{margin-top:8px;border-top:1px dashed var(--line);padding-top:9px;font-size:12px;line-height:1.75;color:var(--muted)}
 .edu b{color:var(--ink);font-weight:700}
 .warn{margin-top:9px;background:#fdeceb;border:1px solid #f6cfcb;border-radius:11px;padding:9px 11px;
@@ -1036,7 +1039,7 @@ function tag(d, t){ return d === 'up' ? '<b class="u">'+t+'</b>' : d === 'down' 
 
 function analyze(){
   const c = S.crop, n = c.x1-c.x0+1, H = c.y1-c.y0+1, cal = calibrated(), tol = S.tol;
-  const A = {n, H, cal, cards:[], dirs:[], covers:[], warns:[]};
+  const A = {n, H, cal, cards:[], dirs:[], covers:[], warns:[], read:{}};
 
   /* 찍어 둔 색을 한 판에 모아 두고, 픽셀은 가장 가까운 색에만 준다 */
   const pal = [], IDX = {};
@@ -1136,16 +1139,54 @@ function analyze(){
     const f = A.hpct(rise), d = A.classify(f, A.pct(closes[closes.length-1], closes[closes.length-1-look])).d;
     const hi = Math.min.apply(null, bs.map(b=>b.high)), lo = Math.max.apply(null, bs.map(b=>b.low));
     const posPct = (lo - last.close) / (lo - hi) * 100;
+    /* 마지막 봉의 생김새 — 몸통 크기와 꼬리, 같은 색이 몇 번째인지 */
+    const bodies = bs.map(b => Math.abs(b.bodyBot - b.bodyTop));
+    const medBody = median(bodies.slice(-20).filter(v => v > 0)) || 1;
+    const bodyNow = Math.abs(last.bodyBot - last.bodyTop), bodyRel = bodyNow / medBody;
+    const upWick = Math.max(0, last.bodyTop - last.high), dnWick = Math.max(0, last.low - last.bodyBot);
+    let streak = 1;
+    for(let i=bs.length-2;i>=0;i--){ if(bs[i].type === last.type) streak++; else break; }
+    const posC = Math.max(0, Math.min(100, posPct));
+    const pctMove = A.pct(closes[closes.length-1], closes[closes.length-1-look]);
+    const bodyTxt = bodyRel >= 2 ? '<b>장대봉</b> (평소 몸통의 ' + fmt(bodyRel*100,0) + '%)' :
+                    bodyRel >= 1.3 ? '평소보다 긴 몸통 (' + fmt(bodyRel*100,0) + '%)' :
+                    bodyRel <= 0.35 ? '<b>몸통이 거의 없는 봉</b> (평소의 ' + fmt(bodyRel*100,0) + '% · 도지에 가까움)' :
+                    bodyRel <= 0.7 ? '평소보다 짧은 몸통 (' + fmt(bodyRel*100,0) + '%)' : '평소와 비슷한 몸통';
     const facts = [
       '읽은 캔들: 약 <b>' + bs.length + '개</b>' + (cal ? ' · 마지막 캔들 종가 약 <b>' + A.money(last.close) + '</b>' : ''),
-      '마지막 캔들은 ' + (last.type === 'up' ? '<b class="u">양봉(오르며 끝난 봉)</b>' : '<b class="d">음봉(내리며 끝난 봉)</b>'),
-      '최근 <b>' + look + '봉</b> 동안 ' + tag(d, DIRW[d]) + (cal ? ' (<b>' + (A.pct(closes[closes.length-1], closes[closes.length-1-look]) >= 0 ? '+' : '') + fmt(A.pct(closes[closes.length-1], closes[closes.length-1-look]), 2) + '%</b>)' : ' (차트 높이의 ' + fmt(Math.abs(f),1) + '%만큼)'),
-      '보이는 구간의 <b>가장 낮은 값 0 · 가장 높은 값 100</b>으로 보면 지금은 <b>' + fmt(Math.max(0, Math.min(100, posPct)), 0) + '</b> 자리'
+      '마지막 캔들은 ' + (last.type === 'up' ? '<b class="u">양봉(오르며 끝난 봉)</b>' : '<b class="d">음봉(내리며 끝난 봉)</b>') +
+        ' · ' + bodyTxt + (streak >= 2 ? ' · <b>같은 색 ' + streak + '봉째</b>' : ''),
+      '최근 <b>' + look + '봉</b> 동안 ' + tag(d, DIRW[d]) + (cal ? ' (<b>' + (pctMove >= 0 ? '+' : '') + fmt(pctMove, 2) + '%</b>)' : ' (차트 높이의 ' + fmt(Math.abs(f),1) + '%만큼)'),
+      '보이는 구간의 <b>가장 낮은 값 0 · 가장 높은 값 100</b>으로 보면 지금은 <b>' + fmt(posC, 0) + '</b> 자리'
         + (cal ? ' (구간 최고 ' + A.money(hi) + ' · 최저 ' + A.money(lo) + ')' : '')
     ];
-    A.cards.push({t:'캔들 · 가격', badge: d, facts,
-      mean: '캔들은 <b>해석이 필요한 지표가 아니라 값 그 자체</b>입니다. 아래 지표들은 모두 이 값을 재료로 계산된 것이라, 캔들이 지금 어디에 있는지가 모든 지표 읽기의 기준이 됩니다.',
-      edu: '<b>양봉·음봉</b> — 국내 차트는 올라서 끝난 봉을 빨강, 내려서 끝난 봉을 파랑으로 그립니다(해외는 반대인 경우가 많습니다). 몸통은 시가와 종가 사이, 위아래 꼬리는 그 사이에 닿았던 최고·최저입니다.'});
+    if(bodyNow > 0 && (upWick > bodyNow*0.8 || dnWick > bodyNow*0.8))
+      facts.push(upWick > dnWick
+        ? '<b>위꼬리가 몸통보다 깁니다</b> — 그 기간에 위로 갔다가 밀려 내려와 끝났다는 뜻입니다'
+        : '<b>아래꼬리가 몸통보다 깁니다</b> — 아래로 갔다가 되올라와 끝났다는 뜻입니다');
+
+    /* ── 해석 ── */
+    const where = posC >= 80 ? '보이는 구간의 <b>거의 꼭대기</b>' : posC >= 60 ? '구간의 <b>위쪽</b>' :
+                  posC >= 40 ? '구간의 <b>가운데쯤</b>' : posC >= 20 ? '구간의 <b>아래쪽</b>' : '보이는 구간의 <b>거의 바닥</b>';
+    let mean = '지금 가격은 ' + where + '(' + fmt(posC,0) + '/100)에 있고, 최근 ' + look + '봉은 ' +
+      (d === 'up' ? '<b class="u">올라온</b>' : d === 'down' ? '<b class="d">내려온</b>' : '<b>거의 옆으로 간</b>') + ' 모습입니다. ';
+    if(posC >= 70 && d === 'up') mean += '높은 자리에서 계속 오르고 있다는 뜻이라, 교과서에서는 <b>추세가 이어지는 구간</b>으로 봅니다. 다만 위로 참고할 만한 지난 고점이 화면 안에 거의 없다는 점도 같이 봅니다.';
+    else if(posC <= 30 && d === 'down') mean += '낮은 자리에서 계속 내려가고 있다는 뜻으로, <b>내림 추세가 이어지는 구간</b>입니다.';
+    else if(posC <= 40 && d === 'up') mean += '많이 내린 뒤 <b>되돌리는 중</b>인 모습입니다. 이런 자리는 추세가 바뀐 것인지, 내림 중 잠깐 오르는 것인지가 갈리는 구간이라 아래 지표들의 손발이 맞는지를 같이 봅니다.';
+    else if(posC >= 60 && d === 'down') mean += '많이 오른 뒤 <b>되밀리는 중</b>인 모습입니다.';
+    else mean += '한쪽으로 크게 치우치지 않은 자리입니다.';
+    if(bodyRel >= 2) mean += ' 마지막 봉이 <b>평소보다 훨씬 긴 몸통</b>이라, 그 하루에 힘이 몰렸다는 표시입니다.';
+    else if(bodyRel <= 0.35) mean += ' 마지막 봉은 <b>몸통이 거의 없어</b> 사고파는 힘이 팽팽했다는 표시입니다(도지). 방향을 정하기 전 자리에서 자주 나옵니다.';
+    if(streak >= 4) mean += ' 같은 색 봉이 <b>' + streak + '개 이어졌습니다</b>.';
+
+    A.read.px = {posC, dir:d, look, bodyRel, streak, type:last.type, upWick, dnWick, pctMove};
+    A.cards.push({t:'캔들 · 가격', badge: d, facts, mean,
+      watch: '캔들은 <b>해석이 필요한 지표가 아니라 값 그 자체</b>입니다. 아래 지표들은 모두 이 값으로 계산된 것이라, ' +
+        '지표 해석이 서로 엇갈릴 때는 <b>가격이 지금 어디에 있는지</b>가 기준이 됩니다. ' +
+        '또 여기 적힌 최고·최저는 <b>화면에 보이는 구간</b>만의 값입니다 — 더 길게 보면 자리가 달라집니다.',
+      edu: '<b>양봉·음봉</b> — 국내 차트는 올라서 끝난 봉을 빨강, 내려서 끝난 봉을 파랑으로 그립니다(해외는 반대인 경우가 많습니다). ' +
+        '몸통은 시가와 종가 사이, 위아래 꼬리는 그 사이에 닿았던 최고·최저입니다. ' +
+        '몸통이 길수록 그 기간에 한쪽 힘이 셌다는 뜻이고, 꼬리가 길수록 갔다가 되돌아왔다는 뜻입니다.'});
     A.dirs.push(d);
   }
 
@@ -1194,15 +1235,65 @@ function analyze(){
           (x.up ? '<b class="u">위로 뚫었습니다 (골든크로스)</b>' : '<b class="d">아래로 뚫었습니다 (데드크로스)</b>'));
       }
     }
+    /* 선들이 모이는 중인지 벌어지는 중인지 */
+    let conv = 'same', spreadPct = null;
+    if(mas.length >= 2){
+      const pastI = Math.max(0, nowI - A.lb);
+      const vs2 = mas.map(m => m.y[nowI]), vp = mas.map(m => m.y[pastI]);
+      const sNow = Math.max.apply(null, vs2) - Math.min.apply(null, vs2);
+      const sPast = Math.max.apply(null, vp) - Math.min.apply(null, vp);
+      spreadPct = A.hpct(sNow);
+      conv = sNow < sPast*0.8 ? 'conv' : sNow > sPast*1.25 ? 'div' : 'same';
+      facts.push('선들 사이 간격은 최근 ' + A.lbBars() + ' 동안 ' +
+        (conv==='conv' ? '<b>좁아졌습니다</b> (모이는 중)' : conv==='div' ? '<b>벌어졌습니다</b> (퍼지는 중)' : '<b>비슷합니다</b>'));
+    }
+    /* 가격이 기준 선 위/아래로 며칠째인지 */
+    let holdRun = 0, holdMA = null, holdAbove = null;
+    if(A.bars && A.priceY != null && mas.length){
+      holdMA = mas[Math.min(mas.length-1, Math.floor(mas.length/2))];
+      holdAbove = A.priceY < holdMA.y[nowI];
+      for(let i=A.bars.length-1;i>=0;i--){
+        const cx = Math.round(A.bars[i].cx), my = holdMA.y[cx];
+        if(my == null) break;
+        if((A.bars[i].close < my) === holdAbove) holdRun++; else break;
+      }
+      if(holdRun >= 2) facts.push('가격이 <b>' + holdMA.period + '일선 ' + (holdAbove ? '위' : '아래') +
+        '</b>에 머문 지 <b>' + holdRun + '봉째</b>입니다');
+    }
     let sc = up - down + (order==='up'?1:order==='down'?-1:0);
-    if(A.priceY != null && mas.length) sc += (mas.every(m=>A.priceY < m.y[nowI]) ? 1 : mas.every(m=>A.priceY > m.y[nowI]) ? -1 : 0);
+    const allAbove = A.priceY != null && mas.length && mas.every(m => A.priceY < m.y[nowI]);
+    const allBelow = A.priceY != null && mas.length && mas.every(m => A.priceY > m.y[nowI]);
+    if(A.priceY != null && mas.length) sc += allAbove ? 1 : allBelow ? -1 : 0;
     const d = sc >= 2 ? 'up' : sc <= -2 ? 'down' : 'flat';
     A.dirs.push(d);
-    A.cards.push({t:'이동평균선', badge:d, facts,
-      mean: '지금 읽은 그대로 적으면 — ' + (order==='up' ? '<b>정배열</b>: 최근에 산 사람들의 평균 단가가 예전에 산 사람들보다 높게 쌓여 있는 모양입니다.' :
-        order==='down' ? '<b>역배열</b>: 예전에 산 사람들의 평균 단가가 더 높게 남아 있는 모양입니다.' :
-        '<b>혼조</b>: 기간마다 평균 단가가 엇갈려서, 어느 한쪽으로 정리되지 않은 모양입니다.') +
-        ' 교과서에서는 정배열을 상승 추세가 정돈된 상태, 역배열을 하락 추세가 정돈된 상태, 혼조를 방향을 고르는 구간이라고 부릅니다.',
+
+    /* ── 해석 ── */
+    const shortP = mas[0].period, longP = mas[mas.length-1].period;
+    let mean = order==='up'
+      ? '<b>정배열</b>입니다 — 짧은 선부터 위에서 차례로 놓여 있습니다. 최근에 산 사람일수록 평균 단가가 높다는 뜻이고, 교과서에서는 <b>오름 추세가 정돈된 상태</b>라고 부릅니다. 이런 모양에서는 되돌릴 때 짧은 선(' + shortP + '일선)이 바닥 노릇을 하는지를 자주 봅니다.'
+      : order==='down'
+      ? '<b>역배열</b>입니다 — 긴 선이 위, 짧은 선이 아래로 놓여 있습니다. 예전에 산 사람들의 평균 단가가 더 높게 남아 있다는 뜻이고, 교과서에서는 <b>내림 추세가 정돈된 상태</b>라고 부릅니다. 되돌려 올라갈 때 위에 있는 선들이 천장 노릇을 하는지를 자주 봅니다.'
+      : '<b>혼조</b>입니다 — 기간마다 평균 단가가 엇갈려 어느 한쪽으로 정리되지 않았습니다. 교과서에서는 <b>방향을 고르는 구간</b>으로 보고, 어느 선이 어느 선 위로 정리되는지가 다음 그림을 정한다고 말합니다.';
+    if(allAbove) mean += ' 가격이 <b>읽은 모든 이평선 위</b>에 있습니다 — 화면에 보이는 어느 기간에 샀든 평균적으로는 지금 값이 더 높다는 뜻입니다.';
+    else if(allBelow) mean += ' 가격이 <b>읽은 모든 이평선 아래</b>에 있습니다 — 어느 기간에 샀든 평균 단가보다 낮은 자리라는 뜻입니다.';
+    else if(A.priceY != null) mean += ' 가격이 짧은 선과 긴 선 <b>사이</b>에 있습니다 — 최근에 산 쪽과 예전에 산 쪽의 처지가 갈리는 자리입니다.';
+    if(cal && A.priceY != null){
+      const far = mas.map(m => ({p:m.period, g: A.val(A.priceY)/A.val(m.y[nowI])*100}))
+                     .sort((x,y)=> Math.abs(y.g-100) - Math.abs(x.g-100))[0];
+      if(far && Math.abs(far.g-100) >= 5)
+        mean += ' 특히 <b>' + far.p + '일선과 ' + fmt(Math.abs(far.g-100),1) + '% 떨어져</b> 있습니다(이격도 ' + fmt(far.g,1) + '). ' +
+          '교과서에서는 이렇게 벌어진 상태를 <b>이격이 크다</b>고 하고, 평균 쪽으로 다시 좁혀지는 일이 잦다고 설명합니다 — 다만 언제 좁혀지는지는 말해 주지 않습니다.';
+    }
+    if(conv === 'conv') mean += ' 선들이 <b>서로 모이는 중</b>입니다. 기간별 평균 단가 차이가 줄어든다는 뜻으로, 방향이 정리되기 전에 자주 나오는 모양입니다.';
+    else if(conv === 'div') mean += ' 선들이 <b>벌어지는 중</b>이라, 움직임에 속도가 붙은 상태입니다.';
+    if(holdRun >= 5) mean += ' 가격이 ' + holdMA.period + '일선 ' + (holdAbove?'위':'아래') + '에서 <b>' + holdRun + '봉째</b> 버티고 있어, 그 선이 지금 기준선 노릇을 하고 있습니다.';
+
+    A.read.ma = {order, allAbove, allBelow, conv, up, down, holdRun, holdAbove,
+                 holdP: holdMA ? holdMA.period : null, periods: mas.map(m=>m.period), spreadPct};
+    A.cards.push({t:'이동평균선', badge:d, facts, mean,
+      watch: '이평선은 <b>지나간 값의 평균</b>이라 늘 가격보다 늦게 움직입니다. 옆으로 가는 구간에서는 교차 신호가 자주 뒤집히니, ' +
+        '교차가 <b>며칠 유지되는지</b>를 같이 보는 것이 보통입니다.' +
+        (holdMA ? ' 지금은 <b>' + holdMA.period + '일선</b>이 가장 가까운 기준선이고, 종가가 이 선을 넘나들면 배열이 달라집니다.' : ''),
       edu: '<b>이동평균선</b>은 최근 N일 종가의 평균을 이어 그린 선으로, <b>그 기간에 산 사람들의 평균 단가</b>에 가깝습니다. 짧은 선일수록 값에 빨리 반응하고, 긴 선일수록 천천히 움직입니다. 짧은 선이 긴 선을 위로 지나가는 것을 <b>골든크로스</b>, 아래로 지나가는 것을 <b>데드크로스</b>라고 부릅니다. <b>이격도</b>는 가격이 평균에서 얼마나 멀어졌는지를 100 기준으로 본 숫자입니다.'});
   }
 
@@ -1257,15 +1348,42 @@ function analyze(){
     if(md) bsc += md.d === 'up' ? 1 : md.d === 'down' ? -1 : 0;
     const d = bsc >= 1 ? 'up' : bsc <= -1 ? 'down' : 'flat';
     A.dirs.push(d);
-    A.cards.push({t:'볼린저밴드', badge:d, facts,
-      mean: (squeeze==='tight'
-        ? '밴드가 <b>좁아진 상태</b>입니다. 교과서에서는 이것을 <b>변동성이 줄어든 구간(스퀴즈)</b>이라 부르고, 값이 좁은 폭 안에서만 움직이고 있다는 뜻으로 읽습니다. 방향을 알려주는 신호는 아닙니다.'
-        : squeeze==='wide'
-        ? '밴드가 <b>넓어진 상태</b>입니다. 값이 평소보다 크게 흔들리고 있다는 뜻이고, 이런 구간을 <b>확장 구간</b>이라고 부릅니다.'
-        : '밴드 폭이 <b>평소 수준</b>입니다.') +
-        (pb != null ? (pb > 0.8 ? ' 그리고 가격은 <b>상단선</b> 쪽에 있습니다. 상단선 근처는 "많이 올랐다"는 표시일 뿐, 그 자체로 방향을 뒤집는 신호로 읽지는 않습니다.'
-          : pb < 0.2 ? ' 그리고 가격은 <b>하단선</b> 쪽에 있습니다. 하단선 근처는 "많이 내렸다"는 표시일 뿐, 그 자체로 방향을 뒤집는 신호로 읽지는 않습니다.' : '') : ''),
-      edu: '<b>볼린저밴드</b>는 20일 이동평균선(중심선)에서 <b>표준편차의 2배</b>만큼 위아래로 벌린 띠입니다. 값이 평소보다 얼마나 흔들리는지를 폭으로 보여 줍니다. 폭이 좁아지는 것을 <b>수축(스퀴즈)</b>, 벌어지는 것을 <b>확장</b>이라고 하고, 가격이 밴드 안 어디쯤인지를 0~100으로 나타낸 것이 <b>%B</b>입니다. 한쪽 선에 붙어서 계속 가는 모습은 <b>밴드 타기(band walking)</b>라고 부릅니다.'});
+    /* ── 해석 ── */
+    const pbTxt = pb == null ? null : pb > 1 ? '상단선 바깥' : pb > 0.8 ? '상단선 근처' :
+      pb > 0.55 ? '가운데보다 위' : pb > 0.45 ? '거의 한가운데' : pb > 0.2 ? '가운데보다 아래' :
+      pb > 0 ? '하단선 근처' : '하단선 바깥';
+    let mean = '';
+    if(wOk){
+      mean += squeeze === 'tight'
+        ? '밴드가 <b>좁아진 상태(스퀴즈)</b>입니다. 값이 평소보다 좁은 폭 안에서만 움직였다는 뜻이고, 교과서에서는 <b>변동성이 줄어든 구간</b>이라고 부릅니다. 이런 구간은 방향을 알려 주지 않습니다 — 다만 <b>좁아진 뒤에는 한쪽으로 크게 움직이는 일이 잦다</b>고 설명하고, 어느 쪽인지는 밴드가 벌어지기 시작하는 방향으로 나중에 확인합니다.'
+        : squeeze === 'wide'
+        ? '밴드가 <b>넓어진 상태</b>입니다. 값이 평소보다 크게 흔들리고 있다는 뜻이라, 교과서에서는 <b>움직임이 이미 진행 중인 구간</b>으로 봅니다.'
+        : '밴드 폭은 <b>평소 수준</b>입니다.';
+      if(wd && wd.d === 'up') mean += ' 폭이 <b>벌어지는 중</b>이라 흔들림이 커지고 있습니다.';
+      else if(wd && wd.d === 'down') mean += ' 폭이 <b>좁아지는 중</b>이라 흔들림이 잦아들고 있습니다.';
+    }
+    if(pb != null){
+      mean += ' 가격은 밴드 안에서 <b>' + pbTxt + '</b>(%B ' + fmt(Math.max(-0.2,Math.min(1.2,pb))*100,0) + ')에 있습니다. ';
+      if(pb > 1) mean += '상단선 <b>바깥</b>은 "요즘 흔들림 기준으로도 많이 올랐다"는 표시입니다. 교과서에서는 이것만으로 방향이 꺾인다고 보지 않고, 오히려 <b>추세가 셀 때 자주 나오는 모양</b>이라고 설명합니다.';
+      else if(pb < 0) mean += '하단선 <b>바깥</b>은 "요즘 흔들림 기준으로도 많이 내렸다"는 표시입니다. 그것만으로 바닥이라고 보지는 않습니다.';
+      else if(pb > 0.8) mean += '상단 쪽에 붙어 있으면 오르는 힘이 이어지는 중으로 읽지만, <b>상단선 자체가 목표나 천장은 아닙니다</b>.';
+      else if(pb < 0.2) mean += '하단 쪽에 붙어 있으면 내리는 힘이 이어지는 중으로 읽습니다.';
+      else mean += '가운데(중심선=20일 평균) 근처는 어느 쪽으로도 치우치지 않은 자리입니다.';
+    }
+    if(Math.abs(walk) >= 3) mean += ' 최근 5봉 중 ' + Math.abs(walk) + '봉이 한쪽 선에 붙어 있었습니다 — 이런 모습을 <b>밴드 타기</b>라 하고, ' +
+      '추세가 강할 때 나타나는 대표적인 모양으로 봅니다.';
+    if(md) mean += ' 중심선(20일 평균)은 ' + (md.d==='up' ? '<b>올라가는 중</b>' : md.d==='down' ? '<b>내려가는 중</b>' : '<b>거의 옆으로</b>') +
+      '이라, 밴드 전체가 ' + (md.d==='up' ? '위로 밀려 올라가고' : md.d==='down' ? '아래로 밀려 내려가고' : '제자리에 머물고') + ' 있습니다.';
+
+    A.read.bb = {pb, squeeze, wRel: wOk ? wRel : null, walk, mid: md ? md.d : null};
+    A.cards.push({t:'볼린저밴드', badge:d, facts, mean,
+      watch: '밴드는 <b>가격이 요즘 흔들림에 비해 어디쯤인지</b>를 보여 줄 뿐, 어디까지 갈지를 말해 주지 않습니다. ' +
+        '상단·하단에 닿는 것 자체는 흔한 일이고, 강한 추세에서는 <b>계속 닿은 채로 갑니다</b>. ' +
+        '폭이 좁아진 구간에서는 방향을 미리 정하지 말고, 폭이 벌어지는 쪽을 나중에 확인하는 것이 교과서적인 읽기입니다.',
+      edu: '<b>볼린저밴드</b>는 20일 이동평균선(중심선)에서 <b>표준편차의 2배</b>만큼 위아래로 벌린 띠입니다. ' +
+        '값이 평소보다 얼마나 흔들리는지를 폭으로 보여 줍니다. 폭이 좁아지는 것을 <b>수축(스퀴즈)</b>, 벌어지는 것을 <b>확장</b>이라고 하고, ' +
+        '가격이 밴드 안 어디쯤인지를 0~100으로 나타낸 것이 <b>%B</b>입니다. 통계적으로는 값의 대부분(약 95%)이 이 띠 안에 들어옵니다. ' +
+        '한쪽 선에 붙어서 계속 가는 모습은 <b>밴드 타기(band walking)</b>라고 부릅니다.'});
   }
 
   /* ── 일목균형표 ── */
@@ -1273,7 +1391,8 @@ function analyze(){
   if(hasCloud || S.roles.tenkan || S.roles.kijun){
     const facts = [];
     let d = 'flat', sc = 0;
-    let cl = null;
+    let cl = null, ichPos = null, ichGapPct = null, ichThick = null, ichThickEnd = null,
+        ichColor = null, ichEnd = null, tkAbove = null, tkCross = null;
     if(hasCloud){
       cl = cloudFrom(cloudRuns('cloudUp'), cloudRuns('cloudDown'));
       A.covers.push({nm:'구름', v:cl.cover});
@@ -1283,19 +1402,23 @@ function analyze(){
         if(p != null){
           const pos = p < cl.top[i] ? 'above' : p > cl.bot[i] ? 'below' : 'in';
           const gap = pos==='above' ? cl.top[i]-p : pos==='below' ? p-cl.bot[i] : 0;
+          ichPos = pos; ichGapPct = A.hpct(gap);
           facts.push('가격은 구름 ' + (pos==='above' ? '<b class="u">위</b>' : pos==='below' ? '<b class="d">아래</b>' : '<b>속</b>') +
             (pos!=='in' ? '에 있습니다 (구름 경계에서 차트 높이의 ' + fmt(A.hpct(gap),1) + '%'
               + (cal ? ', ' + fmt(Math.abs(A.pct(p, pos==='above'?cl.top[i]:cl.bot[i])),2) + '%' : '') + ' 떨어짐)' : '에 들어와 있습니다'));
           sc += pos==='above' ? 2 : pos==='below' ? -2 : 0;
         }
         const th = cl.bot[i]-cl.top[i];
+        ichThick = A.hpct(th);
         facts.push('지금 자리 구름 두께: 차트 높이의 <b>' + fmt(A.hpct(th),1) + '%</b> → ' +
           (A.hpct(th) > 6 ? '<b>두꺼운 편</b>' : A.hpct(th) < 2 ? '<b>얇은 편</b>' : '보통'));
         const wNow = cl.who[i], wEnd = cl.who[n-1];
+        ichColor = wNow; ichEnd = wEnd;
         if(wNow) facts.push('지금 구름 색: ' + (wNow==='up' ? '<b class="u">양운</b> (선행1이 위)' : '<b class="d">음운</b> (선행2가 위)'));
         if(wNow && wEnd && wNow !== wEnd)
           facts.push('오른쪽 <b>선행 구간</b>에서 구름 색이 ' + (wEnd==='up' ? '<b class="u">양운</b>' : '<b class="d">음운</b>') + '으로 <b>바뀝니다 (구름 전환)</b>');
         const thEnd = cl.bot[n-1]-cl.top[n-1];
+        ichThickEnd = isFinite(thEnd) ? A.hpct(thEnd) : null;
         if(isFinite(thEnd)) facts.push('앞쪽(선행 구간) 구름 두께: 차트 높이의 <b>' + fmt(A.hpct(thEnd),1) + '%</b>');
         if(wEnd) sc += wEnd==='up' ? 1 : -1;
       }
@@ -1309,9 +1432,11 @@ function analyze(){
     if(kij){ const t = A.dir(kij); if(t){ facts.push('기준선은 ' + tag(t.d, t.txt) + (cal ? ' (지금 ' + A.money(kij[A.nowI]) + ')' : '')); sc += t.d==='up'?0.5:t.d==='down'?-0.5:0; } }
     if(ten && kij){
       const above = ten[A.nowI] < kij[A.nowI];
+      tkAbove = above;
       facts.push('전환선이 기준선 ' + (above ? '<b class="u">위</b>에 있습니다 (호전)' : '<b class="d">아래</b>에 있습니다 (역전)'));
       sc += above ? 1 : -1;
       const x = A.crossOf(ten, kij);
+      if(x && x.frac < 0.7) tkCross = x;
       if(x && x.frac < 0.7) facts.push('전환선이 기준선을 ' + (x.bars != null ? '약 <b>' + x.bars + '봉 전</b>' : '최근에') + ' ' +
         (x.up ? '<b class="u">위로</b>' : '<b class="d">아래로</b>') + ' 지나갔습니다');
     }
@@ -1319,12 +1444,53 @@ function analyze(){
       facts.push('가격은 기준선 ' + (A.priceY < kij[A.nowI] ? '<b class="u">위</b>' : '<b class="d">아래</b>'));
     d = sc >= 1.5 ? 'up' : sc <= -1.5 ? 'down' : 'flat';
     A.dirs.push(d);
-    A.cards.push({t:'일목균형표', badge:d, facts,
-      mean: '일목균형표는 <b>가격이 구름의 어느 쪽에 있는지</b>를 가장 크게 봅니다. 구름 위는 그동안의 매수 균형이 위쪽에 있다는 뜻으로, 구름 아래는 그 반대로 읽습니다. 구름 속은 균형이 잡히지 않은 구간이라 <b>방향을 판단하지 않는 자리</b>로 봅니다. 구름이 두꺼울수록 그 구간을 지나가기 어려운 벽으로 봅니다.',
+    /* ── 해석 ── */
+    let mean = '';
+    if(ichPos === 'above')
+      mean = '가격이 <b class="u">구름 위</b>에 있습니다. 일목균형표에서 가장 크게 보는 자리로, ' +
+        '지난 26·52일 동안의 값 균형보다 지금 값이 위에 있다는 뜻입니다. 교과서에서는 이 상태를 <b>오름 쪽 균형</b>이라 하고, ' +
+        '되돌려 내려올 때 <b>구름 윗면이 바닥 노릇</b>을 하는지를 봅니다.';
+    else if(ichPos === 'below')
+      mean = '가격이 <b class="d">구름 아래</b>에 있습니다. 지난 26·52일 값 균형보다 지금 값이 아래라는 뜻이고, ' +
+        '교과서에서는 <b>내림 쪽 균형</b>이라 부릅니다. 되돌려 올라갈 때 <b>구름 아랫면이 천장 노릇</b>을 하는지를 봅니다.';
+    else if(ichPos === 'in')
+      mean = '가격이 <b>구름 속</b>에 들어와 있습니다. 일목균형표에서는 이 자리를 <b>균형이 잡히지 않은 구간</b>으로 보고, ' +
+        '원칙적으로 <b>방향을 말하지 않습니다</b>. 구름을 위로 벗어나는지 아래로 벗어나는지를 기다려 보는 자리입니다.';
+    if(ichPos && ichPos !== 'in' && ichGapPct != null)
+      mean += ' 구름 경계에서 차트 높이의 ' + fmt(ichGapPct,1) + '%' +
+        (ichGapPct < 3 ? '밖에 안 떨어져 있어 <b>경계에 바짝 붙은 자리</b>입니다 — 구름 안으로 들어가면 읽는 방법이 달라집니다.' : ' 떨어져 있습니다.');
+    if(ichThick != null)
+      mean += ' 지금 자리 구름은 차트 높이의 ' + fmt(ichThick,1) + '%로 ' +
+        (ichThick > 6 ? '<b>두꺼운 편</b>입니다. 두꺼운 구름은 <b>지나가기 어려운 벽</b>으로 봅니다.'
+         : ichThick < 2 ? '<b>얇은 편</b>입니다. 얇은 구름은 <b>쉽게 통과되는 구간</b>으로 봅니다.'
+         : '보통 두께입니다.');
+    if(ichThickEnd != null && ichThick != null && Math.abs(ichThickEnd - ichThick) > 2)
+      mean += ' 오른쪽 <b>선행 구간</b>(26칸 앞) 구름은 ' + fmt(ichThickEnd,1) + '%로 ' +
+        (ichThickEnd > ichThick ? '<b>더 두꺼워집니다</b> — 앞으로 그 자리를 지나기가 더 버겁다는 뜻으로 읽습니다.'
+                                : '<b>얇아집니다</b> — 앞으로 그 구간은 지나기 쉬워진다는 뜻으로 읽습니다.');
+    if(ichColor && ichEnd && ichColor !== ichEnd)
+      mean += ' 그리고 선행 구간에서 <b>구름 색이 바뀝니다(구름 전환)</b>. 색이 바뀌는 날짜는 이미 정해져 있어서, ' +
+        '그 자리를 <b>미리 표시된 변화 지점</b>으로 보고 눈여겨보는 경우가 많습니다.';
+    if(tkAbove != null)
+      mean += ' 전환선이 기준선 ' + (tkAbove ? '<b class="u">위</b>에 있어 <b>호전</b>' : '<b class="d">아래</b>에 있어 <b>역전</b>') +
+        ' 상태입니다 — 짧은 기간(9일)의 중심값이 중기(26일) 중심값보다 ' + (tkAbove ? '높다' : '낮다') + '는 뜻입니다.';
+    if(tkCross) mean += ' 이 엇갈림은 약 ' + tkCross.bars + '봉 전에 생겼습니다.';
+
+    A.read.ich = {pos:ichPos, gapPct:ichGapPct, thick:ichThick, thickEnd:ichThickEnd,
+                  color:ichColor, end:ichEnd, tkAbove, flip: !!(ichColor && ichEnd && ichColor !== ichEnd)};
+    A.cards.push({t:'일목균형표', badge:d, facts, mean,
+      watch: '일목균형표는 <b>구름 위·속·아래</b> 하나만 봐도 절반은 읽은 셈입니다. 구름 속에서는 방향을 말하지 않는 것이 원칙입니다. ' +
+        '구름은 <b>26칸 앞에 미리</b> 그려져 있어서 오른쪽 끝 모양은 이미 정해진 것이고, ' +
+        '앞으로의 가격이 아니라 <b>앞으로 만나게 될 벽의 모양</b>이라는 점을 헷갈리지 않는 것이 중요합니다.',
       edu: '구름 색은 <b>따뜻한 색(붉은 계열)을 양운</b>으로 보고 읽었습니다 — 국내 증권사 기본 설정 기준이라, 색을 바꿔 쓰신다면 반대로 보셔야 합니다. ' +
-        '<b>일목균형표</b>는 전환선(9), 기준선(26), 선행스팬1·2, 후행스팬으로 이뤄집니다. 선행스팬 1과 2 사이를 칠한 것이 <b>구름</b>이고, 26칸 앞에 미리 그려지기 때문에 차트 오른쪽 끝에 <b>앞으로의 구름</b>이 먼저 보입니다. 선행1이 위면 <b>양운</b>, 선행2가 위면 <b>음운</b>이라 하고, 색이 바뀌는 자리를 <b>구름 전환</b>이라고 부릅니다. 전환선이 기준선 위로 올라간 상태를 <b>호전</b>, 아래로 내려간 상태를 <b>역전</b>이라고 합니다.'});
+        '<b>일목균형표</b>는 전환선(9), 기준선(26), 선행스팬1·2, 후행스팬으로 이뤄집니다. 선행스팬 1과 2 사이를 칠한 것이 <b>구름</b>이고, ' +
+        '26칸 앞에 미리 그려지기 때문에 차트 오른쪽 끝에 <b>앞으로의 구름</b>이 먼저 보입니다. ' +
+        '선행1이 위면 <b>양운</b>, 선행2가 위면 <b>음운</b>이라 하고, 색이 바뀌는 자리를 <b>구름 전환</b>이라고 부릅니다. ' +
+        '전환선이 기준선 위로 올라간 상태를 <b>호전</b>, 아래로 내려간 상태를 <b>역전</b>이라고 합니다.'});
   }
+
   paneCards(A);
+  weaveCard(A);
   return A;
 }
 
@@ -1881,14 +2047,59 @@ function volCard(A, rect, p){
     '가장 큰 거래량은 <b>약 ' + (A.bars.length-1-mi) + '봉 전</b>입니다',
     '마지막 봉은 ' + (types[types.length-1] === 'up' ? '<b class="u">오른 날</b>' : '<b class="d">내린 날</b>') + '의 거래량입니다'
   ];
+  const pxDir = A.read.px ? A.read.px.dir : null;
+  let vmean = '거래량은 <b>방향이 아니라 관심의 크기</b>입니다. ';
+  if(pxDir === 'up' && trend > 1.2)
+    vmean += '지금은 <b class="u">값이 오르는 동안 거래도 늘고</b> 있습니다. 교과서에서는 이것을 <b>거래를 동반한 상승</b>이라 하고, ' +
+      '움직임에 참여한 사람이 실제로 많았다는 뜻으로 읽습니다.';
+  else if(pxDir === 'up' && trend < 0.8)
+    vmean += '지금은 <b>값은 오르는데 거래는 줄고</b> 있습니다. 오르는 데 참여가 붙지 않는 모양이라, ' +
+      '교과서에서는 <b>힘이 빠지는 상승</b>이라고 부르며 주의해서 보는 조합입니다. 다만 이것만으로 방향이 꺾인다고 보지는 않습니다.';
+  else if(pxDir === 'down' && trend > 1.2)
+    vmean += '지금은 <b class="d">값이 내리는 동안 거래가 늘고</b> 있습니다. 내리는 쪽에 사람이 몰렸다는 뜻으로 읽습니다.';
+  else if(pxDir === 'down' && trend < 0.8)
+    vmean += '지금은 <b>값도 내리고 거래도 줄고</b> 있습니다. 파는 힘도 잦아든 상태로 보고, 교과서에서는 <b>매물이 마르는 구간</b>이라고 표현합니다.';
+  else vmean += '지금은 값의 방향과 거래량이 뚜렷한 짝을 이루지는 않습니다.';
+  if(ratio > 1.8) vmean += ' 마지막 봉 하나만 놓고 보면 평소의 ' + fmt(ratio*100,0) + '%로 <b>크게 튄 날</b>입니다 — ' +
+    '이런 자리는 <b>생각이 갈린 자리</b>로 보고, 나중에 그 가격대를 다시 만나는지 눈여겨보는 경우가 많습니다.';
+  else if(ratio < 0.5) vmean += ' 마지막 봉은 평소의 ' + fmt(ratio*100,0) + '%로 <b>매우 한산한 날</b>입니다 — 관심이 식은 구간에서 자주 나옵니다.';
+  vmean += ' 가장 큰 거래량이 약 ' + (A.bars.length-1-mi) + '봉 전이라, <b>그 자리의 가격대</b>가 사람들이 많이 사고판 기준점으로 남아 있습니다.';
+  A.read.vol = {ratio, trend, maxAgo: A.bars.length-1-mi, lastType: types[types.length-1]};
   A.cards.push({t:'거래량', badge:'flat',
     badgeText: ratio > 1.8 ? '평소보다 많음' : ratio < 0.5 ? '평소보다 적음' : '평소 수준',
-    facts,
-    mean: '거래량은 <b>방향을 말해 주는 지표가 아니라 관심의 크기</b>입니다. ' +
-      '값이 움직일 때 거래량이 함께 늘면 그 움직임에 참여한 사람이 많았다는 뜻이고, ' +
-      '거래량 없이 움직였다면 적은 손바뀜으로 생긴 값이라는 뜻으로 읽습니다.',
+    facts, mean: vmean,
+    watch: '거래량은 <b>혼자 보면 뜻이 없고</b>, 값의 움직임과 짝지어 볼 때 뜻이 생깁니다. ' +
+      '또 이 앱은 막대의 <b>높이 비율</b>만 읽습니다 — 실제 주식 수는 차트 눈금을 봐야 알 수 있습니다.',
     edu: '<b>거래량</b>은 그 기간에 사고팔린 주식 수입니다. 국내 차트는 오른 날을 빨강, 내린 날을 파랑으로 칠합니다. ' +
       '거래량이 갑자기 크게 늘어난 자리는 <b>사람들의 생각이 갈린 자리</b>로 보고, 나중에 그 가격대를 눈여겨보는 경우가 많습니다.'});
+}
+
+/* 가격과 지표가 엇갈리는지 (다이버전스) — 최근 구간을 반으로 갈라 고점·저점을 견준다 */
+function divergence(A, valueAt){
+  const bs = A.bars;
+  if(!bs || bs.length < 24) return null;
+  const seg = Math.min(40, bs.length), half = Math.floor(seg/2);
+  const from = bs.length - seg;
+  const pick = (a, b, hi) => {
+    let bi = -1, bv = null;
+    for(let i=a;i<b;i++){
+      const y = hi ? bs[i].high : bs[i].low;
+      if(bv == null || (hi ? y < bv : y > bv)){ bv = y; bi = i; }
+    }
+    return bi;
+  };
+  const check = hi => {
+    const i1 = pick(from, from+half, hi), i2 = pick(from+half, bs.length, hi);
+    if(i1 < 0 || i2 < 0 || i2 - i1 < 5) return null;
+    const p1 = hi ? bs[i1].high : bs[i1].low, p2 = hi ? bs[i2].high : bs[i2].low;
+    if(Math.abs(A.hpct(p2 - p1)) < 2) return null;          /* 가격 차이가 뚜렷해야 */
+    const v1 = valueAt(Math.round(bs[i1].cx)), v2 = valueAt(Math.round(bs[i2].cx));
+    if(v1 == null || v2 == null) return null;
+    if(hi && p2 < p1 && v2 < v1 - 3) return {kind:'bear', bars: bs.length-1-i2};   /* 더 높은 고점 + 낮은 지표 */
+    if(!hi && p2 > p1 && v2 > v1 + 3) return {kind:'bull', bars: bs.length-1-i2};  /* 더 낮은 저점 + 높은 지표 */
+    return null;
+  };
+  return check(true) || check(false);
 }
 
 function oscCard(A, rect, p, cands){
@@ -1940,15 +2151,48 @@ function oscCard(A, rect, p, cands){
     const zone = v >= 70 ? '<b class="u">70 위</b> — 교과서에서 <b>과매수 구간</b>이라 부르는 자리' :
                  v <= 30 ? '<b class="d">30 아래</b> — 교과서에서 <b>과매도 구간</b>이라 부르는 자리' :
                  v >= 50 ? '50 위 (가운데보다 높은 쪽)' : '50 아래 (가운데보다 낮은 쪽)';
-    A.cards.push({t:'RSI', badge: v >= 55 ? 'up' : v <= 45 ? 'down' : 'flat',
-      facts: ['지금 값은 <b>약 ' + fmt(v, 0) + '</b> / 100 <span style="color:var(--muted)">(' + rsi.cd.label + '로 읽음)</span>',
-              zone,
-              '최근 ' + A.lbBars() + ' 동안 ' + (dd ? tag(dd.d, DIRW[dd.d]) : '-')],
-      mean: '오른 폭과 내린 폭을 견줘 <b>어느 쪽 힘이 더 셌는지</b>를 0~100으로 나타낸 값입니다. ' +
-        '70 위·30 아래를 과매수·과매도라고 부르지만, <b>추세가 셀 때는 한쪽에 오래 머무릅니다</b>. ' +
-        '그 자체로 방향이 바뀐다는 뜻은 아닙니다.',
-      edu: '<b>RSI</b>는 정해진 기간(보통 14) 동안 오른 날의 평균 상승폭과 내린 날의 평균 하락폭을 견줍니다. ' +
-        '값이 클수록 그동안 오른 힘이 셌다는 뜻입니다.'});
+    const facts2 = ['지금 값은 <b>약 ' + fmt(v, 0) + '</b> / 100 <span style="color:var(--muted)">(' + rsi.cd.label + '로 읽음)</span>',
+                    zone,
+                    '최근 ' + A.lbBars() + ' 동안 ' + (dd ? tag(dd.d, DIRW[dd.d]) : '-')];
+    /* 과열 구간에 며칠째인지 */
+    let zoneRun = 0;
+    if(v >= 70 || v <= 30){
+      for(let i=A.bars.length-1;i>=0;i--){
+        const vv = val(rsi, Math.round(A.bars[i].cx));
+        if(vv == null) break;
+        if(v >= 70 ? vv >= 70 : vv <= 30) zoneRun++; else break;
+      }
+      if(zoneRun >= 2) facts2.push('그 자리에 머문 지 <b>' + zoneRun + '봉째</b>입니다');
+    }
+    /* 가격과 엇갈리는지 (다이버전스) */
+    const dv = divergence(A, g => val(rsi, g));
+    if(dv) facts2.push(dv.kind === 'bear'
+      ? '가격은 <b>앞 고점보다 높은데</b> RSI는 <b class="d">더 낮습니다</b> — 교과서에서 <b>고점 다이버전스</b>라 부르는 모양입니다'
+      : '가격은 <b>앞 저점보다 낮은데</b> RSI는 <b class="u">더 높습니다</b> — 교과서에서 <b>저점 다이버전스</b>라 부르는 모양입니다');
+
+    let rmean = 'RSI는 <b>오른 폭과 내린 폭 중 어느 쪽이 셌는지</b>를 0~100으로 옮긴 값입니다. ';
+    if(v >= 70) rmean += '지금 <b>' + fmt(v,0) + '</b>은 70 위로, 그동안 <b>오른 힘이 크게 앞섰다</b>는 뜻입니다. ' +
+      '흔히 "과매수"라고 부르지만 <b>비싸다는 뜻이 아니라 많이 올랐다는 표시</b>이고, 추세가 셀 때는 70~80에 오래 머무릅니다.';
+    else if(v <= 30) rmean += '지금 <b>' + fmt(v,0) + '</b>은 30 아래로, <b>내린 힘이 크게 앞섰다</b>는 뜻입니다. ' +
+      '"과매도"라고 부르지만 싸다는 뜻이 아니라 많이 내렸다는 표시이고, 내림이 셀 때는 30 아래에 오래 머무릅니다.';
+    else if(v >= 55) rmean += '지금 <b>' + fmt(v,0) + '</b>은 가운데(50)보다 위입니다. 교과서에서는 50선을 <b>힘의 균형점</b>으로 보고, ' +
+      '오름 흐름에서는 되돌릴 때 50 언저리에서 다시 올라서는지를 봅니다.';
+    else if(v <= 45) rmean += '지금 <b>' + fmt(v,0) + '</b>은 가운데(50)보다 아래입니다. 내림 흐름에서는 되돌려 올라갈 때 50 언저리에서 다시 밀리는지를 봅니다.';
+    else rmean += '지금 <b>' + fmt(v,0) + '</b>은 거의 한가운데라, 어느 쪽 힘도 뚜렷하지 않습니다.';
+    if(zoneRun >= 4) rmean += ' 그 자리에 <b>' + zoneRun + '봉째</b> 머물고 있습니다 — 오래 머무는 것 자체가 <b>추세가 세다는 표시</b>로 읽힙니다.';
+    if(dd && dd.d !== 'flat') rmean += ' 최근 ' + A.lbBars() + ' 동안 RSI는 ' + (dd.d==='up'?'올라오는':'내려가는') + ' 중입니다.';
+    if(dv) rmean += ' 그리고 <b>가격과 RSI가 엇갈립니다</b> — ' +
+      (dv.kind === 'bear' ? '가격은 더 높은 고점을 만들었는데 RSI는 그만큼 못 올라왔습니다. 오르는 힘이 예전만 못하다는 표시로 읽습니다.'
+                          : '가격은 더 낮은 저점을 만들었는데 RSI는 그만큼 안 내려갔습니다. 내리는 힘이 예전만 못하다는 표시로 읽습니다.') +
+      ' 다만 <b>엇갈림은 한참 이어지기도 하고 그냥 없어지기도 합니다</b>.';
+
+    A.read.rsi = {v, dir: dd ? dd.d : null, zoneRun, div: dv ? dv.kind : null};
+    A.cards.push({t:'RSI', badge: v >= 55 ? 'up' : v <= 45 ? 'down' : 'flat', facts: facts2, mean: rmean,
+      watch: '70·30은 <b>정해진 경계선이 아니라 관습</b>입니다. 강한 추세에서는 70 위(또는 30 아래)에 오래 머물기 때문에, ' +
+        '그 숫자 하나로 방향이 바뀐다고 보지 않는 것이 교과서적인 읽기입니다. ' +
+        '보통은 <b>50선을 넘나드는지</b>와 <b>가격과 엇갈리는지</b>를 함께 봅니다.',
+      edu: '<b>RSI</b>는 정해진 기간(보통 14) 동안 오른 날의 평균 상승폭과 내린 날의 평균 하락폭을 견줘 ' +
+        '0~100으로 나타냅니다. 값이 클수록 그동안 오른 힘이 셌다는 뜻이고, 50은 두 힘이 비슷했다는 뜻입니다.'});
     A.dirs.push(v >= 55 ? 'up' : v <= 45 ? 'down' : 'flat');
   }
 
@@ -1968,12 +2212,24 @@ function oscCard(A, rect, p, cands){
     const dd = dirOf(k);
     if(dd) facts.push('%K는 최근 ' + A.lbBars() + ' 동안 ' + tag(dd.d, DIRW[dd.d]));
     const bd = dv != null ? (kv > dv ? 'up' : 'down') : (kv >= 50 ? 'up' : 'down');
-    A.cards.push({t:'스토캐스틱', badge: bd, facts,
-      mean: '요즘 값이 <b>최근 고점과 저점 사이 어디쯤</b>에서 끝나는지를 0~100으로 본 것입니다. ' +
-        '80 위는 최근 범위의 위쪽에서, 20 아래는 아래쪽에서 끝나고 있다는 뜻입니다. ' +
-        '오르는 흐름이 셀 때는 80 위에 계속 붙어 있기도 합니다.',
+    let smean = '스토캐스틱은 <b>요즘 오르내린 범위 안에서 지금 값이 어디쯤에서 끝났는지</b>를 0~100으로 옮긴 값입니다. ';
+    if(kv >= 80) smean += '지금 %K <b>' + fmt(kv,0) + '</b>은 80 위 — <b>최근 범위의 꼭대기 근처에서 끝나고 있다</b>는 뜻입니다. ' +
+      '흔히 과매수라 부르지만, 오름이 셀 때는 여기 붙어서 한참 갑니다.';
+    else if(kv <= 20) smean += '지금 %K <b>' + fmt(kv,0) + '</b>은 20 아래 — <b>최근 범위의 바닥 근처에서 끝나고 있다</b>는 뜻입니다. ' +
+      '내림이 셀 때는 여기 붙어서 한참 갑니다.';
+    else smean += '지금 %K <b>' + fmt(kv,0) + '</b>은 20~80 사이라, 범위의 가운데쯤에서 끝나고 있습니다.';
+    if(d) smean += ' %K가 %D <b>' + (kv > dv ? '위' : '아래') + '</b>에 있습니다 — ' +
+      (kv > dv ? '요 며칠 값이 그 앞 평균보다 위쪽에서 끝나고 있다는 뜻입니다.' : '요 며칠 값이 그 앞 평균보다 아래쪽에서 끝나고 있다는 뜻입니다.');
+    smean += ' 스토캐스틱은 <b>가장 빠르게 움직이는 축</b>에 속해서, 방향이 자주 바뀝니다. ' +
+      '그래서 교과서에서도 <b>이것만 보고 판단하지 말고 추세 지표(이평선·MACD)와 같이 보라</b>고 합니다.';
+    A.read.stoch = {k:kv, d:dv, cross: kv > dv};
+    A.cards.push({t:'스토캐스틱', badge: bd, facts, mean: smean,
+      watch: '가장 자주 흔들리는 지표라 <b>혼자서는 신호가 너무 많습니다</b>. ' +
+        '80 위·20 아래에 머무는 것 자체는 흔한 일이고, 특히 추세가 셀 때는 한쪽에 오래 붙어 있습니다. ' +
+        '보통은 <b>추세 지표로 방향을 보고, 스토캐스틱으로 속도를</b> 보는 식으로 짝지어 씁니다.',
       edu: '<b>스토캐스틱</b>의 %K는 (지금 값 − 최근 최저) ÷ (최근 최고 − 최근 최저) × 100이고, ' +
-        '%D는 %K를 며칠 평균 낸 선입니다. 두 선이 엇갈리는 자리를 흔히 봅니다.'});
+        '%D는 %K를 며칠 평균 낸 선입니다. 두 선이 엇갈리는 자리를 흔히 봅니다. ' +
+        '기간을 짧게 잡으면(5,3) 아주 민감하고, 길게 잡으면(12,5) 둔해집니다.'});
     A.dirs.push(bd);
   }
 
@@ -1997,13 +2253,144 @@ function oscCard(A, rect, p, cands){
     const dd = dirOf(md);
     if(dd) facts.push('MACD 선은 최근 ' + A.lbBars() + ' 동안 ' + tag(dd.d, DIRW[dd.d]));
     const bd = sv != null ? (mv > sv ? 'up' : 'down') : (above0 ? 'up' : 'down');
-    A.cards.push({t:'MACD', badge: bd, facts,
-      mean: '짧은 기간 평균과 긴 기간 평균이 <b>얼마나 벌어져 있는지</b>를 그린 것입니다. ' +
-        '0선 위는 짧은 평균이 긴 평균보다 위에 있다는 뜻이고, 시그널선과 엇갈리는 자리를 흔히 봅니다.',
+    const aboveSig = sv != null ? mv > sv : null;
+    let mmean = 'MACD는 <b>짧은 평균(12일)과 긴 평균(26일)이 얼마나 벌어져 있는지</b>를 그린 선입니다. ';
+    mmean += above0 ? '지금은 <b class="u">0선 위</b> — 짧은 평균이 긴 평균보다 위에 있다는 뜻이고, 이는 <b>이평선 정배열과 같은 이야기</b>입니다. '
+                    : '지금은 <b class="d">0선 아래</b> — 짧은 평균이 긴 평균보다 아래에 있다는 뜻입니다. ';
+    if(aboveSig != null){
+      mmean += aboveSig
+        ? 'MACD가 시그널 <b>위</b>에 있어, 벌어지는 속도가 최근 평균보다 빠른 쪽입니다. '
+        : 'MACD가 시그널 <b>아래</b>에 있어, 벌어지는 속도가 최근 평균보다 느린 쪽입니다. ';
+      const combo = above0 && aboveSig ? '<b>0선 위 + 시그널 위</b> — 교과서에서 오름 쪽 손발이 맞은 상태로 보는 조합입니다.'
+        : above0 && !aboveSig ? '<b>0선 위 + 시그널 아래</b> — 오름 흐름 안에서 속도가 줄어드는 자리로 읽습니다.'
+        : !above0 && aboveSig ? '<b>0선 아래 + 시그널 위</b> — 내림 흐름 안에서 속도가 줄어드는(되돌리는) 자리로 읽습니다.'
+        : '<b>0선 아래 + 시그널 아래</b> — 내림 쪽 손발이 맞은 상태로 보는 조합입니다.';
+      mmean += combo;
+    }
+    mmean += ' MACD는 <b>추세를 따라가는 지표</b>라 방향이 바뀐 뒤에 신호가 나옵니다. 빠르지 않은 대신 잔신호가 적습니다.';
+    A.read.macd = {above0, aboveSig};
+    A.cards.push({t:'MACD', badge: bd, facts, mean: mmean,
+      watch: 'MACD는 평균끼리의 차이라 <b>가격이 옆으로 갈 때 0선 근처에서 계속 엇갈립니다</b> — 그 구간의 교차는 뜻이 약합니다. ' +
+        '0선에서 멀리 떨어져 있을수록 신호가 또렷하고, <b>히스토그램이 줄어드는 것은 방향이 바뀌는 게 아니라 속도가 줄어드는 것</b>입니다.',
       edu: '<b>MACD</b>는 12일 지수이동평균 − 26일 지수이동평균이고, 그 값을 다시 9일 평균 낸 것이 <b>시그널선</b>입니다. ' +
-        '둘의 차이를 막대그래프(히스토그램)로 그립니다.'});
+        '둘의 차이를 막대그래프(히스토그램)로 그립니다. 0선은 두 평균이 만나는 자리입니다.'});
     A.dirs.push(bd);
   }
+}
+
+/* ═════════════════════════════════════════════
+   지표끼리 엮어 읽기 — 무엇이 손발이 맞고 무엇이 엇갈리는지
+   ═════════════════════════════════════════════ */
+function weaveCard(A){
+  const r = A.read;
+  if(!r || (!r.ma && !r.ich && !r.macd && !r.rsi && !r.stoch && !r.bb)) return;
+
+  /* 1) 추세를 보는 것들 */
+  const trend = [];
+  if(r.ma && r.ma.order) trend.push({nm:'이평선 배열',
+    d: r.ma.order==='up' ? 'up' : r.ma.order==='down' ? 'down' : 'flat',
+    txt: r.ma.order==='up' ? '정배열' : r.ma.order==='down' ? '역배열' : '혼조'});
+  if(r.ich && r.ich.pos) trend.push({nm:'구름 위치',
+    d: r.ich.pos==='above' ? 'up' : r.ich.pos==='below' ? 'down' : 'flat',
+    txt: r.ich.pos==='above' ? '구름 위' : r.ich.pos==='below' ? '구름 아래' : '구름 속'});
+  if(r.macd) trend.push({nm:'MACD', d: r.macd.above0 ? 'up' : 'down',
+    txt: r.macd.above0 ? '0선 위' : '0선 아래'});
+  if(r.ma && r.ma.holdP != null && r.ma.holdRun >= 3) trend.push({nm:'가격과 ' + r.ma.holdP + '일선',
+    d: r.ma.holdAbove ? 'up' : 'down', txt: r.ma.holdP + '일선 ' + (r.ma.holdAbove ? '위' : '아래') + ' ' + r.ma.holdRun + '봉째'});
+
+  /* 2) 과열·위치를 보는 것들 */
+  const heat = [];
+  if(r.rsi) heat.push({nm:'RSI', z: r.rsi.v >= 70 ? 'hi' : r.rsi.v <= 30 ? 'lo' : 'mid',
+    txt: 'RSI ' + fmt(r.rsi.v,0)});
+  if(r.stoch) heat.push({nm:'스토캐스틱', z: r.stoch.k >= 80 ? 'hi' : r.stoch.k <= 20 ? 'lo' : 'mid',
+    txt: '스토캐스틱 %K ' + fmt(r.stoch.k,0)});
+  if(r.bb && r.bb.pb != null) heat.push({nm:'볼린저 %B', z: r.bb.pb > 0.8 ? 'hi' : r.bb.pb < 0.2 ? 'lo' : 'mid',
+    txt: '볼린저 %B ' + fmt(Math.max(-0.2,Math.min(1.2,r.bb.pb))*100,0)});
+
+  const tUp = trend.filter(x=>x.d==='up').length, tDn = trend.filter(x=>x.d==='down').length;
+  const hHi = heat.filter(x=>x.z==='hi').length, hLo = heat.filter(x=>x.z==='lo').length;
+  const tDir = trend.length === 0 ? null : (tUp > tDn && tDn === 0) ? 'up' : (tDn > tUp && tUp === 0) ? 'down' : 'mix';
+  const hDir = heat.length === 0 ? null : hHi > 0 && hLo === 0 ? 'hi' : hLo > 0 && hHi === 0 ? 'lo' : 'mid';
+
+  const facts = [];
+  if(trend.length) facts.push('<b>추세를 보는 지표</b> — ' + trend.map(x =>
+    x.nm + ': ' + tag(x.d, x.txt)).join(' · '));
+  if(heat.length) facts.push('<b>많이 왔는지 보는 지표</b> — ' + heat.map(x =>
+    (x.z==='hi' ? '<b class="u">' + x.txt + '</b>' : x.z==='lo' ? '<b class="d">' + x.txt + '</b>' : '<b>' + x.txt + '</b>')).join(' · '));
+  if(r.vol) facts.push('<b>참여</b> — 거래량은 ' +
+    (r.vol.trend > 1.2 ? '<b>늘어나는 중</b>' : r.vol.trend < 0.8 ? '<b>줄어드는 중</b>' : '비슷') +
+    ' (마지막 봉은 평소의 ' + fmt(r.vol.ratio*100,0) + '%)');
+
+  /* 3) 손발이 맞나 엇갈리나 */
+  const tFlat = trend.filter(x=>x.d==='flat').length;
+  let mean = '';
+  if(tDir === 'up') mean += tFlat
+    ? '추세를 보는 지표 중 <b class="u">위쪽을 가리키는 것이 ' + tUp + '개</b>, 아래쪽은 없습니다(나머지 ' + tFlat + '개는 뚜렷하지 않음). '
+    : '추세를 보는 지표들이 <b class="u">모두 위쪽</b>을 가리킵니다. ';
+  else if(tDir === 'down') mean += tFlat
+    ? '추세를 보는 지표 중 <b class="d">아래쪽을 가리키는 것이 ' + tDn + '개</b>, 위쪽은 없습니다(나머지 ' + tFlat + '개는 뚜렷하지 않음). '
+    : '추세를 보는 지표들이 <b class="d">모두 아래쪽</b>을 가리킵니다. ';
+  else if(tDir === 'mix') mean += '추세를 보는 지표들이 <b>서로 엇갈립니다</b>(위 ' + tUp + ' · 아래 ' + tDn + '). ';
+  if(tDir === 'up' && hDir === 'hi')
+    mean += '거기에 많이 왔는지 보는 지표들도 <b>높은 쪽</b>에 있습니다. 교과서에서는 이런 조합을 <b>추세가 이어지는 중의 과열</b>이라고 부르고, ' +
+      '과열 자체를 꺾임 신호로 보지 않습니다. 대신 <b>추세 쪽 지표가 무너지는지</b>를 확인점으로 삼습니다.';
+  else if(tDir === 'up' && hDir === 'lo')
+    mean += '반면 많이 왔는지 보는 지표들은 <b>낮은 쪽</b>입니다. 오름 흐름 안에서 <b>잠깐 눌린 자리</b>로 읽는 대표적인 조합입니다.';
+  else if(tDir === 'down' && hDir === 'lo')
+    mean += '많이 왔는지 보는 지표들도 <b>낮은 쪽</b>입니다. 내림이 이어지는 중이고, 낮은 값이 오래 유지되는 것 자체가 <b>내림이 세다는 표시</b>입니다.';
+  else if(tDir === 'down' && hDir === 'hi')
+    mean += '반면 많이 왔는지 보는 지표들은 <b>높은 쪽</b>입니다. 내림 흐름 안에서 <b>되돌려 올라온 자리</b>로 읽는 조합입니다.';
+  else if(tDir === 'mix')
+    mean += '한쪽은 위, 한쪽은 아래를 가리키는 이런 자리를 교과서에서는 <b>방향을 고르는 구간</b>이라고 부릅니다. ' +
+      '이럴 때는 어느 지표가 맞는지 고르기보다, <b>엇갈림이 어느 쪽으로 풀리는지</b>를 나중에 확인하는 것이 일반적인 읽기입니다.';
+  else if(!heat.length) mean += '이 차트에는 <b>많이 왔는지 보는 지표</b>(RSI·스토캐스틱·볼린저밴드)가 그려져 있지 않습니다. ' +
+    '증권사 앱에서 아래 칸에 켜 두고 다시 캡처하면 함께 읽어서, 추세와 손발이 맞는지까지 볼 수 있습니다.';
+  else mean += '많이 왔는지 보는 지표들은 <b>가운데쯤</b>에 있어, 한쪽으로 치우치지 않았습니다.';
+
+  /* 4) 대표적인 엇갈림 짚기 */
+  const conf = [];
+  if(r.ma && r.ich && r.ich.pos && r.ma.order !== 'mix'){
+    const maUp = r.ma.order === 'up', ichUp = r.ich.pos === 'above';
+    if(r.ich.pos !== 'in' && maUp !== ichUp)
+      conf.push('이평선은 <b>' + (maUp?'정배열':'역배열') + '</b>인데 가격은 <b>구름 ' + (ichUp?'위':'아래') + '</b>입니다 — ' +
+        '짧은 흐름과 중기 균형이 <b>서로 다른 이야기</b>를 하고 있습니다. 보통 짧은 쪽이 먼저 돌고 긴 쪽이 나중에 따라옵니다.');
+  }
+  if(r.bb && r.bb.squeeze === 'tight' && r.vol && r.vol.trend < 0.9)
+    conf.push('밴드가 <b>좁아진 상태</b>이고 거래량도 <b>줄어드는 중</b>입니다 — 둘 다 "지금은 쉬는 구간"이라는 같은 이야기입니다.');
+  if(r.px && r.px.dir === 'up' && r.vol && r.vol.trend < 0.8)
+    conf.push('가격은 오르는데 거래량은 줄고 있습니다 — <b>참여가 붙지 않는 상승</b>으로, 손발이 맞지 않는 조합입니다.');
+  if(r.rsi && r.rsi.div)
+    conf.push('가격과 RSI가 <b>엇갈립니다(' + (r.rsi.div==='bear'?'고점':'저점') + ' 다이버전스)</b> — 값은 더 ' +
+      (r.rsi.div==='bear'?'높아졌는데 오르는 힘은 약해졌다':'낮아졌는데 내리는 힘은 약해졌다') + '는 뜻입니다.');
+  if(r.macd && r.ma && r.ma.order !== 'mix'){
+    const maUp = r.ma.order === 'up';
+    if(maUp !== r.macd.above0)
+      conf.push('이평선 배열과 MACD 0선이 <b>서로 다릅니다</b> — 둘은 비슷한 것을 보는 지표라, 엇갈린다는 것은 <b>지금이 바뀌는 길목</b>이라는 뜻입니다.');
+  }
+
+  /* 5) 무엇이 바뀌면 그림이 달라지나 */
+  const watch = [];
+  if(r.ma && r.ma.holdP != null)
+    watch.push('종가가 <b>' + r.ma.holdP + '일선</b>을 ' + (r.ma.holdAbove ? '아래로' : '위로') + ' 넘어서면 이평선 그림이 달라집니다');
+  if(r.ich && r.ich.pos && r.ich.pos !== 'in')
+    watch.push('가격이 <b>구름 경계</b>(지금 차트 높이의 ' + fmt(r.ich.gapPct,1) + '% 거리)를 넘어 구름 안으로 들어가면 일목은 방향을 말하지 않게 됩니다');
+  else if(r.ich && r.ich.pos === 'in')
+    watch.push('가격이 <b>구름을 어느 쪽으로 벗어나는지</b>가 일목의 다음 이야기입니다');
+  if(r.bb && r.bb.squeeze === 'tight')
+    watch.push('<b>밴드 폭이 벌어지기 시작하는 방향</b>이 볼린저의 다음 이야기입니다');
+  if(r.rsi) watch.push('RSI가 <b>50선</b>을 어느 쪽으로 넘나드는지');
+  if(r.macd && r.macd.aboveSig != null)
+    watch.push('MACD가 <b>시그널선</b>을 다시 ' + (r.macd.aboveSig ? '아래로' : '위로') + ' 지나가는지');
+
+  A.cards.unshift({t:'지표들을 엮어 보면', badge: tDir === 'up' ? 'up' : tDir === 'down' ? 'down' : 'flat',
+    badgeText: tDir === 'up' ? '추세 지표는 위쪽' : tDir === 'down' ? '추세 지표는 아래쪽' : '지표가 엇갈림',
+    facts, mean,
+    watch: (conf.length ? '<b>눈에 띄는 조합</b><br>· ' + conf.join('<br>· ') + '<br><br>' : '') +
+      (watch.length ? '<b>무엇이 바뀌면 그림이 달라지나</b><br>· ' + watch.join('<br>· ') : ''),
+    edu: '지표는 <b>같은 값을 다른 방식으로 본 것</b>이라 서로 겹칩니다. 그래서 개수를 세는 것은 뜻이 없고, ' +
+      '<b>추세를 보는 지표</b>(이평선·일목·MACD)와 <b>많이 왔는지 보는 지표</b>(RSI·스토캐스틱·볼린저 %B), ' +
+      '<b>참여를 보는 지표</b>(거래량)를 나눠 놓고 <b>서로 손발이 맞는지</b>를 보는 것이 일반적인 읽기 방법입니다. ' +
+      '손발이 맞으면 읽기가 쉬워지고, 엇갈리면 "아직 정해지지 않았다"는 뜻으로 봅니다.'});
 }
 
 /* ─────────────────────────────────────────────
@@ -2025,16 +2412,14 @@ $('#btnRun').onclick = ()=>{
 };
 
 function renderResult(A){
-  const up = A.dirs.filter(d=>d==='up').length, dn = A.dirs.filter(d=>d==='down').length,
-        fl = A.dirs.filter(d=>d==='flat').length;
+  const names = A.cards.filter(c => c.t !== '지표들을 엮어 보면').map(c => c.t);
   let html = '';
   html += '<div class="rcard" style="background:var(--brand);color:#fff;border-color:var(--brand)">' +
     '<div class="rhead"><h3 style="color:#fff">읽은 결과 정리</h3></div>' +
     '<p style="font-size:13px;line-height:1.8;margin-top:9px;color:#efeaff">' +
-      '지표 <b>' + A.dirs.length + '개</b>를 읽었고 그중 <b style="color:#ffb3ad">위를 향한 모양 ' + up + '</b> · ' +
-      '<b style="color:#a9c6ff">아래를 향한 모양 ' + dn + '</b> · <b>뚜렷하지 않음 ' + fl + '</b> 입니다.<br>' +
-      '이건 점수가 아니라 <b>지금 화면에 그려진 모양을 세어 본 것</b>입니다. ' +
-      '이 앱은 사고팔라는 이야기는 하지 않습니다.</p>' +
+      '이 차트에서 <b>' + names.join('</b>, <b>') + '</b>을(를) 읽었습니다.<br>' +
+      '바로 아래 칸에서 <b>지표들을 엮어</b> 설명하고, 그다음부터 <b>하나씩 자세히</b> 풀어 놓았습니다.<br>' +
+      '이 앱은 <b>사고팔라는 이야기는 하지 않습니다</b> — 지금 어떤 모양인지, 그 모양을 뭐라고 부르는지까지만 적습니다.</p>' +
     (A.bars ? '' : '<p style="font-size:11.5px;color:#cfc6e6;margin-top:8px">캔들 색을 찍으면 봉 개수와 가격 위치까지 함께 읽을 수 있습니다.</p>') +
     (A.cal ? '' : '<p style="font-size:11.5px;color:#cfc6e6;margin-top:8px">가격 눈금을 맞추면 %와 실제 가격도 함께 나옵니다.</p>') +
     '</div>';
@@ -2042,9 +2427,10 @@ function renderResult(A){
   A.cards.forEach(c => {
     const b = BADGE[c.badge] || BADGE.flat;
     html += '<div class="rcard">' +
-      '<div class="rhead"><h3>' + c.t + '</h3><span class="badge ' + b[0] + '">' + b[1] + '</span></div>' +
+      '<div class="rhead"><h3>' + c.t + '</h3><span class="badge ' + b[0] + '">' + (c.badgeText || b[1]) + '</span></div>' +
       '<ul class="facts">' + c.facts.map(f => '<li>' + f + '</li>').join('') + '</ul>' +
-      (c.mean ? '<div class="mean"><b>지금 이 모양은</b><br>' + c.mean + '</div>' : '') +
+      (c.mean ? '<div class="mean"><b>이 모양이 뜻하는 것</b><br>' + c.mean + '</div>' : '') +
+      (c.watch ? '<div class="watch"><b>같이 볼 것</b><br>' + c.watch + '</div>' : '') +
       (c.edu ? '<div class="edu"><b>이 지표가 뭔가요</b><br>' + c.edu + '</div>' : '') +
       '</div>';
   });
@@ -2069,15 +2455,18 @@ function renderResult(A){
   $('#results').innerHTML = html;
   $('#btnSaveLog').onclick = openSaveSheet;
   $('#btnCopy').onclick = ()=>{
-    const txt = A.cards.map(c => '[' + c.t + '] ' + (BADGE[c.badge]||BADGE.flat)[1] + '\n' +
-      c.facts.map(f => ' · ' + strip(f)).join('\n') + '\n → ' + strip(c.mean || '')).join('\n\n') +
+    const txt = A.cards.map(c => '[' + c.t + '] ' + (c.badgeText || (BADGE[c.badge]||BADGE.flat)[1]) + '\n' +
+      c.facts.map(f => ' · ' + strip(f)).join('\n') +
+      (c.mean ? '\n → ' + strip(c.mean) : '') +
+      (c.watch ? '\n ※ ' + strip(c.watch) : '')).join('\n\n') +
       '\n\n※ 차트에 그려진 지표 모양을 그대로 읽은 것이며, 사고팔라는 판단이 아닙니다.';
     navigator.clipboard.writeText(txt).then(
       ()=>{ $('#btnCopy').textContent = '복사했습니다 ✓'; setTimeout(()=>$('#btnCopy').textContent='결과를 글로 복사하기', 1600); },
       ()=>{ $('#btnCopy').textContent = '복사가 안 됩니다'; });
   };
 }
-function strip(h){ return String(h).replace(/<[^>]*>/g,'').replace(/\s+/g,' ').trim(); }
+function strip(h){ return String(h).replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>/g,'')
+  .replace(/[ \t]+/g,' ').replace(/\n /g,'\n').trim(); }
 
 /* ─────────────────────────────────────────────
    자동으로 읽기 — 화면
@@ -2185,7 +2574,9 @@ function openSaveSheet(){
       id: 'e' + Date.now(), at: Date.now(), title: nm, thumb: thumbURL(), cal: !!A.cal,
       sum: {up, dn, fl}, bars: A.bars ? A.bars.length : null,
       cards: A.cards.map(c => ({t:c.t, badge:c.badge, badgeText:c.badgeText || null,
-                                facts: c.facts.map(strip)}))
+                                facts: c.facts.map(strip),
+                                mean: c.mean ? strip(c.mean) : null,
+                                watch: c.watch ? strip(c.watch) : null}))
     };
     const arr = loadLog();
     arr.unshift(entry);
@@ -2240,7 +2631,10 @@ function paintLog(){
         (open ? '<div class="logdetail">' + e.cards.map(c =>
             '<h4>' + esc(c.t) + ' <span style="font-weight:700;color:var(--muted)">' +
             esc(c.badgeText || (B[c.badge]||B.flat)[1]) + '</span></h4><ul>' +
-            c.facts.map(f => '<li>' + esc(f) + '</li>').join('') + '</ul>').join('') + '</div>' : '') +
+            c.facts.map(f => '<li>' + esc(f) + '</li>').join('') + '</ul>' +
+            (c.mean ? '<p style="font-size:12px;line-height:1.7;color:#3a4150;margin-top:5px">' + esc(c.mean) + '</p>' : '') +
+            (c.watch ? '<p style="font-size:11.5px;line-height:1.7;color:#7a5518;margin-top:4px;white-space:pre-line">' + esc(c.watch) + '</p>' : '')
+          ).join('') + '</div>' : '') +
         '</div></div>';
     }).join('');
   box.querySelectorAll('[data-f]').forEach(b => b.onclick = ()=>{ logFilter = b.dataset.f || null; paintLog(); });
@@ -2367,6 +2761,21 @@ $('#secDict').innerHTML = `
   <p>한 칸이 하루(또는 1분·1주 등 정한 기간)입니다. 몸통은 <b>시가와 종가 사이</b>, 위아래 꼬리는 그 기간에 닿았던
   <b>최고·최저</b>입니다. 국내 차트는 <b class="k" style="background:var(--up-s);color:var(--up)">빨강 = 오름</b>,
   <b class="k" style="background:var(--down-s);color:var(--down)">파랑 = 내림</b>으로 그립니다(해외는 반대인 경우가 많습니다).</p>
+</div>
+
+<div class="card dict">
+  <h3>🧩 지표들을 엮어 보면</h3>
+  <p>지표는 <b>같은 값을 다른 방식으로 본 것</b>이라 서로 겹칩니다. 그래서 개수를 세는 것은 뜻이 없고,
+  세 갈래로 나눠 놓고 <b>서로 손발이 맞는지</b>를 보는 것이 일반적인 읽기 방법입니다.</p>
+  <ul>
+    <li><span class="k">추세</span> 이동평균선 배열 · 일목 구름 위치 · MACD 0선 — <b>어느 쪽으로 가고 있나</b></li>
+    <li><span class="k">많이 왔나</span> RSI · 스토캐스틱 · 볼린저 %B — <b>지금까지 얼마나 왔나</b></li>
+    <li><span class="k">참여</span> 거래량 — <b>사람들이 얼마나 붙었나</b></li>
+  </ul>
+  <p>손발이 맞으면(예: 추세도 위쪽 + 거래량도 증가) 읽기가 쉬워지고,
+  엇갈리면 <b>아직 정해지지 않았다</b>는 뜻으로 봅니다.
+  결과 맨 위 칸에서 이 세 갈래가 지금 무엇을 가리키는지, 어떤 조합이 눈에 띄는지,
+  <b>무엇이 바뀌면 그림이 달라지는지</b>를 정리해 보여 줍니다.</p>
 </div>
 
 <div class="card dict">
