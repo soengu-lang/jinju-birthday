@@ -2924,7 +2924,7 @@ function viewListCore(){
              ${g.cost>0? `<span class="${sgn(gc)}"> ${pctS(gc,1)}</span>`:''}`}</div>
       </div>
       ${g.value>0? `<div class="bar" style="margin-bottom:6px"><i style="width:${pct.toFixed(1)}%;background:${g.color}"></i></div>`:''}
-      ${(()=>{ if(ui.slice !== 'acct') return '';
+      ${(()=>{ if(ui.group !== 'acct') return '';
         const acct = g.items[0]?.acct || ''; if(!acct) return '';
         const rk = acctRisk(acct); if(!rk) return '';
         const ym = iso(new Date()).slice(0,7);
