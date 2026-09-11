@@ -421,6 +421,10 @@ function logRelay(name, url, msg, ok){
   relayLog.unshift({ t: Date.now(), name, url: String(url).replace(/^https?:\/\//,'').slice(0,70), msg, ok });
   if(relayLog.length > 40) relayLog.pop();
 }
+/* 중계 자체에 못 닿은 횟수만 셉니다.
+   404·401 처럼 '중계는 살아 있는데 상대 쪽에 없는' 경우까지 세면
+   심볼을 찾느라 몇 번 헛짚었을 때 중계 전체가 죽은 것으로 오해합니다 */
+const isRelayDown = e => !!(e && (e.net || e.http === 403 || e.http === 407 || e.http === 429 || e.http >= 500));
 const allDead = () => relayList().every((_,i) => (relayFail[i]||0) >= 2);
 async function getText(url, ms=8000){
   const ac = new AbortController(); const t = setTimeout(()=>ac.abort(), ms);
@@ -442,8 +446,9 @@ async function relayText(url){
   const first = Math.min(state.settings.relay|0, L.length-1);
   let order = [first, ...L.map((_,i)=>i).filter(i=>i!==first)].filter(i => isMine(i) || (relayFail[i]||0) < 2);
   if(!order.length) order = [0];
-  let lastErr = null, mineErr = null;
+  let lastErr = null, mineErr = null, upstream = false;
   for(const i of order){
+    if(upstream) break;
     const tries = isMine(i) ? 2 : 1, ms = isMine(i) ? 20000 : 12000;   /* LTE 에서는 8초로 모자랍니다 */
     for(let k=0; k<tries; k++){
       try{
@@ -457,7 +462,8 @@ async function relayText(url){
       }catch(e){
         lastErr = e; logRelay(L[i].n, url, e.message, false);
         if(isMine(i)) mineErr = new Error('내 중계가 막혔어요 (' + e.message + ')');
-        if(k === tries-1) relayFail[i] = (relayFail[i]||0) + 1;
+        if(k === tries-1 && isRelayDown(e)) relayFail[i] = (relayFail[i]||0) + 1;
+        if(!isRelayDown(e) && (isMine(i) || L[i].n === '직접')){ upstream = true; break; }   /* 중계는 멀쩡하고 상대 쪽에 없는 것 */
       }
     }
   }
@@ -737,7 +743,17 @@ function parseYhChart(j){
     const c = num(closes[i]); if(!has(c)) continue;
     chart.push({ d: iso(stamps[i]*1000).replace(/-/g,''), c, v: num(r.indicators?.quote?.[0]?.volume?.[i]) });
   }
-  const prev = num(m.chartPreviousClose ?? m.previousClose ?? (chart.length>1 ? chart[chart.length-2].c : price));
+  /* 하루 등락은 '바로 전 거래일 종가'와 견줘야 합니다.
+     범위를 2년으로 부르면 chartPreviousClose 는 2년 전 값이라 등락률이 +123% 처럼 나옵니다 */
+  let prev = chart.length > 1 ? chart[chart.length-2].c : NaN;
+  if(!(prev > 0)) prev = num(m.regularMarketPreviousClose ?? m.previousClose ?? m.chartPreviousClose);
+  if(chart.length > 1 && Math.abs(chart[chart.length-1].c - price) / price > 0.0001){
+    /* 마지막 봉이 아직 오늘 값이 아니면(장중·시차) 마지막 종가를 전일로 봅니다 */
+    prev = chart[chart.length-1].c;
+  }
+  if(!(prev > 0) || Math.abs(price - prev) / prev > 0.5){        /* 하루에 50% 넘게 움직였다면 잘못 짚은 것입니다 */
+    prev = chart.length > 1 ? chart[chart.length-2].c : price;
+  }
   return { basic: { price, prev: has(prev)&&prev>0 ? prev : price, name: m.longName || m.shortName || m.symbol || '', market: m.fullExchangeName || m.exchangeName || '' },
            chart, high52: num(m.fiftyTwoWeekHigh), low52: num(m.fiftyTwoWeekLow), ccy: m.currency || 'USD' };
 }
@@ -800,31 +816,68 @@ function parseYhNews(j){
     dt: n.providerPublishTime ? iso(n.providerPublishTime*1000).replace(/-/g,'')+'0000' : '', body:'', url: n.link || '' })).slice(0, 20);
 }
 /* 미국주식 한 종목 모으기 */
+/* 미국주식 한 종목 모으기
+   ------------------------------------------------------------
+   야후 요약(quoteSummary)은 자주 막혀서 PER·재무가 통째로 빕니다.
+   그래서 국내와 같은 길(네이버 해외종목)을 먼저 쓰고, 야후로 빈 곳을 채웁니다.
+   심볼은 나스닥 .O / 뉴욕 .K 를 차례로 시험해 보고, 되는 것을 기억합니다. */
+async function naverUsSymbol(code, sym){
+  const cands = [];
+  if(sym) cands.push(sym);
+  cands.push(code + '.O', code + '.K');
+  for(const s of cands){
+    try{
+      const b = parseBasic(await relayJSON(NVU.basic(s)));
+      if(has(b.price) && b.price > 0) return { sym: s, basic: b };
+    }catch(e){}
+  }
+  return null;
+}
+/* 빈 칸만 채워 넣습니다 (이미 있는 값은 건드리지 않습니다) */
+function fillInteg(base, extra){
+  for(const [k, v] of Object.entries(extra || {})){
+    const cur = base[k];
+    const empty = cur === undefined || cur === null || cur === '' || (typeof cur === 'number' && !isFinite(cur));
+    if(empty && v !== undefined && v !== null && v !== '' && !(typeof v === 'number' && !isFinite(v))) base[k] = v;
+  }
+  return base;
+}
 async function fetchStockUs(code, sym){
   const errs = [];
-  const tryGet = async (name, fn) => { try{ return await fn(); }catch(e){ errs.push(name+' — '+e.message); return null; } };
-  let core = null;
-  try{ core = parseYhChart(await relayJSON(YH.chart(code))); }
-  catch(e){
-    /* 야후가 막히면 네이버 해외종목으로 시세만이라도 */
-    const cands = sym ? [sym] : [code+'.O', code+'.K'];
-    for(const s of cands){
-      try{ const b = parseBasic(await relayJSON(NVU.basic(s)));
-        if(has(b.price) && b.price>0){ core = { basic:b, chart:[], high52:NaN, low52:NaN, ccy:'USD', nsym:s }; break; } }
-      catch(e2){ errs.push('네이버 '+s+' — '+e2.message); }
-    }
-    if(!core){ const err = new Error('시세를 못 가져왔어요 — ' + e.message); err.relay = true; throw err; }
-  }
-  const [q, news] = await Promise.all([
-    tryGet('재무·투자지표', async()=>parseYhQuote(await relayJSON(YH.quote(code)))),
-    tryGet('뉴스', async()=>parseYhNews(await relayJSON(YH.news(code)))),
+  const tryGet = async (name, fn) => { try{ return await fn(); }catch(e){ errs.push(name + ' — ' + e.message); return null; } };
+
+  /* ① 시세 — 네이버 해외종목(전일 대비가 정확합니다) → 야후 차트 */
+  const nv = await tryGet('네이버 해외시세', ()=>naverUsSymbol(code, sym));
+  const chartRes = await tryGet('야후 일봉', async()=>parseYhChart(await relayJSON(YH.chart(code))));
+  const basic = nv?.basic || chartRes?.basic;
+  if(!basic || !has(basic.price)){ const err = new Error('시세를 못 가져왔어요 — ' + (errs[0] || '연결 실패')); err.relay = true; throw err; }
+  /* 네이버 시세 + 야후 일봉을 함께 쓰면 전일 대비도, 차트도 맞습니다 */
+  if(nv?.basic && chartRes?.basic && !has(basic.prev)) basic.prev = chartRes.basic.prev;
+  const nsym = nv?.sym || sym || '';
+
+  /* ② 지표·재무 — 네이버 해외 종목분석을 먼저, 야후 요약으로 빈 곳 채우기 */
+  const [nInteg, nFin, yq, news] = await Promise.all([
+    nsym ? tryGet('네이버 투자지표', async()=>parseInteg(await relayJSON(NVU.integ(nsym)))) : null,
+    nsym ? tryGet('네이버 연간재무', async()=>parseFinance(await relayJSON(NVU.annual(nsym)))) : null,
+    tryGet('야후 요약', async()=>parseYhQuote(await relayJSON(YH.quote(code)))),
+    tryGet('뉴스', async()=>{
+      if(nsym){ try{ const n = parseNews(await relayJSON(NVU.news(nsym))); if(n.length) return n; }catch(e){} }
+      return parseYhNews(await relayJSON(YH.news(code)));
+    }),
   ]);
-  const integ = Object.assign({}, q?.integ || {});
-  if(!has(integ.high52)) integ.high52 = core.high52;
-  if(!has(integ.low52)) integ.low52 = core.low52;
-  return { code, mk:'us', sym: core.nsym || sym || code, ccy: core.ccy || 'USD', t: Date.now(),
-    basic: core.basic, integ, annual: q?.annual || {cols:[],table:{}}, quarter: {cols:[],table:{}},
-    news: news || [], chart: core.chart || [], errs, demo:false };
+  const integ = fillInteg(Object.assign({}, nInteg || {}), yq?.integ || {});
+  /* 시가총액 단위 맞추기 — 네이버는 백만 달러로, 야후는 달러 그대로 줍니다 */
+  if(has(integ.marketCap) && integ.marketCap > 0 && integ.marketCap < 1e8) integ.marketCap *= 1e6;
+  if(!has(integ.high52)) integ.high52 = chartRes?.high52;
+  if(!has(integ.low52)) integ.low52 = chartRes?.low52;
+  /* 재무는 항목이 더 많은 쪽을 씁니다 */
+  const nRows = Object.keys(nFin?.table || {}).length, yRows = Object.keys(yq?.annual?.table || {}).length;
+  const annual = (nRows >= yRows && nRows > 0) ? nFin : (yq?.annual || { cols:[], table:{} });
+  return { code, mk:'us', sym: nsym || code, ccy:'USD', t: Date.now(),
+    basic, integ, annual, quarter: { cols:[], table:{} },
+    news: news || [], chart: chartRes?.chart || [], errs,
+    srcs: { 시세: nv ? '네이버' : '야후', 지표: Object.keys(nInteg||{}).length ? '네이버' : (yq ? '야후' : '없음'),
+            재무: nRows ? '네이버' : (yRows ? '야후' : '없음') }, demo:false };
 }
 
 /* ============================================================
@@ -944,8 +997,10 @@ function scenarios(d, adj={}){
   const perNow = (has(base) && base>0) ? price/base : NaN;
   const anchors = [medHist, (has(I.indPer)&&I.indPer>0) ? I.indPer : NaN, perNow].filter(has);
   const perAvg = anchors.length ? median(anchors) : 12;
-  const perHi = hist.length ? Math.min(Math.max(...hist), perAvg*1.4) : perAvg*1.4;
-  const perLo = hist.length ? Math.max(Math.min(...hist), perAvg*0.7) : perAvg*0.7;
+  let perHi = hist.length ? Math.min(Math.max(...hist), perAvg*1.4) : perAvg*1.4;
+  let perLo = hist.length ? Math.max(Math.min(...hist), perAvg*0.7) : perAvg*0.7;
+  /* 지금 PER 은 범위 안에 있어야 합니다 (안 그러면 Bear 가 현재가보다 높아집니다) */
+  if(has(perNow) && perNow > 0){ perLo = Math.min(perLo, perNow); perHi = Math.max(perHi, perNow); }
   const a = Object.assign({ epsBull: 15, epsBear: -20, perBull: +perHi.toFixed(1), perBase: +perAvg.toFixed(1), perBear: +perLo.toFixed(1) }, adj);
   const px = (e, p) => (has(e) && e>0) ? Math.round(e*p) : NaN;
   const out = {
@@ -1909,7 +1964,7 @@ function renderStock(){
       <div class="c"><div class="k">52주 위치</div><div class="v">${has(sc.s._mas.pos52)?sc.s._mas.pos52.toFixed(0)+'%':'–'}</div></div>
     </div>
     <div class="btn-row"><button class="btn sm ghost" data-act="refresh" data-code="${code}" ${busy['r'+code]?'disabled':''}>${busy['r'+code]?'<span class="spin dark"></span>':'🔄'} 새로고침</button><button class="btn sm ghost" data-act="askAbout" data-code="${code}">💬 AI에게 질문</button><button class="btn sm warn" data-act="unwatch" data-code="${code}">빼기</button></div>
-    <p class="tiny muted mt">${new Date(d.t).toLocaleString('ko-KR')} · ${d.demo?'샘플 데이터(실제 아님)':(isUs(code)?'야후 파이낸스':'네이버증권')}${d.errs.length?` · 일부 누락: ${esc(d.errs.slice(0,2).join(', '))}`:''}</p>
+    <p class="tiny muted mt">${new Date(d.t).toLocaleString('ko-KR')} · ${d.demo?'샘플 데이터(실제 아님)':(isUs(code)? (d.srcs?`시세 ${esc(d.srcs.시세)} · 지표 ${esc(d.srcs.지표)} · 재무 ${esc(d.srcs.재무)}`:'해외') :'네이버증권')}${d.errs&&d.errs.length?` · 일부 누락: ${esc(d.errs.slice(0,2).join(', '))}`:''}</p>
   </div>
 
   ${safe('내 보유', ()=>positionCard(code, sn))}
@@ -1917,7 +1972,9 @@ function renderStock(){
     <h2>AI SCORE <span class="sub">계산 모델 · 데이터 커버리지 ${sc.s.coverage}%</span></h2>
     <div class="score-hero mt"><div class="score-big">${has(sc.s.total)?sc.s.total:'–'}<small> / 100</small></div>
       <div class="grow"><div class="bar"><i style="width:${has(sc.s.total)?sc.s.total:0}%"></i></div><p class="tiny muted mt">성장 25 · 수익 25 · 밸류 20 · 재무 15 · 모멘텀 15 가중. 60 이상이면 평균 이상, 40 이하면 근거를 더 봐야 합니다.</p></div></div>
-    ${!has(sc.s.total) ? `<div class="note mt">재무 데이터를 못 받아서 점수를 낼 수 없습니다. 시세만 들어와 있어요.<br>
+    ${(!has(sc.s.total) || sc.s.coverage < 50) ? `<div class="note mt">${has(sc.s.total)
+      ? `재무·투자지표를 못 받아서 <b>일부 항목만</b>으로 낸 점수입니다 (커버리지 ${sc.s.coverage}%). 빈 항목은 아직 데이터가 없다는 뜻입니다.`
+      : '재무 데이터를 못 받아서 점수를 낼 수 없습니다. 시세만 들어와 있어요.'}<br>
       <b>🔄 새로고침</b>을 눌러 보시고, 그래도 안 되면 <b>🩺 시세 점검</b>으로 어디가 막혔는지 보세요.
       <div class="btn-row"><button class="btn xs" data-act="refresh" data-code="${code}">🔄 새로고침</button><button class="btn xs ghost" data-act="diag">🩺 시세 점검</button></div></div>` : ''}
     <div class="bars">${subs.map(([k,l])=>`<div class="r"><span>${l}</span><div class="bar"><i style="width:${has(sc.s[k])?sc.s[k]:0}%;background:${!has(sc.s[k])?'#ddd':sc.s[k]>=65?'var(--green)':sc.s[k]<40?'var(--up)':'var(--brand)'}"></i></div><span class="v num">${has(sc.s[k])?sc.s[k]:'–'}</span></div>`).join('')}</div>
@@ -2147,11 +2204,18 @@ async function runDiag(){
       return { ok: n>0, s: n ? `됨 — 항목 ${n}개 · 열 ${f.cols.length}개` : '왔지만 표를 못 읽었어요(형식이 다름)' }; });
     await step('뉴스', NV.news('005930'), j => { const n = parseNews(j).length; return { ok: n>0, s: n ? `됨 — ${n}건` : '왔지만 기사를 못 읽었어요' }; });
     await step('일봉(차트)', NV.chart('005930'), j => { const n = parseChart(j).length; return { ok: n>0, s: n ? `됨 — ${n}일치` : '왔지만 못 읽었어요' }; });
-    await step('🇺🇸 미국 시세(야후)', YH.chart('NVDA'), j => { const c = parseYhChart(j);
-      return { ok: c.basic.price>0, s: `됨 — 엔비디아 ${usd(c.basic.price)} · 일봉 ${c.chart.length}일치` }; });
-    await step('🇺🇸 미국 재무(야후)', YH.quote('NVDA'), j => { const q = parseYhQuote(j);
+    await step('🇺🇸 시세(네이버 해외)', NVU.basic('NVDA.O'), j => { const b = parseBasic(j);
+      return { ok: b.price>0, s: b.price>0 ? `됨 — 엔비디아 ${usd(b.price)} (전일대비 ${pct(growth(b.price,b.prev))})` : '값이 비어 있어요' }; });
+    await step('🇺🇸 투자지표(네이버 해외)', NVU.integ('NVDA.O'), j => { const I = parseInteg(j);
+      const got = ['PER','PBR','EPS','시가총액'].filter((_,k)=>has([I.per,I.pbr,I.eps,I.marketCap][k]));
+      return { ok: got.length>0, s: got.length ? '됨 — ' + got.join(', ') + ' 읽힘' : '왔지만 숫자를 못 읽었어요' }; });
+    await step('🇺🇸 연간재무(네이버 해외)', NVU.annual('NVDA.O'), j => { const f = parseFinance(j); const n = Object.keys(f.table).length;
+      return { ok: n>0, s: n ? `됨 — 항목 ${n}개 · 열 ${f.cols.length}개` : '왔지만 표를 못 읽었어요' }; });
+    await step('🇺🇸 일봉(야후)', YH.chart('NVDA'), j => { const c = parseYhChart(j);
+      return { ok: c.basic.price>0, s: `됨 — ${usd(c.basic.price)} · 일봉 ${c.chart.length}일치 · 전일대비 ${pct(growth(c.basic.price,c.basic.prev))}` }; });
+    await step('🇺🇸 요약(야후)', YH.quote('NVDA'), j => { const q = parseYhQuote(j);
       const n = Object.keys(q.annual.table).length;
-      return { ok: n>0 || has(q.integ.per), s: n ? `됨 — 항목 ${n}개 · PER ${has(q.integ.per)?q.integ.per.toFixed(1):'?'}` : (has(q.integ.per) ? '일부만 — PER 은 읽힘' : '왔지만 못 읽었어요') }; });
+      return { ok: n>0 || has(q.integ.per), s: n ? `됨 — 항목 ${n}개 · PER ${has(q.integ.per)?q.integ.per.toFixed(1):'?'}` : (has(q.integ.per) ? '일부만 — PER 은 읽힘' : '막혀 있어요(야후가 자주 막습니다)') }; });
     if(!diag.rows.some(r=>r.n==='일봉(차트)' && r.ok)){
       try{ const n = parseChartXml(await relayText(NV.chart2('005930'))).length; dRow('일봉(예비 경로)', n ? `됨 — ${n}일치` : '못 읽었어요', '', n>0); }
       catch(e){ dRow('일봉(예비 경로)', '막힘 — ' + e.message, '', false); }
