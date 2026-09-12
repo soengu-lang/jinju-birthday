@@ -899,6 +899,37 @@ async function fetchStockUs(code, sym, opts={}){
 }
 
 /* ============================================================
+   1-3. 미리 받아 둔 자료 (GitHub 이 2시간마다 채워 둡니다)
+   ------------------------------------------------------------
+   앱과 같은 주소에 있는 파일이라 브라우저 보안에 걸리지 않고,
+   중계가 전부 막혀도 열립니다. 실시간 시세는 그다음에 덧씌웁니다.
+   ============================================================ */
+let _px = null, _pxAt = 0;
+const bust = () => '?t=' + Math.floor(Date.now()/300000);          /* 5분 단위로만 새로 받습니다 */
+async function cachedPrices(){
+  if(_px && Date.now() - _pxAt < 300000) return _px;
+  try{ _px = JSON.parse(await getText('data/prices.json' + bust(), 8000)); _pxAt = Date.now(); }catch(e){}
+  return _px;
+}
+async function loadCached(code){
+  try{
+    const [pj, f] = await Promise.all([
+      cachedPrices(),
+      getText('data/fund/' + encodeURIComponent(code) + '.json' + bust(), 8000).then(JSON.parse),
+    ]);
+    const p = pj?.items?.[code];
+    const price = num(p?.p), prev = num(p?.prev);
+    if(!has(price) || !(price > 0)) return null;
+    return { code, mk: f.mk || 'kr', ccy: f.ccy || 'KRW', sym: f.sym || '',
+      t: Date.parse(pj.updated) || Date.now(), cached: true, full: true, demo: false, errs: [],
+      basic: { price, prev: has(prev) && prev > 0 ? prev : price, name: f.name || p.n || code,
+               market: f.market || '', marketCap: f.integ?.marketCap },
+      integ: f.integ || {}, annual: f.annual || { cols:[], table:{} }, quarter: { cols:[], table:{} },
+      news: f.news || [], chart: f.chart || [] };
+  }catch(e){ return null; }
+}
+
+/* ============================================================
    2. 계산 모델 — 점수 (0~100) · 시나리오 · 변화 감지
    ------------------------------------------------------------
    모두 순수 함수. 입력은 위의 data 한 덩어리, 출력은 숫자와 '왜' 목록입니다.
@@ -1915,6 +1946,11 @@ async function addWatch(code, name, mk, sym){
 /* ---------- 데이터 새로고침 ---------- */
 async function refreshStock(code, opts={}){
   busy['r'+code] = true; if(!opts.quiet) render();
+  /* ① 미리 받아 둔 자료부터 — 중계가 죽어 있어도 화면이 찹니다 */
+  if(!state.ui.demo && !state.data[code]){
+    const c = await loadCached(code);
+    if(c){ state.data[code] = c; save(); if(!opts.quiet) render(); }
+  }
   try{
     const w = W(code);
     const d = state.ui.demo ? demoStock(code)
@@ -1930,7 +1966,10 @@ async function refreshStock(code, opts={}){
     if(!state.seenNews[code]){ state.seenNews[code] = {}; d.news.forEach(n => state.seenNews[code][n.id] = 1); }   /* 처음 담을 때 있던 뉴스는 '이미 본 것'으로. 그 뒤 새로 뜨는 기사만 변화로 칩니다 */
     save();
     if(d.errs.length && !opts.quiet) toast('일부 데이터를 못 가져왔어요: ' + d.errs[0]);
-  }catch(e){ if(!opts.quiet) toast(e.message); state.ui.lastErr = e.message; }
+  }catch(e){
+    state.ui.lastErr = e.message;
+    if(!opts.quiet) toast(state.data[code]?.cached ? '실시간 시세는 못 받았어요 — 미리 받아 둔 값으로 보여 드립니다' : e.message);
+  }
   busy['r'+code] = false; if(!opts.quiet) render();
 }
 async function refreshAll(){
@@ -1993,7 +2032,9 @@ function renderStock(){
       <div class="c"><div class="k">52주 위치</div><div class="v">${has(sc.s._mas.pos52)?sc.s._mas.pos52.toFixed(0)+'%':'–'}</div></div>
     </div>
     <div class="btn-row"><button class="btn sm ghost" data-act="refresh" data-code="${code}" ${busy['r'+code]?'disabled':''}>${busy['r'+code]?'<span class="spin dark"></span>':'🔄'} 새로고침</button><button class="btn sm ghost" data-act="askAbout" data-code="${code}">💬 AI에게 질문</button><button class="btn sm warn" data-act="unwatch" data-code="${code}">빼기</button></div>
-    <p class="tiny muted mt">${new Date(d.t).toLocaleString('ko-KR')} · ${d.demo?'샘플 데이터(실제 아님)':(isUs(code)? (d.srcs?`시세 ${esc(d.srcs.시세)} · 지표 ${esc(d.srcs.지표)} · 재무 ${esc(d.srcs.재무)}`:'해외') :'네이버증권')}${d.errs&&d.errs.length?` · 일부 누락: ${esc(d.errs.slice(0,2).join(', '))}`:''}</p>
+    ${d.cached ? `<div class="note mt">📦 <b>미리 받아 둔 자료</b>입니다 (${new Date(d.t).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})} 기준).
+      GitHub 이 2시간마다 받아 두는 값이라 중계가 막혀도 보입니다. 실시간 시세를 보시려면 <b>🔄 새로고침</b>을 눌러 주세요.</div>` : ''}
+    <p class="tiny muted mt">${new Date(d.t).toLocaleString('ko-KR')} · ${d.demo?'샘플 데이터(실제 아님)':d.cached?'미리 받아 둔 자료':(isUs(code)? (d.srcs?`시세 ${esc(d.srcs.시세)} · 지표 ${esc(d.srcs.지표)} · 재무 ${esc(d.srcs.재무)}`:'해외') :'네이버증권')}${d.errs&&d.errs.length?` · 일부 누락: ${esc(d.errs.slice(0,2).join(', '))}`:''}</p>
   </div>
 
   ${safe('내 보유', ()=>positionCard(code, sn))}
@@ -2203,6 +2244,12 @@ async function runDiag(){
        mine ? mine.replace('?url={url}','').slice(0,60) : '공개 중계는 자주 막힙니다. 하나 만들면 거의 안 막힙니다', mine ? true : false);
   if(!mine) dRow('자산 앱의 중계', maRelay ? '있음 — 가져다 쓰면 됩니다' : '자산 앱에도 없습니다',
        maRelay ? maRelay.replace('?url={url}','').slice(0,60) : '두 앱 모두 공개 중계에 기대고 있었습니다', !!maRelay);
+  /* 미리 받아 둔 자료가 살아 있는지 (중계가 다 막혀도 이건 열립니다) */
+  try{
+    const pj = await cachedPrices();
+    const n = Object.keys(pj?.items||{}).length;
+    dRow('📦 미리 받아 둔 자료', n ? `됨 — ${n}종목 · ${new Date(pj.updated).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})} 기준` : '아직 없습니다', '', n>0);
+  }catch(e){ dRow('📦 미리 받아 둔 자료', '없음 — ' + e.message, '', false); }
   /* 인터넷 자체가 되는지 — 이 앱이 있는 곳을 불러 봅니다 */
   try{ await getText('manifest.json?t=' + Date.now(), 8000); dRow('인터넷', '됨', '', true); }
   catch(e){ dRow('인터넷', '안 됨 — ' + e.message, '와이파이나 데이터를 확인해 주세요', false); }

@@ -1,0 +1,48 @@
+name: StockLens 시세 미리 받아 두기
+
+# 폰에서는 브라우저 보안(CORS) 때문에 네이버·야후를 직접 못 부릅니다.
+# 그래서 GitHub 이 대신 받아 앱과 같은 주소(stocklens/data/)에 올려 둡니다.
+# 앱은 그 파일을 그냥 읽으면 되므로 중계가 필요 없습니다.
+
+on:
+  schedule:
+    - cron: '5 */2 * * *'      # 2시간마다 (UTC). 한국 장중·미국 장중 모두 걸칩니다
+  workflow_dispatch:            # 손으로도 돌릴 수 있게
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stocklens-data
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 시세·재무 받아 오기
+        run: node stocklens/tools/fetch-data.mjs
+
+      - name: 바뀐 것만 올리기
+        run: |
+          if [ -z "$(git status --porcelain stocklens/data)" ]; then
+            echo "바뀐 게 없습니다"
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add stocklens/data
+          git commit -m "StockLens 시세 자동 갱신 ($(TZ=Asia/Seoul date '+%m-%d %H:%M'))"
+          # 다른 작업이 그 사이 올렸을 수 있으니 붙였다가 올립니다
+          for i in 1 2 3; do
+            git pull --rebase --autostash origin main && git push origin HEAD:main && exit 0
+            sleep $((i * 5))
+          done
+          exit 1
