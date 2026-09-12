@@ -2035,7 +2035,7 @@ function finTable(fin, keys, us){
   const cols = fin.cols.slice(-6);
   return `<div class="tbwrap"><table class="tb"><thead><tr><th>${us?'(백만$)':'(억원)'}</th>${cols.map(c=>`<th>${esc(c.title).replace('.12','')}</th>`).join('')}</tr></thead><tbody>
     ${keys.map(([k,label]) => { const row = fin.table[k]; if(!row) return ''; const isPct = /률|ROE/.test(label), isX = /PER|PBR/.test(label);
-      return `<tr><td>${esc(label)}</td>${cols.map(c => { const v = row[c.key]; return `<td class="num ${c.est?'muted':''}">${!has(v)?'–': isPct ? v.toFixed(1)+'%' : isX ? v.toFixed(1) : fmt(v)}</td>`; }).join('')}</tr>`; }).join('')}
+      return `<tr><td>${esc(label)}</td>${cols.map(c => { const v = row[c.key]; return `<td class="num ${c.est?'muted':''}">${!has(v)?'–': isPct ? v.toFixed(1)+'%' : isX ? v.toFixed(1) : (Math.abs(v) < 100 && !Number.isInteger(v)) ? v.toFixed(2) : fmt(v)}</td>`; }).join('')}</tr>`; }).join('')}
   </tbody></table></div><p class="tiny muted">회색 열은 증권사 추정(E). ${us?'백만 달러 · EPS 는 달러.':'억원 · EPS/BPS/배당은 원.'}</p>`;
 }
 function renderStock(){
