@@ -376,6 +376,22 @@ async function debugUsFields(code) {
 }
 /* 국내 종목의 '업종' 이 어디 있는지 찾는 진단 */
 async function debugKrIndustry(code) {
+  /* 업종 이름표를 어디서 받을 수 있는지 */
+  for (const u of [
+    'https://finance.naver.com/sise/sise_group.naver?type=upjong',
+    'https://m.stock.naver.com/api/stocks/industry?page=1&pageSize=5',
+    'https://api.stock.naver.com/industry/list',
+    'https://m.stock.naver.com/api/industry/list',
+  ]) {
+    try {
+      const buf = await get(u, { raw: true, tries: 1 });
+      const utf = new TextDecoder('utf-8').decode(buf), euc = new TextDecoder('euc-kr').decode(buf);
+      const hits = [...euc.matchAll(/no=(\d+)"[^>]*>\s*([^<]{1,30})</g)].slice(0, 4).map(m => m[1] + '=' + m[2].trim());
+      console.log(`OK  ${u}  ${buf.length}바이트  hits=${hits.join(' , ') || '없음'}`);
+      if (!hits.length) console.log('    utf8 앞부분: ' + utf.slice(0, 200).replace(/\s+/g, ' '));
+    } catch (e) { console.log(`실패 ${u} → ${e.message}`); }
+    await sleep(250);
+  }
   for (const [name, u] of [['basic', NV.basic(code)], ['integration', NV.integ(code)]]) {
     try {
       const j = await get(u);
