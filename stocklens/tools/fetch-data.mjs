@@ -197,18 +197,15 @@ function parseNews(j) {
 }
 
 /* ---------- 한 종목 ---------- */
-/* 업종 '이름' 은 어느 API 에도 없고 네이버 업종 목록 페이지에만 있습니다.
-   한 번만 받아 번호→이름 표를 만들어 두고 모든 국내 종목에 씁니다 (EUC-KR 페이지) */
+/* 종목 응답에는 업종 '번호'만 옵니다 (예: 278). 이름은 업종 목록에서 한 번만 받아
+   번호→이름 표를 만들어 두고 모든 국내 종목에 씁니다 */
 let INDUSTRY = null;
 async function industryNames() {
   if (INDUSTRY) return INDUSTRY;
   INDUSTRY = {};
   try {
-    const buf = await get('https://finance.naver.com/sise/sise_group.naver?type=upjong', { raw: true, tries: 2 });
-    const html = new TextDecoder('euc-kr').decode(buf);
-    const re = /type=upjong&amp;no=(\d+)"[^>]*>([^<]+)</g;
-    let m;
-    while ((m = re.exec(html))) INDUSTRY[m[1]] = m[2].trim();
+    const j = await get('https://m.stock.naver.com/api/stocks/industry?page=1&pageSize=300', { tries: 2 });
+    for (const g of j?.groups || []) if (g.no != null && g.name) INDUSTRY[String(g.no)] = g.name;
     console.log(`업종 이름표 ${Object.keys(INDUSTRY).length}개`);
   } catch (e) { console.log('업종 이름표를 못 받았습니다 — ' + e.message); }
   return INDUSTRY;
