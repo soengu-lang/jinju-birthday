@@ -8,6 +8,11 @@ on:
   schedule:
     - cron: '5 */2 * * *'      # 2시간마다 (UTC). 한국 장중·미국 장중 모두 걸칩니다
   workflow_dispatch:            # 손으로도 돌릴 수 있게
+    inputs:
+      debug_code:
+        description: '원본 응답만 찍어 보기 (예: 005930,NVDA). 비워 두면 평소대로 받아 옵니다'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -28,6 +33,8 @@ jobs:
           node-version: '20'
 
       - name: 시세·재무 받아 오기
+        env:
+          DEBUG_CODE: ${{ github.event.inputs.debug_code }}
         run: node stocklens/tools/fetch-data.mjs
 
       - name: 바뀐 것만 올리기

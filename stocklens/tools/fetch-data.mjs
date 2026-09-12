@@ -213,8 +213,27 @@ async function fetchUs(code) {
   return { mk: 'us', ccy: 'USD', sym: nsym || code, basic, integ, annual, chart, news };
 }
 
+/* ---------- 진단 모드 ----------
+   DEBUG_CODE 를 주면 그 종목의 원본 응답을 찍고 끝냅니다 (파싱을 고칠 때 씁니다) */
+async function debugOne(code) {
+  const isKr = /^\d{6}$/.test(code);
+  const urls = isKr
+    ? [['basic', NV.basic(code)], ['integration', NV.integ(code)], ['annual', NV.annual(code)], ['news', NV.news(code)], ['chart', NV.chart(code)]]
+    : [['basic .O', NVU.basic(code + '.O')], ['basic .K', NVU.basic(code + '.K')], ['basic .N', NVU.basic(code + '.N')],
+       ['basic 그대로', NVU.basic(code)], ['integration .O', NVU.integ(code + '.O')], ['annual .O', NVU.annual(code + '.O')],
+       ['news .O', NVU.news(code + '.O')], ['yahoo chart', YH.chart(code)]];
+  for (const [name, u] of urls) {
+    try {
+      const t = await get(u, { json: false, tries: 1 });
+      console.log(`\n===== ${name} =====\n${u}\n${t.slice(0, 2600)}`);
+    } catch (e) { console.log(`\n===== ${name} =====\n${u}\n실패: ${e.message}`); }
+    await sleep(300);
+  }
+}
+
 /* ---------- 본체 ---------- */
 async function main() {
+  if (process.env.DEBUG_CODE) { for (const c of process.env.DEBUG_CODE.split(',')) await debugOne(c.trim()); return; }
   const list = JSON.parse(await readFile(path.join(ROOT, 'watchlist.json'), 'utf8'));
   const targets = [
     ...list.kr.map(x => ({ code: x.code, name: x.name, mk: 'kr' })),
