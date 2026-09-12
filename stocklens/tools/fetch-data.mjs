@@ -73,8 +73,18 @@ const NVU = {
   },
 };
 const YH = {
-  chart: t => `https://query1.finance.yahoo.com/v8/finance/chart/${t}?range=1y&interval=1d`,
+  /* 야후는 한 주소가 429(너무 잦음)를 내면 다른 주소로 바꿔 봅니다 */
+  hosts: ['query1', 'query2'],
+  chart: (t, h = 'query1') => `https://${h}.finance.yahoo.com/v8/finance/chart/${t}?range=1y&interval=1d`,
 };
+async function yhChart(code) {
+  let last;
+  for (const h of YH.hosts) {
+    try { return parseYhChart(await get(YH.chart(code, h), { tries: 2 })); }
+    catch (e) { last = e; await sleep(1500); }
+  }
+  throw last;
+}
 
 /* ---------- 파서 (앱과 같은 형태로 만듭니다) ---------- */
 function parseBasic(j) {
@@ -250,7 +260,7 @@ async function fetchUs(code) {
   if (nsym) chart = await get(NVU.chart(nsym)).then(parseChart).catch(() => []);
   if (chart.length < 30) {
     try {
-      const y = parseYhChart(await get(YH.chart(code)));
+      const y = await yhChart(code);
       if (y.chart.length > chart.length) chart = y.chart;
       high52 = y.high52; low52 = y.low52;
       if (!basic || !(basic.price > 0)) basic = { price: y.price, prev: y.prev, name: y.name, market: y.market, marketCap: NaN };
