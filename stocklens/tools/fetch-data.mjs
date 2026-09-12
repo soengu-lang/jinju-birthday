@@ -250,6 +250,7 @@ function usSymbols(code) {
   const out = [code + '.O', code, code.replace('-', '.')];
   const cls = code.replace(/-([A-Za-z])$/, (m, c) => c.toLowerCase());   /* BRK-B → BRKb */
   if (cls !== code) out.push(cls);
+  out.push(code + '.K', code + '.N');   /* 일부 ETF 는 .K 입니다 (예: SCHD.K) */
   return [...new Set(out)];
 }
 /* stooq — 열쇠도 제한도 없는 무료 일봉 CSV (마지막 예비) */

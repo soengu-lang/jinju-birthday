@@ -847,6 +847,7 @@ async function naverUsSymbol(code, sym){
   cands.push(code + '.O', code, code.replace('-', '.'));   /* .K·.N 은 409 가 납니다 */
   const cls = code.replace(/-([A-Za-z])$/, (m,c)=>c.toLowerCase());       /* BRK-B → BRKb */
   if(cls !== code) cands.push(cls);
+  cands.push(code + '.K', code + '.N');   /* 일부 ETF 는 .K 입니다 (예: SCHD.K) */
   for(const s of cands){
     try{
       const b = parseBasic(await relayJSON(NVU.basic(s)));
