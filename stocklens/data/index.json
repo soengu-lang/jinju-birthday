@@ -1,5 +1,5 @@
 {
- "updated": "2026-09-12T13:39:21.084Z",
+ "updated": "2026-09-12T13:53:51.870Z",
  "codes": [
   {
    "code": "005930",
@@ -407,6 +407,11 @@
    "name": "마이크론 테크놀로지"
   },
   {
+   "code": "TSM",
+   "mk": "us",
+   "name": "TSMC ADR"
+  },
+  {
    "code": "ASML",
    "mk": "us",
    "name": "ASML 홀딩 ADR"
@@ -422,14 +427,39 @@
    "name": "코스트코 홀세일"
   },
   {
+   "code": "JPM",
+   "mk": "us",
+   "name": "제이피모간체이스"
+  },
+  {
+   "code": "V",
+   "mk": "us",
+   "name": "비자"
+  },
+  {
+   "code": "UNH",
+   "mk": "us",
+   "name": "유나이티드헬스 그룹"
+  },
+  {
+   "code": "LLY",
+   "mk": "us",
+   "name": "일라이 릴리"
+  },
+  {
+   "code": "SPY",
+   "mk": "us",
+   "name": "State Street SPDR S&P 500 ETF Trust"
+  },
+  {
    "code": "QQQ",
    "mk": "us",
    "name": "Invesco QQQ Trust  Series 1"
   },
   {
-   "code": "SCHD",
+   "code": "VOO",
    "mk": "us",
-   "name": "Schwab US Dividend Equity ETF"
+   "name": "Vanguard S&P 500 ETF"
   },
   {
    "code": "TQQQ",
