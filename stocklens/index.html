@@ -378,13 +378,12 @@ async function testRelay(){
 
 const RELAYS = [
   { n:'직접',           f:u=>u },
+  { n:'cors.lol',       f:u=>'https://api.cors.lol/?url='+encodeURIComponent(u) },
   { n:'allorigins',     f:u=>'https://api.allorigins.win/raw?url='+encodeURIComponent(u) },
   { n:'codetabs',       f:u=>'https://api.codetabs.com/v1/proxy?quote='+encodeURIComponent(u) },
+  { n:'allorigins2',    f:u=>'https://api.allorigins.win/get?url='+encodeURIComponent(u), wrap:'contents' },
   { n:'thingproxy',     f:u=>'https://thingproxy.freeboard.io/fetch/'+u },
   { n:'whateverorigin', f:u=>'https://whateverorigin.org/get?url='+encodeURIComponent(u), wrap:'contents' },
-  { n:'allorigins2',    f:u=>'https://api.allorigins.win/get?url='+encodeURIComponent(u), wrap:'contents' },
-  { n:'cors.lol',       f:u=>'https://api.cors.lol/?url='+encodeURIComponent(u) },
-  { n:'jina',           f:u=>'https://r.jina.ai/'+u, json:true },
   { n:'corsproxy',      f:u=>'https://corsproxy.io/?url='+encodeURIComponent(u) },
 ];
 const GAS_CODE = `function doGet(e) {
@@ -449,8 +448,9 @@ async function relayText(url){
   let lastErr = null, mineErr = null, upstream = false;
   for(const i of order){
     if(upstream) break;
-    const tries = isMine(i) ? 2 : 1, ms = isMine(i) ? 20000 : 12000;   /* LTE 에서는 8초로 모자랍니다 */
+    const tries = (isMine(i) || i === first) ? 2 : 1, ms = isMine(i) ? 20000 : 12000;   /* LTE 에서는 8초로 모자랍니다 */
     for(let k=0; k<tries; k++){
+      if(k) await wait(isMine(i) ? 300 : 900);     /* 공개 중계는 잠깐 쉬었다 다시 (횟수 제한에 걸린 경우) */
       try{
         let txt = await getText(L[i].f(url), ms);
         if(L[i].wrap){ txt = JSON.parse(txt)[L[i].wrap]; if(!txt) throw new Error('중계가 빈 내용을 줬어요'); }
@@ -468,6 +468,18 @@ async function relayText(url){
     }
   }
   throw mineErr || lastErr || new Error('가져오지 못했어요');
+}
+/* 공개 중계는 연달아 부르면 막습니다(횟수 제한).
+   내 중계가 있으면 한꺼번에, 없으면 하나씩 사이를 두고 부릅니다. */
+const wait = ms => new Promise(r=>setTimeout(r, ms));
+async function runJobs(jobs){
+  if(myRelay()) return Promise.all(jobs.map(j => j()));       /* 내 중계는 빠르니 한꺼번에 */
+  const out = [];
+  for(let i=0;i<jobs.length;i++){
+    if(i) await wait(350);                                     /* 공개 중계가 막지 않도록 잠깐 쉽니다 */
+    out.push(await jobs[i]());
+  }
+  return out;
 }
 async function relayJSON(url){
   const t = await relayText(url);
@@ -690,21 +702,25 @@ async function fetchPrice(code){
   }
   const err = new Error(errs[0] || '연결 실패'); err.relay = true; err.errs = errs; throw err;
 }
-async function fetchStock(code){
-  const errs = [];
-  const tryGet = async (name, fn) => { try{ return await fn(); }catch(e){ errs.push(name+' — '+e.message); return null; } };
-  /* ① 시세 먼저. 이게 되면 중계가 살아 있다는 뜻이라 나머지를 한꺼번에 부릅니다 */
+/* full=false 면 꼭 필요한 것(시세·지표·재무·일봉)만 — 뉴스·분기는 종목 화면을 열 때 채웁니다 */
+async function fetchStock(code, opts={}){
+  const full = opts.full === true, errs = [];
+  const tryGet = (name, fn) => async () => { try{ return await fn(); }catch(e){ errs.push(name+' — '+e.message); return null; } };
   let basic;
   try{ basic = await fetchPrice(code); }
   catch(e){ const err = new Error('시세를 못 가져왔어요 — ' + e.message); err.relay = true; throw err; }
-  const [integ, annual, quarter, news, chart] = await Promise.all([
+  const jobs = [
     tryGet('투자지표', async()=>parseInteg(await relayJSON(NV.integ(code)))),
     tryGet('연간 재무', async()=>parseFinance(await relayJSON(NV.annual(code)))),
-    tryGet('분기 재무', async()=>parseFinance(await relayJSON(NV.quarter(code)))),
-    tryGet('뉴스', async()=>parseNews(await relayJSON(NV.news(code)))),
     tryGet('일봉', async()=>{ try{ const c = parseChart(await relayJSON(NV.chart(code))); if(c.length) return c; }catch(e){} return parseChartXml(await relayText(NV.chart2(code))); }),
-  ]);
-  return { code, t: Date.now(), basic, integ: integ||{}, annual: annual||{cols:[],table:{}}, quarter: quarter||{cols:[],table:{}}, news: news||[], chart: chart||[], errs, demo:false };
+  ];
+  if(full) jobs.push(tryGet('뉴스', async()=>parseNews(await relayJSON(NV.news(code)))),
+                     tryGet('분기 재무', async()=>parseFinance(await relayJSON(NV.quarter(code)))));
+  const [integ, annual, chart, news, quarter] = await runJobs(jobs);
+  const old = state.data[code];                       /* 이번에 안 부른 것은 지난번 것을 그대로 둡니다 */
+  return { code, t: Date.now(), basic, integ: integ||{}, annual: annual||{cols:[],table:{}},
+    quarter: quarter || old?.quarter || {cols:[],table:{}}, news: news || old?.news || [],
+    chart: chart || old?.chart || [], errs, full, demo:false };
 }
 
 /* ============================================================
@@ -842,12 +858,13 @@ function fillInteg(base, extra){
   }
   return base;
 }
-async function fetchStockUs(code, sym){
+async function fetchStockUs(code, sym, opts={}){
   const errs = [];
   const tryGet = async (name, fn) => { try{ return await fn(); }catch(e){ errs.push(name + ' — ' + e.message); return null; } };
 
   /* ① 시세 — 네이버 해외종목(전일 대비가 정확합니다) → 야후 차트 */
   const nv = await tryGet('네이버 해외시세', ()=>naverUsSymbol(code, sym));
+  if(!myRelay()) await wait(350);
   const chartRes = await tryGet('야후 일봉', async()=>parseYhChart(await relayJSON(YH.chart(code))));
   const basic = nv?.basic || chartRes?.basic;
   if(!basic || !has(basic.price)){ const err = new Error('시세를 못 가져왔어요 — ' + (errs[0] || '연결 실패')); err.relay = true; throw err; }
@@ -856,15 +873,16 @@ async function fetchStockUs(code, sym){
   const nsym = nv?.sym || sym || '';
 
   /* ② 지표·재무 — 네이버 해외 종목분석을 먼저, 야후 요약으로 빈 곳 채우기 */
-  const [nInteg, nFin, yq, news] = await Promise.all([
-    nsym ? tryGet('네이버 투자지표', async()=>parseInteg(await relayJSON(NVU.integ(nsym)))) : null,
-    nsym ? tryGet('네이버 연간재무', async()=>parseFinance(await relayJSON(NVU.annual(nsym)))) : null,
-    tryGet('야후 요약', async()=>parseYhQuote(await relayJSON(YH.quote(code)))),
-    tryGet('뉴스', async()=>{
-      if(nsym){ try{ const n = parseNews(await relayJSON(NVU.news(nsym))); if(n.length) return n; }catch(e){} }
-      return parseYhNews(await relayJSON(YH.news(code)));
-    }),
-  ]);
+  const jobs = [
+    nsym ? (()=>tryGet('네이버 투자지표', async()=>parseInteg(await relayJSON(NVU.integ(nsym))))) : (async()=>null),
+    nsym ? (()=>tryGet('네이버 연간재무', async()=>parseFinance(await relayJSON(NVU.annual(nsym))))) : (async()=>null),
+    ()=>tryGet('야후 요약', async()=>parseYhQuote(await relayJSON(YH.quote(code)))),
+  ];
+  if(opts.full === true) jobs.push(()=>tryGet('뉴스', async()=>{
+    if(nsym){ try{ const n = parseNews(await relayJSON(NVU.news(nsym))); if(n.length) return n; }catch(e){} }
+    return parseYhNews(await relayJSON(YH.news(code)));
+  }));
+  const [nInteg, nFin, yq, news] = await runJobs(jobs);
   const integ = fillInteg(Object.assign({}, nInteg || {}), yq?.integ || {});
   /* 시가총액 단위 맞추기 — 네이버는 백만 달러로, 야후는 달러 그대로 줍니다 */
   if(has(integ.marketCap) && integ.marketCap > 0 && integ.marketCap < 1e8) integ.marketCap *= 1e6;
@@ -875,7 +893,7 @@ async function fetchStockUs(code, sym){
   const annual = (nRows >= yRows && nRows > 0) ? nFin : (yq?.annual || { cols:[], table:{} });
   return { code, mk:'us', sym: nsym || code, ccy:'USD', t: Date.now(),
     basic, integ, annual, quarter: { cols:[], table:{} },
-    news: news || [], chart: chartRes?.chart || [], errs,
+    news: news || state.data[code]?.news || [], chart: chartRes?.chart || state.data[code]?.chart || [], errs,
     srcs: { 시세: nv ? '네이버' : '야후', 지표: Object.keys(nInteg||{}).length ? '네이버' : (yq ? '야후' : '없음'),
             재무: nRows ? '네이버' : (yRows ? '야후' : '없음') }, demo:false };
 }
@@ -1808,6 +1826,17 @@ function renderHome(){
         서버가 없는 앱이라 <b>중계</b>를 거쳐 네이버증권을 읽는데, 공개 중계가 막히면 이렇게 됩니다.
         <b>구글 스크립트 중계</b>를 한 번 만들어 두면 거의 안 막힙니다 (3분, 무료).</p>
       <div class="btn-row"><button class="btn sm" data-act="relaySetup">📡 중계 만들기 (3분)</button><button class="btn sm ghost" data-act="diag">🩺 시세 점검</button><button class="btn sm ghost" data-act="refreshAll">🔄 다시 시도</button></div></div>`; })()}
+  ${(() => {
+    if(myRelay()) return '';
+    const got = state.watch.filter(w => state.data[w.code]);
+    const partial = got.filter(w => (state.data[w.code].errs||[]).length);
+    if(!got.length || !partial.length) return '';
+    return `<div class="card" style="border-color:#f0dcbb">
+      <h2>📡 정보가 반쯤만 들어왔어요</h2>
+      <p class="desc">${partial.length}개 종목에서 일부 항목을 못 받았습니다. 남의 <b>공개 중계</b>를 쓰고 있어서,
+        연달아 부르면 막습니다. <b>내 구글 중계</b>를 하나 만들면 전부 한 번에 들어옵니다 (3분, 무료).</p>
+      <div class="btn-row"><button class="btn sm" data-act="relaySetup">📡 중계 만들기</button><button class="btn sm ghost" data-act="refreshAll">🔄 다시 받기</button><button class="btn sm ghost" data-act="diag">🩺 점검</button></div>
+    </div>`; })()}
   ${safe('자산 요약', assetCard)}
   ${safe('자산 구성', mixCard)}
   ${alerts.length ? `<div class="card" style="border-color:#f3c9c5">
@@ -1889,7 +1918,7 @@ async function refreshStock(code, opts={}){
   try{
     const w = W(code);
     const d = state.ui.demo ? demoStock(code)
-      : (w?.mk === 'us' ? await fetchStockUs(code, w.sym) : await fetchStock(code));
+      : (w?.mk === 'us' ? await fetchStockUs(code, w.sym, opts) : await fetchStock(code, opts));
     if(!d.basic.name && W(code)) d.basic.name = W(code).name;
     state.data[code] = d;
     if(w && d.sym && !w.sym){ w.sym = d.sym; }
@@ -2194,8 +2223,9 @@ async function runDiag(){
     state.settings.relay = good; save();
     const get = async u => { let t = await getText(L[good].f(u), isMine(good)?20000:8000); if(L[good].wrap) t = JSON.parse(t)[L[good].wrap]; return JSON.parse(t); };
     const step = async (name, u, check) => {
+      if(!isMine(good)) await wait(600);          /* 공개 중계가 막지 않도록 */
       try{ const j = await get(u); const r = check(j); dRow(name, r.s, r.tip||'', r.ok); }
-      catch(e){ dRow(name, '막힘 — ' + e.message, '', false); }
+      catch(e){ dRow(name, '막힘 — ' + e.message, isMine(good) ? '' : '공개 중계는 연달아 부르면 막습니다', false); }
     };
     await step('투자지표·컨센서스', NV.integ('005930'), j => { const I = parseInteg(j);
       const got = ['PER','PBR','목표주가'].filter((_,k)=>has([I.per,I.pbr,I.target][k]));
@@ -2369,8 +2399,12 @@ document.addEventListener('click', async e => {
     case 'closeRefresh': closeModal(); refreshAll(); break;
     case 'search': doSearch(); break;
     case 'pick': addWatch(code, b.dataset.name, b.dataset.mk, b.dataset.sym); break;
-    case 'open': state.ui.code = code; showTab('stock'); if(!state.data[code]) refreshStock(code); break;
-    case 'refresh': resetRelays(); refreshStock(code); break;
+    case 'open': { state.ui.code = code; showTab('stock');
+      const d = state.data[code];
+      if(!d) refreshStock(code, {full:true});
+      else if(!d.full && !d.demo) refreshStock(code, {full:true, quiet:true}).then(render);   /* 뉴스·분기는 열 때 채웁니다 */
+      break; }
+    case 'refresh': resetRelays(); refreshStock(code, {full:true}); break;
     case 'refreshAll': refreshAll(); break;
     case 'unwatch': if(confirm('관심종목에서 뺄까요? (논리·기록은 남습니다)')){ state.watch = state.watch.filter(w=>w.code!==code); state.ui.code=''; save(); showTab('home'); } break;
     case 'finQ': state.ui.finQ = b.dataset.v==='1'; render(); break;
