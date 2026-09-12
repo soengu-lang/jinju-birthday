@@ -591,8 +591,10 @@ function parseBasic(j){
   const down = String(b?.compareToPreviousPrice?.code||'') === '5';
   if(has(diff) && diff>0 && down) diff = -diff;
   const prev = has(diff) ? price - diff : NaN;
+  /* 해외 종목은 marketValueFullRaw 가 달러 그대로 들어 있습니다 (국내는 marketValue, 억원) */
   return { price, prev, name: b.stockName || b.itemName || '', market: b.stockExchangeType?.name || b.stockExchangeName || '',
-           marketCap: num(b.marketValue), volume: num(b.accumulatedTradingVolume) };
+           marketCap: num(b.marketValue), capUsd: num(b.marketValueFullRaw), shares: num(b.countOfListedStock),
+           industry: b.industryCodeType?.industryGroupKor || '', volume: num(b.accumulatedTradingVolume) };
 }
 /* integration: totalInfos 에 시가총액/PER/PBR/EPS/BPS/배당/52주 등이 code 또는 key(한글) 로 들어 있습니다 */
 function parseInteg(j){
@@ -843,6 +845,8 @@ async function naverUsSymbol(code, sym){
   const cands = [];
   if(sym) cands.push(sym);
   cands.push(code + '.O', code, code.replace('-', '.'));   /* .K·.N 은 409 가 납니다 */
+  const cls = code.replace(/-([A-Za-z])$/, (m,c)=>c.toLowerCase());       /* BRK-B → BRKb */
+  if(cls !== code) cands.push(cls);
   for(const s of cands){
     try{
       const b = parseBasic(await relayJSON(NVU.basic(s)));
@@ -909,6 +913,8 @@ async function fetchStockUs(code, sym, opts={}){
   const integ = fillInteg(Object.assign({}, nInteg || {}), yq?.integ || {});
   /* 시가총액 단위 맞추기 — 네이버는 백만 달러로, 야후는 달러 그대로 줍니다 */
   if(has(integ.marketCap) && integ.marketCap > 0 && integ.marketCap < 1e8) integ.marketCap *= 1e6;
+  if(has(basic.capUsd) && basic.capUsd > 0) integ.marketCap = basic.capUsd;   /* 시세 응답의 값이 가장 정확합니다 */
+  if(!integ.industry && basic.industry) integ.industry = basic.industry;
   if(!has(integ.high52)) integ.high52 = chartRes?.high52;
   if(!has(integ.low52)) integ.low52 = chartRes?.low52;
   /* 재무는 항목이 더 많은 쪽을 씁니다 */

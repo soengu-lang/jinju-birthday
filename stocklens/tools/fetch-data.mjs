@@ -213,13 +213,36 @@ function usAnnual(fin) {
   }
   return a;
 }
+/* 네이버가 쓰는 심볼 후보 — 되는 것을 찾을 때까지 차례로 봅니다 */
+function usSymbols(code) {
+  const out = [code + '.O', code, code.replace('-', '.')];
+  const cls = code.replace(/-([A-Za-z])$/, (m, c) => c.toLowerCase());   /* BRK-B → BRKb */
+  if (cls !== code) out.push(cls);
+  return [...new Set(out)];
+}
+/* stooq — 열쇠도 제한도 없는 무료 일봉 CSV (마지막 예비) */
+async function stooq(code) {
+  const csv = await get(`https://stooq.com/q/d/l/?s=${encodeURIComponent(code.replace('-', '.').toLowerCase())}.us&i=d`, { json: false, tries: 2 });
+  const rows = csv.trim().split('\n').slice(1);
+  const chart = [];
+  for (const r of rows) {
+    const c = r.split(',');
+    const close = num(c[4]);
+    if (c.length < 5 || !has(close)) continue;
+    chart.push({ d: c[0].replace(/-/g, ''), c: round(close, 2), v: num(c[5]) });
+  }
+  if (chart.length < 30) throw new Error('stooq 자료 부족');
+  const last = chart.slice(-260);
+  return { chart: last, price: last[last.length - 1].c, prev: last[last.length - 2].c };
+}
 async function fetchUs(code) {
-  let nsym = '', basic = null, integ = {}, annual = { cols: [], table: {} }, news = [];
-  /* 나스닥은 .O, 뉴욕은 접미사가 없습니다 (.K/.N 은 409 가 납니다) */
-  for (const s of [code + '.O', code, code.replace('-', '.')]) {
+  let nsym = '', basic = null, raw = null, integ = {}, annual = { cols: [], table: {} }, news = [];
+  /* 나스닥은 .O, 뉴욕은 접미사 없음, 클래스주는 소문자 (BRK-B → BRKb). .K/.N 은 409 입니다 */
+  for (const s of usSymbols(code)) {
     try {
-      const b = parseBasic(await get(NVU.basic(s)));
-      if (b.price > 0) { nsym = s; basic = b; break; }
+      const j = await get(NVU.basic(s));
+      const b = parseBasic(j);
+      if (b.price > 0) { nsym = s; basic = b; raw = j?.datas?.[0] || j; break; }
     } catch (e) { }
   }
   let chart = [], high52 = NaN, low52 = NaN;
@@ -232,6 +255,14 @@ async function fetchUs(code) {
       high52 = y.high52; low52 = y.low52;
       if (!basic || !(basic.price > 0)) basic = { price: y.price, prev: y.prev, name: y.name, market: y.market, marketCap: NaN };
     } catch (e) { }
+  }
+  /* 네이버에도 야후에도 없으면 stooq(무료 CSV)로 받아 옵니다 — SCHD 같은 ETF */
+  if ((!basic || !(basic.price > 0)) || chart.length < 30) {
+    const st = await stooq(code).catch(() => null);
+    if (st && st.chart.length > chart.length) {
+      chart = st.chart;
+      if (!basic || !(basic.price > 0)) basic = { price: st.price, prev: st.prev, name: '', market: '', marketCap: NaN };
+    }
   }
   if (!basic || !(basic.price > 0)) throw new Error('시세 없음');
   /* 52주 최고·최저를 못 받았으면 일봉에서 직접 셉니다 */
@@ -262,6 +293,11 @@ async function fetchUs(code) {
   }
   if (!integ.industry && basic?.industry) integ.industry = basic.industry;
   if (has(integ.marketCap) && integ.marketCap > 0 && integ.marketCap < 1e8) integ.marketCap *= 1e6;
+  /* 시가총액은 basic 의 marketValueFullRaw(달러 그대로)가 가장 정확합니다 */
+  const capUsd = num(raw?.marketValueFullRaw);
+  if (has(capUsd) && capUsd > 0) integ.marketCap = capUsd;
+  const shares = num(raw?.countOfListedStock);
+  if (has(shares) && shares > 0) integ.shares = shares;
   if (!has(integ.high52) && has(high52)) integ.high52 = high52;
   if (!has(integ.low52) && has(low52)) integ.low52 = low52;
   return { mk: 'us', ccy: 'USD', sym: nsym || code, basic, integ, annual, chart, news };
