@@ -269,7 +269,39 @@ async function fetchUs(code) {
 
 /* ---------- 진단 모드 ----------
    DEBUG_CODE 를 주면 그 종목의 원본 응답을 찍고 끝냅니다 (파싱을 고칠 때 씁니다) */
+/* 미국 종목의 '시가총액·뉴스' 를 어디서 가져올지 찾을 때 쓰는 집중 진단 */
+async function debugUsFields(code) {
+  for (const s of [code + '.O', code, code.replace('-', '.'), code.replace(/-([A-Za-z])$/, (m, c) => c.toLowerCase()), code + '.P']) {
+    let b = null;
+    try { b = await get(NVU.basic(s)); } catch (e) { console.log(`basic ${s} → ${e.message}`); continue; }
+    const d = b?.datas?.[0] || b || {};
+    console.log(`basic ${s} → ${d.stockName || '?'} / reuters=${d.reutersCode || '?'} / 키: ${Object.keys(d).join(',')}`);
+    const cap = Object.entries(d).filter(([k]) => /market|cap|value|amount/i.test(k));
+    if (cap.length) console.log('   시총 후보: ' + JSON.stringify(cap));
+    let ij = null;
+    try { ij = await get(NVU.integ(s)); } catch (e) { console.log(`   integration → ${e.message}`); }
+    if (ij) {
+      console.log('   integration 키: ' + Object.keys(ij).join(','));
+      const g = ij.industryCompareInfo?.globalStocks || ij.industryCompareInfo?.stocks || [];
+      console.log('   globalStocks ' + g.length + '개' + (g[0] ? ' 첫 항목: ' + JSON.stringify(g[0]).slice(0, 400) : ''));
+      for (const [k, v] of Object.entries(ij)) {
+        if (v && typeof v === 'object' && !Array.isArray(v)) {
+          const hit = Object.entries(v).filter(([kk]) => /market|cap/i.test(kk));
+          if (hit.length) console.log(`   ${k}: ` + JSON.stringify(hit).slice(0, 300));
+        }
+      }
+      const rc = d.reutersCode || s;
+      try {
+        const n = await get(`https://api.stock.naver.com/news/stock/${rc}?pageSize=5&page=1`);
+        console.log(`   뉴스(${rc}) → ${Array.isArray(n) ? n.length + '개' : typeof n}`);
+      } catch (e) { console.log(`   뉴스(${rc}) → ${e.message}`); }
+      break;
+    }
+    await sleep(300);
+  }
+}
 async function debugOne(code) {
+  if (process.env.DEBUG_US === '1') return debugUsFields(code);
   const isKr = /^\d{6}$/.test(code);
   const urls = isKr
     ? [['basic', NV.basic(code)], ['integration', NV.integ(code)], ['annual', NV.annual(code)], ['news', NV.news(code)], ['chart', NV.chart(code)]]

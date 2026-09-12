@@ -13,6 +13,10 @@ on:
         description: '원본 응답만 찍어 보기 (예: 005930,NVDA). 비워 두면 평소대로 받아 옵니다'
         required: false
         default: ''
+      debug_us:
+        description: '미국 종목의 시가총액·뉴스 자리를 찾는 집중 진단 (1 을 넣으면 켜집니다)'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -35,6 +39,7 @@ jobs:
       - name: 시세·재무 받아 오기
         env:
           DEBUG_CODE: ${{ github.event.inputs.debug_code }}
+          DEBUG_US: ${{ github.event.inputs.debug_us }}
         run: node stocklens/tools/fetch-data.mjs
 
       - name: 바뀐 것만 올리기
