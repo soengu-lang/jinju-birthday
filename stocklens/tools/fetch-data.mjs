@@ -308,6 +308,15 @@ async function fetchUs(code) {
   if (has(capUsd) && capUsd > 0) integ.marketCap = capUsd;
   const shares = num(raw?.countOfListedStock);
   if (has(shares) && shares > 0) integ.shares = shares;
+  /* 미국 재무표에는 EPS 줄이 없습니다 — 순이익(백만달러) ÷ 상장주식수 로 만들어 둡니다.
+     이게 있어야 Bull/Base/Bear 시나리오(EPS × PER)가 나옵니다 */
+  if (has(shares) && shares > 0 && annual.table.ni && !annual.table.eps) {
+    const out = {};
+    for (const [c, v] of Object.entries(annual.table.ni)) if (has(v)) out[c] = round(v * 1e6 / shares, 2);
+    if (Object.keys(out).length) annual.table.eps = out;
+  }
+  if (!has(integ.eps) && has(integ.per) && integ.per > 0) integ.eps = round(basic.price / integ.per, 2);
+  if (!has(integ.bps) && has(integ.pbr) && integ.pbr > 0) integ.bps = round(basic.price / integ.pbr, 2);
   if (!has(integ.high52) && has(high52)) integ.high52 = high52;
   if (!has(integ.low52) && has(low52)) integ.low52 = low52;
   return { mk: 'us', ccy: 'USD', sym: nsym || code, basic, integ, annual, chart, news };
@@ -363,6 +372,21 @@ async function debugKrIndustry(code) {
       console.log(`${name}: ${seen.length ? '\n  ' + seen.join('\n  ') : '업종 비슷한 칸 없음'}`);
     } catch (e) { console.log(`${name} → ${e.message}`); }
     await sleep(300);
+  }
+  /* 업종 '이름' 이 어디 있는지 — 후보 주소들을 두드려 봅니다 */
+  for (const u of [
+    `https://m.stock.naver.com/api/stock/${code}/industry`,
+    `https://api.stock.naver.com/stock/${code}/industry`,
+    `https://m.stock.naver.com/api/stock/${code}/integration/industry`,
+    `https://api.stock.naver.com/industry/278/basic`,
+    `https://m.stock.naver.com/api/json/industry/industryItemList.nhn?industryCode=278`,
+    `https://m.stock.naver.com/api/stock/${code}/price?pageSize=1&page=1`,
+  ]) {
+    try {
+      const t = await get(u, { json: false, tries: 1 });
+      console.log(`OK  ${u}\n    ${t.slice(0, 300).replace(/\n/g, ' ')}`);
+    } catch (e) { console.log(`실패 ${u} → ${e.message}`); }
+    await sleep(250);
   }
 }
 async function debugOne(code) {

@@ -921,6 +921,16 @@ async function fetchStockUs(code, sym, opts={}){
   const nRows = Object.keys(nFin?.table || {}).length, yRows = Object.keys(yq?.annual?.table || {}).length;
   const annual = (nRows >= yRows && nRows > 0) ? nFin : (yq?.annual || { cols:[], table:{} });
   usMargins(annual);   /* 미국 재무표는 이익률을 안 주므로 매출로 직접 계산합니다 */
+  /* EPS 줄도 없습니다 — 순이익(백만달러) ÷ 상장주식수. 이게 있어야 시나리오가 나옵니다 */
+  const shares = basic.shares;
+  if(has(shares) && shares > 0 && annual.table?.ni && !annual.table.eps){
+    const out = {};
+    for(const [c, v] of Object.entries(annual.table.ni)) if(has(v)) out[c] = Math.round(v*1e6/shares*100)/100;
+    if(Object.keys(out).length) annual.table.eps = out;
+  }
+  if(has(shares) && shares > 0) integ.shares = shares;
+  if(!has(integ.eps) && has(integ.per) && integ.per > 0) integ.eps = +(basic.price/integ.per).toFixed(2);
+  if(!has(integ.bps) && has(integ.pbr) && integ.pbr > 0) integ.bps = +(basic.price/integ.pbr).toFixed(2);
   return { code, mk:'us', sym: nsym || code, ccy:'USD', t: Date.now(),
     basic, integ, annual, quarter: { cols:[], table:{} },
     news: news || state.data[code]?.news || [], chart: chartRes?.chart || state.data[code]?.chart || [], errs,
