@@ -81,6 +81,7 @@ function parseBasic(j) {
     name: b.stockName || b.itemName || '',
     market: b.stockExchangeType?.name || b.stockExchangeName || '',
     marketCap: num(b.marketValue),
+    industry: b.industryCodeType?.industryGroupKor || '',
   };
 }
 const INTEG_MAP = {
@@ -106,12 +107,12 @@ function parseInteg(j) {
   return out;
 }
 const FIN_ROWS = [
-  ['revenue', ['매출액', '수익(매출액)', '매출', '영업수익']], ['op', ['영업이익', '영업이익(발표기준)']],
-  ['ni', ['당기순이익', '당기순이익(지배)', '지배주주순이익']], ['opm', ['영업이익률']], ['npm', ['순이익률']],
+  ['revenue', ['매출액', '수익(매출액)', '매출', '영업수익']], ['op', ['영업이익', '영업이익(발표기준)', 'EBIT']],
+  ['ni', ['당기순이익', '당기순이익(지배)', '지배주주순이익', '세후손익']], ['opm', ['영업이익률']], ['npm', ['순이익률']],
   ['roe', ['ROE(%)', 'ROE', '자기자본이익률']], ['debt', ['부채비율']], ['quick', ['당좌비율']],
   ['reserve', ['자본유보율', '유보율']], ['eps', ['EPS(원)', 'EPS']], ['per', ['PER(배)', 'PER']],
   ['bps', ['BPS(원)', 'BPS']], ['pbr', ['PBR(배)', 'PBR']], ['dps', ['현금DPS(원)', '주당배당금', 'DPS(원)', 'DPS']],
-  ['divy', ['현금배당수익률', '배당수익률']],
+  ['divy', ['현금배당수익률', '배당수익률']], ['roa', ['ROA']], ['ebitda', ['EBITDA']],
 ];
 function finKey(title) {
   const t = String(title || '').replace(/\s/g, '');
@@ -185,11 +186,28 @@ async function fetchKr(code) {
     get(NV.chart(code)).then(parseChart).catch(() => []),
     get(NV.news(code)).then(parseNews).catch(() => []),
   ]);
+  if (!integ.industry && basic.industry) integ.industry = basic.industry;
   return { mk: 'kr', ccy: 'KRW', basic, integ, annual, chart, news };
+}
+/* 미국 연간표: 매출·EBIT·세후손익만 오므로 영업이익률·순이익률은 직접 냅니다 */
+function usAnnual(fin) {
+  const a = parseFinance(fin);
+  const t = a.table;
+  if (t.revenue) {
+    const marg = (src, key) => {
+      if (!src || t[key]) return;
+      const out = {};
+      for (const [c, v] of Object.entries(src)) { const r = t.revenue[c]; if (has(r) && r > 0 && has(v)) out[c] = round(v / r * 100, 2); }
+      if (Object.keys(out).length) t[key] = out;
+    };
+    marg(t.op, 'opm'); marg(t.ni, 'npm');
+  }
+  return a;
 }
 async function fetchUs(code) {
   let nsym = '', basic = null, integ = {}, annual = { cols: [], table: {} }, news = [];
-  for (const s of [code + '.O', code + '.K']) {
+  /* 나스닥은 .O, 뉴욕은 접미사가 없습니다 (.K/.N 은 409 가 납니다) */
+  for (const s of [code + '.O', code, code.replace('-', '.')]) {
     try {
       const b = parseBasic(await get(NVU.basic(s)));
       if (b.price > 0) { nsym = s; basic = b; break; }
@@ -203,10 +221,27 @@ async function fetchUs(code) {
   } catch (e) { }
   if (!basic || !(basic.price > 0)) throw new Error('시세 없음');
   if (nsym) {
-    integ = await get(NVU.integ(nsym)).then(parseInteg).catch(() => ({}));
-    annual = await get(NVU.annual(nsym)).then(parseFinance).catch(() => ({ cols: [], table: {} }));
+    const ij = await get(NVU.integ(nsym)).catch(() => null);
+    if (ij) {
+      integ = parseInteg(ij);
+      /* 시가총액·배당은 같이 오는 '같은 업종 종목들' 목록에서 내 것을 찾아 씁니다 */
+      const me = (ij.industryCompareInfo?.globalStocks || []).find(x => x.reutersCode === nsym || x.symbolCode === code);
+      if (me) {
+        const cap = num(me.marketValueRaw ?? me.marketValue);
+        if (has(cap) && cap > 0) integ.marketCap = cap;
+        const dy = num(me.dividendYield); if (has(dy)) integ.divYield = dy;
+      }
+    }
+    annual = await get(NVU.annual(nsym)).then(usAnnual).catch(() => ({ cols: [], table: {} }));
+    /* PER·PBR·배당은 연간표의 가장 최근 열에서 끌어옵니다 */
+    const lastCol = annual.cols.length ? annual.cols[annual.cols.length - 1].key : null;
+    if (lastCol) for (const [k, row] of [['per','per'], ['pbr','pbr'], ['divYield','divy']]) {
+      const v = annual.table[row]?.[lastCol];
+      if (!has(integ[k]) && has(v)) integ[k] = v;
+    }
     news = await get(NVU.news(nsym)).then(parseNews).catch(() => []);
   }
+  if (!integ.industry && basic?.industry) integ.industry = basic.industry;
   if (has(integ.marketCap) && integ.marketCap > 0 && integ.marketCap < 1e8) integ.marketCap *= 1e6;
   if (!has(integ.high52) && has(high52)) integ.high52 = high52;
   if (!has(integ.low52) && has(low52)) integ.low52 = low52;
@@ -219,9 +254,20 @@ async function debugOne(code) {
   const isKr = /^\d{6}$/.test(code);
   const urls = isKr
     ? [['basic', NV.basic(code)], ['integration', NV.integ(code)], ['annual', NV.annual(code)], ['news', NV.news(code)], ['chart', NV.chart(code)]]
-    : [['basic .O', NVU.basic(code + '.O')], ['basic .K', NVU.basic(code + '.K')], ['basic .N', NVU.basic(code + '.N')],
-       ['basic 그대로', NVU.basic(code)], ['integration .O', NVU.integ(code + '.O')], ['annual .O', NVU.annual(code + '.O')],
-       ['news .O', NVU.news(code + '.O')], ['yahoo chart', YH.chart(code)]];
+    : (() => {
+        const f = d => d.toISOString().slice(0, 10).replace(/-/g, '') + '0000';
+        const s = f(new Date(Date.now() - 400 * 864e5)), e = f(new Date());
+        const sym = code + '.O';
+        return [
+          ['chart foreign', `https://api.stock.naver.com/chart/foreign/item/${sym}/day?startDateTime=${s}&endDateTime=${e}`],
+          ['chart worldstock', `https://api.stock.naver.com/chart/worldstock/item/${sym}/day?startDateTime=${s}&endDateTime=${e}`],
+          ['chart overseas', `https://api.stock.naver.com/chart/overseas/item/${sym}/day?startDateTime=${s}&endDateTime=${e}`],
+          ['news A', `https://api.stock.naver.com/news/worldstock/stock/${sym}?pageSize=8&page=1`],
+          ['news B', `https://m.stock.naver.com/api/news/worldstock/${sym}?pageSize=8&page=1`],
+          ['news C', `https://api.stock.naver.com/news/stock/${sym}?pageSize=8&page=1`],
+          ['news D', `https://m.stock.naver.com/api/news/stock/${sym}?pageSize=8&page=1`],
+        ];
+      })();
   for (const [name, u] of urls) {
     try {
       const t = await get(u, { json: false, tries: 1 });
