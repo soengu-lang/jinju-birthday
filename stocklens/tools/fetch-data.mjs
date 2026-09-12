@@ -32,13 +32,14 @@ const num = v => {
 const has = v => v != null && Number.isFinite(v);
 const round = (v, d = 2) => has(v) ? Math.round(v * 10 ** d) / 10 ** d : null;
 
-async function get(url, { json = true, tries = 3 } = {}) {
+async function get(url, { json = true, tries = 3, raw = false } = {}) {
   let last;
   for (let i = 0; i < tries; i++) {
     try {
       const ctl = AbortSignal.timeout(20000);
       const r = await fetch(url, { signal: ctl, headers: { 'User-Agent': UA, 'Referer': 'https://finance.naver.com/', 'Accept': '*/*' } });
       if (!r.ok) throw new Error('HTTP ' + r.status);
+      if (raw) return new Uint8Array(await r.arrayBuffer());
       const t = await r.text();
       if (!t.trim()) throw new Error('빈 응답');
       return json ? JSON.parse(t) : t;
@@ -196,16 +197,34 @@ function parseNews(j) {
 }
 
 /* ---------- 한 종목 ---------- */
+/* 업종 '이름' 은 어느 API 에도 없고 네이버 업종 목록 페이지에만 있습니다.
+   한 번만 받아 번호→이름 표를 만들어 두고 모든 국내 종목에 씁니다 (EUC-KR 페이지) */
+let INDUSTRY = null;
+async function industryNames() {
+  if (INDUSTRY) return INDUSTRY;
+  INDUSTRY = {};
+  try {
+    const buf = await get('https://finance.naver.com/sise/sise_group.naver?type=upjong', { raw: true, tries: 2 });
+    const html = new TextDecoder('euc-kr').decode(buf);
+    const re = /type=upjong&amp;no=(\d+)"[^>]*>([^<]+)</g;
+    let m;
+    while ((m = re.exec(html))) INDUSTRY[m[1]] = m[2].trim();
+    console.log(`업종 이름표 ${Object.keys(INDUSTRY).length}개`);
+  } catch (e) { console.log('업종 이름표를 못 받았습니다 — ' + e.message); }
+  return INDUSTRY;
+}
 async function fetchKr(code) {
   const basic = parseBasic(await get(NV.basic(code)));
   if (!(basic.price > 0)) throw new Error('시세 없음');
+  let ijRaw = null;
   const [integ, annual, chart, news] = await Promise.all([
-    get(NV.integ(code)).then(parseInteg).catch(() => ({})),
+    get(NV.integ(code)).then(j => { ijRaw = j; return parseInteg(j); }).catch(() => ({})),
     get(NV.annual(code)).then(parseFinance).catch(() => ({ cols: [], table: {} })),
     get(NV.chart(code)).then(parseChart).catch(() => []),
     get(NV.news(code)).then(parseNews).catch(() => []),
   ]);
   if (!integ.industry && basic.industry) integ.industry = basic.industry;
+  if (!integ.industry && ijRaw?.industryCode) integ.industry = (await industryNames())[String(ijRaw.industryCode)] || '';
   return { mk: 'kr', ccy: 'KRW', basic, integ, annual, chart, news };
 }
 /* 미국 연간표: 매출·EBIT·세후손익만 오므로 영업이익률·순이익률은 직접 냅니다 */
