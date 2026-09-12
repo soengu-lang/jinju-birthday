@@ -664,7 +664,7 @@ function parseFinance(j){
 }
 function parseChart(j){
   let arr = Array.isArray(j) ? j : (j?.priceInfos || j?.result || []);
-  const out = arr.map(x => ({ d: String(x.localDate || x.date || ''), c: num(x.closePrice ?? x.close), v: num(x.accumulatedTradingVolume ?? x.volume) })).filter(x => has(x.c) && x.d);
+  const out = arr.map(x => ({ d: String(x.localDate || x.localDateTime || x.date || '').replace(/\D/g,'').slice(0,8), c: num(x.closePrice ?? x.close), v: num(x.accumulatedTradingVolume ?? x.volume) })).filter(x => has(x.c) && x.d);
   return out;
 }
 function parseChartXml(txt){
@@ -736,11 +736,13 @@ const YH = {
   search: q => `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=12&newsCount=0&listsCount=0`,
   news: t => `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(t)}&quotesCount=0&newsCount=15`,
 };
-const NVU = {                                   /* 네이버 해외종목 (심볼 뒤에 .O 나스닥 / .K 뉴욕) */
+const NVU = {                                   /* 네이버 해외종목 (나스닥은 .O, 뉴욕은 접미사 없음) */
   basic: s => `https://api.stock.naver.com/stock/${encodeURIComponent(s)}/basic`,
   integ: s => `https://api.stock.naver.com/stock/${encodeURIComponent(s)}/integration`,
   annual: s => `https://api.stock.naver.com/stock/${encodeURIComponent(s)}/finance/annual`,
-  news: s => `https://api.stock.naver.com/news/worldstock/${encodeURIComponent(s)}?pageSize=20&page=1`,
+  news: s => `https://api.stock.naver.com/news/stock/${encodeURIComponent(s)}?pageSize=20&page=1`,
+  chart: s => { const e = new Date(), st = new Date(e - 400*864e5), f = d => iso(d).replace(/-/g,'') + '0000';
+    return `https://api.stock.naver.com/chart/foreign/item/${encodeURIComponent(s)}/day?startDateTime=${f(st)}&endDateTime=${f(e)}`; },
 };
 const raw = v => (v && typeof v === 'object') ? num(v.raw ?? v.fmt) : num(v);
 const isUs = code => (W(code)?.mk || state.data[code]?.mk) === 'us';
@@ -840,7 +842,7 @@ function parseYhNews(j){
 async function naverUsSymbol(code, sym){
   const cands = [];
   if(sym) cands.push(sym);
-  cands.push(code + '.O', code + '.K');
+  cands.push(code + '.O', code, code.replace('-', '.'));   /* .K·.N 은 409 가 납니다 */
   for(const s of cands){
     try{
       const b = parseBasic(await relayJSON(NVU.basic(s)));
@@ -858,6 +860,18 @@ function fillInteg(base, extra){
   }
   return base;
 }
+/* 미국 연간재무는 영업이익·순이익만 오고 이익률 줄이 없습니다 — 매출로 채워 넣습니다 */
+function usMargins(a){
+  const t = a?.table; if(!t || !t.revenue) return a;
+  const marg = (src, key) => {
+    if(!src || t[key]) return;
+    const out = {};
+    for(const [c, v] of Object.entries(src)){ const r = t.revenue[c]; if(has(r) && r > 0 && has(v)) out[c] = Math.round(v/r*10000)/100; }
+    if(Object.keys(out).length) t[key] = out;
+  };
+  marg(t.op, 'opm'); marg(t.ni, 'npm');
+  return a;
+}
 async function fetchStockUs(code, sym, opts={}){
   const errs = [];
   const tryGet = async (name, fn) => { try{ return await fn(); }catch(e){ errs.push(name + ' — ' + e.message); return null; } };
@@ -865,7 +879,16 @@ async function fetchStockUs(code, sym, opts={}){
   /* ① 시세 — 네이버 해외종목(전일 대비가 정확합니다) → 야후 차트 */
   const nv = await tryGet('네이버 해외시세', ()=>naverUsSymbol(code, sym));
   if(!myRelay()) await wait(350);
-  const chartRes = await tryGet('야후 일봉', async()=>parseYhChart(await relayJSON(YH.chart(code))));
+  /* 일봉은 네이버 해외 차트가 더 잘 붙습니다 — 야후는 자주 막힙니다 */
+  let chartRes = null;
+  if(nv?.sym){
+    const bars = await tryGet('네이버 일봉', async()=>parseChart(await relayJSON(NVU.chart(nv.sym))));
+    if(bars && bars.length > 30) chartRes = { chart: bars, high52: NaN, low52: NaN };
+  }
+  if(!chartRes){
+    if(!myRelay()) await wait(350);
+    chartRes = await tryGet('야후 일봉', async()=>parseYhChart(await relayJSON(YH.chart(code))));
+  }
   const basic = nv?.basic || chartRes?.basic;
   if(!basic || !has(basic.price)){ const err = new Error('시세를 못 가져왔어요 — ' + (errs[0] || '연결 실패')); err.relay = true; throw err; }
   /* 네이버 시세 + 야후 일봉을 함께 쓰면 전일 대비도, 차트도 맞습니다 */
@@ -891,6 +914,7 @@ async function fetchStockUs(code, sym, opts={}){
   /* 재무는 항목이 더 많은 쪽을 씁니다 */
   const nRows = Object.keys(nFin?.table || {}).length, yRows = Object.keys(yq?.annual?.table || {}).length;
   const annual = (nRows >= yRows && nRows > 0) ? nFin : (yq?.annual || { cols:[], table:{} });
+  usMargins(annual);   /* 미국 재무표는 이익률을 안 주므로 매출로 직접 계산합니다 */
   return { code, mk:'us', sym: nsym || code, ccy:'USD', t: Date.now(),
     basic, integ, annual, quarter: { cols:[], table:{} },
     news: news || state.data[code]?.news || [], chart: chartRes?.chart || state.data[code]?.chart || [], errs,

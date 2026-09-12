@@ -64,7 +64,13 @@ const NVU = {
   basic: s => `https://api.stock.naver.com/stock/${s}/basic`,
   integ: s => `https://api.stock.naver.com/stock/${s}/integration`,
   annual: s => `https://api.stock.naver.com/stock/${s}/finance/annual`,
-  news: s => `https://api.stock.naver.com/news/worldstock/${s}?pageSize=12&page=1`,
+  /* 확인된 경로 (2026-09 진단): 뉴스는 news/stock, 일봉은 chart/foreign 입니다 */
+  news: s => `https://api.stock.naver.com/news/stock/${s}?pageSize=12&page=1`,
+  chart: s => {
+    const f = d => d.toISOString().slice(0, 10).replace(/-/g, '') + '0000';
+    return `https://api.stock.naver.com/chart/foreign/item/${s}/day`
+      + `?startDateTime=${f(new Date(Date.now() - 400 * 864e5))}&endDateTime=${f(new Date())}`;
+  },
 };
 const YH = {
   chart: t => `https://query1.finance.yahoo.com/v8/finance/chart/${t}?range=1y&interval=1d`,
@@ -142,7 +148,10 @@ function parseFinance(j) {
 }
 function parseChart(j) {
   const arr = Array.isArray(j) ? j : (j?.priceInfos || j?.result || []);
-  return arr.map(x => ({ d: String(x.localDate || x.date || ''), c: num(x.closePrice ?? x.close), v: num(x.accumulatedTradingVolume ?? x.volume) }))
+  return arr.map(x => ({
+    d: String(x.localDate || x.localDateTime || x.date || '').replace(/\D/g, '').slice(0, 8),
+    c: num(x.closePrice ?? x.close), v: num(x.accumulatedTradingVolume ?? x.volume),
+  }))
     .filter(x => has(x.c) && x.d).slice(-260);
 }
 function parseYhChart(j) {
@@ -214,12 +223,22 @@ async function fetchUs(code) {
     } catch (e) { }
   }
   let chart = [], high52 = NaN, low52 = NaN;
-  try {
-    const y = parseYhChart(await get(YH.chart(code)));
-    chart = y.chart; high52 = y.high52; low52 = y.low52;
-    if (!basic || !(basic.price > 0)) basic = { price: y.price, prev: y.prev, name: y.name, market: y.market, marketCap: NaN };
-  } catch (e) { }
+  /* 일봉은 네이버 해외 차트를 먼저 씁니다 — 야후는 깃허브에서 자주 429(너무 잦음)를 냅니다 */
+  if (nsym) chart = await get(NVU.chart(nsym)).then(parseChart).catch(() => []);
+  if (chart.length < 30) {
+    try {
+      const y = parseYhChart(await get(YH.chart(code)));
+      if (y.chart.length > chart.length) chart = y.chart;
+      high52 = y.high52; low52 = y.low52;
+      if (!basic || !(basic.price > 0)) basic = { price: y.price, prev: y.prev, name: y.name, market: y.market, marketCap: NaN };
+    } catch (e) { }
+  }
   if (!basic || !(basic.price > 0)) throw new Error('시세 없음');
+  /* 52주 최고·최저를 못 받았으면 일봉에서 직접 셉니다 */
+  if (!has(high52) && chart.length > 20) {
+    const cs = chart.slice(-260).map(x => x.c);
+    high52 = Math.max(...cs); low52 = Math.min(...cs);
+  }
   if (nsym) {
     const ij = await get(NVU.integ(nsym)).catch(() => null);
     if (ij) {
