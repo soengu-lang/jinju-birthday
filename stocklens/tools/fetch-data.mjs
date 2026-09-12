@@ -348,7 +348,7 @@ async function fetchUs(code) {
    DEBUG_CODE 를 주면 그 종목의 원본 응답을 찍고 끝냅니다 (파싱을 고칠 때 씁니다) */
 /* 미국 종목의 '시가총액·뉴스' 를 어디서 가져올지 찾을 때 쓰는 집중 진단 */
 async function debugUsFields(code) {
-  for (const s of [code + '.O', code, code.replace('-', '.'), code.replace(/-([A-Za-z])$/, (m, c) => c.toLowerCase()), code + '.P']) {
+  for (const s of [code + '.O', code, code.replace('-', '.'), code.replace(/-([A-Za-z])$/, (m, c) => c.toLowerCase()), code + '.P', code + '.K', code + '.N', code + '.A']) {
     let b = null;
     try { b = await get(NVU.basic(s)); } catch (e) { console.log(`basic ${s} → ${e.message}`); continue; }
     const d = b?.datas?.[0] || b || {};
@@ -376,6 +376,11 @@ async function debugUsFields(code) {
     }
     await sleep(300);
   }
+  /* 네이버에 없으면 예비 경로가 되는지도 봅니다 */
+  try { const y = await yhChart(code); console.log(`야후 → ${y.chart.length}일 · ${y.price}`); }
+  catch (e) { console.log('야후 → ' + e.message); }
+  try { const st = await stooq(code); console.log(`stooq → ${st.chart.length}일 · ${st.price}`); }
+  catch (e) { console.log('stooq → ' + e.message); }
 }
 /* 국내 종목의 '업종' 이 어디 있는지 찾는 진단 */
 async function debugKrIndustry(code) {
