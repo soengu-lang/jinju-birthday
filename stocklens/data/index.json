@@ -1,5 +1,5 @@
 {
- "updated": "2026-09-12T14:21:13.558Z",
+ "updated": "2026-09-12T14:29:37.940Z",
  "codes": [
   {
    "code": "005930",
@@ -445,6 +445,11 @@
    "code": "QQQ",
    "mk": "us",
    "name": "Invesco QQQ Trust  Series 1"
+  },
+  {
+   "code": "SCHD",
+   "mk": "us",
+   "name": "Schwab US Dividend Equity ETF"
   },
   {
    "code": "VOO",
