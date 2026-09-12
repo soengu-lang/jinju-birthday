@@ -1,0 +1,440 @@
+{
+ "updated": "2026-09-12T13:39:21.084Z",
+ "codes": [
+  {
+   "code": "005930",
+   "mk": "kr",
+   "name": "삼성전자"
+  },
+  {
+   "code": "000660",
+   "mk": "kr",
+   "name": "SK하이닉스"
+  },
+  {
+   "code": "373220",
+   "mk": "kr",
+   "name": "LG에너지솔루션"
+  },
+  {
+   "code": "207940",
+   "mk": "kr",
+   "name": "삼성바이오로직스"
+  },
+  {
+   "code": "005380",
+   "mk": "kr",
+   "name": "현대차"
+  },
+  {
+   "code": "000270",
+   "mk": "kr",
+   "name": "기아"
+  },
+  {
+   "code": "068270",
+   "mk": "kr",
+   "name": "셀트리온"
+  },
+  {
+   "code": "035420",
+   "mk": "kr",
+   "name": "NAVER"
+  },
+  {
+   "code": "035720",
+   "mk": "kr",
+   "name": "카카오"
+  },
+  {
+   "code": "051910",
+   "mk": "kr",
+   "name": "LG화학"
+  },
+  {
+   "code": "006400",
+   "mk": "kr",
+   "name": "삼성SDI"
+  },
+  {
+   "code": "105560",
+   "mk": "kr",
+   "name": "KB금융"
+  },
+  {
+   "code": "055550",
+   "mk": "kr",
+   "name": "신한지주"
+  },
+  {
+   "code": "012330",
+   "mk": "kr",
+   "name": "현대모비스"
+  },
+  {
+   "code": "028260",
+   "mk": "kr",
+   "name": "삼성물산"
+  },
+  {
+   "code": "066570",
+   "mk": "kr",
+   "name": "LG전자"
+  },
+  {
+   "code": "003670",
+   "mk": "kr",
+   "name": "포스코퓨처엠"
+  },
+  {
+   "code": "005490",
+   "mk": "kr",
+   "name": "POSCO홀딩스"
+  },
+  {
+   "code": "096770",
+   "mk": "kr",
+   "name": "SK이노베이션"
+  },
+  {
+   "code": "034730",
+   "mk": "kr",
+   "name": "SK"
+  },
+  {
+   "code": "015760",
+   "mk": "kr",
+   "name": "한국전력"
+  },
+  {
+   "code": "032830",
+   "mk": "kr",
+   "name": "삼성생명"
+  },
+  {
+   "code": "003550",
+   "mk": "kr",
+   "name": "LG"
+  },
+  {
+   "code": "017670",
+   "mk": "kr",
+   "name": "SK텔레콤"
+  },
+  {
+   "code": "030200",
+   "mk": "kr",
+   "name": "KT"
+  },
+  {
+   "code": "086790",
+   "mk": "kr",
+   "name": "하나금융지주"
+  },
+  {
+   "code": "316140",
+   "mk": "kr",
+   "name": "우리금융지주"
+  },
+  {
+   "code": "011200",
+   "mk": "kr",
+   "name": "HMM"
+  },
+  {
+   "code": "009150",
+   "mk": "kr",
+   "name": "삼성전기"
+  },
+  {
+   "code": "010130",
+   "mk": "kr",
+   "name": "고려아연"
+  },
+  {
+   "code": "018260",
+   "mk": "kr",
+   "name": "삼성에스디에스"
+  },
+  {
+   "code": "329180",
+   "mk": "kr",
+   "name": "HD현대중공업"
+  },
+  {
+   "code": "042660",
+   "mk": "kr",
+   "name": "한화오션"
+  },
+  {
+   "code": "012450",
+   "mk": "kr",
+   "name": "한화에어로스페이스"
+  },
+  {
+   "code": "047050",
+   "mk": "kr",
+   "name": "포스코인터내셔널"
+  },
+  {
+   "code": "010950",
+   "mk": "kr",
+   "name": "S-Oil"
+  },
+  {
+   "code": "090430",
+   "mk": "kr",
+   "name": "아모레퍼시픽"
+  },
+  {
+   "code": "097950",
+   "mk": "kr",
+   "name": "CJ제일제당"
+  },
+  {
+   "code": "267260",
+   "mk": "kr",
+   "name": "HD현대일렉트릭"
+  },
+  {
+   "code": "000810",
+   "mk": "kr",
+   "name": "삼성화재"
+  },
+  {
+   "code": "139480",
+   "mk": "kr",
+   "name": "이마트"
+  },
+  {
+   "code": "004020",
+   "mk": "kr",
+   "name": "현대제철"
+  },
+  {
+   "code": "011170",
+   "mk": "kr",
+   "name": "롯데케미칼"
+  },
+  {
+   "code": "036570",
+   "mk": "kr",
+   "name": "NC"
+  },
+  {
+   "code": "251270",
+   "mk": "kr",
+   "name": "넷마블"
+  },
+  {
+   "code": "259960",
+   "mk": "kr",
+   "name": "크래프톤"
+  },
+  {
+   "code": "352820",
+   "mk": "kr",
+   "name": "하이브"
+  },
+  {
+   "code": "041510",
+   "mk": "kr",
+   "name": "에스엠"
+  },
+  {
+   "code": "035900",
+   "mk": "kr",
+   "name": "JYP Ent."
+  },
+  {
+   "code": "247540",
+   "mk": "kr",
+   "name": "에코프로비엠"
+  },
+  {
+   "code": "086520",
+   "mk": "kr",
+   "name": "에코프로"
+  },
+  {
+   "code": "028300",
+   "mk": "kr",
+   "name": "HLB"
+  },
+  {
+   "code": "196170",
+   "mk": "kr",
+   "name": "알테오젠"
+  },
+  {
+   "code": "403870",
+   "mk": "kr",
+   "name": "HPSP"
+  },
+  {
+   "code": "058470",
+   "mk": "kr",
+   "name": "리노공업"
+  },
+  {
+   "code": "240810",
+   "mk": "kr",
+   "name": "원익IPS"
+  },
+  {
+   "code": "039030",
+   "mk": "kr",
+   "name": "이오테크닉스"
+  },
+  {
+   "code": "095340",
+   "mk": "kr",
+   "name": "ISC"
+  },
+  {
+   "code": "078600",
+   "mk": "kr",
+   "name": "대주전자재료"
+  },
+  {
+   "code": "112040",
+   "mk": "kr",
+   "name": "위메이드"
+  },
+  {
+   "code": "263750",
+   "mk": "kr",
+   "name": "펄어비스"
+  },
+  {
+   "code": "214150",
+   "mk": "kr",
+   "name": "클래시스"
+  },
+  {
+   "code": "145020",
+   "mk": "kr",
+   "name": "휴젤"
+  },
+  {
+   "code": "000100",
+   "mk": "kr",
+   "name": "유한양행"
+  },
+  {
+   "code": "128940",
+   "mk": "kr",
+   "name": "한미약품"
+  },
+  {
+   "code": "185750",
+   "mk": "kr",
+   "name": "종근당"
+  },
+  {
+   "code": "069500",
+   "mk": "kr",
+   "name": "KODEX 200"
+  },
+  {
+   "code": "360750",
+   "mk": "kr",
+   "name": "TIGER 미국S&P500"
+  },
+  {
+   "code": "005930",
+   "mk": "kr",
+   "name": "삼성전자"
+  },
+  {
+   "code": "000660",
+   "mk": "kr",
+   "name": "SK하이닉스"
+  },
+  {
+   "code": "035420",
+   "mk": "kr",
+   "name": "NAVER"
+  },
+  {
+   "code": "NVDA",
+   "mk": "us",
+   "name": "엔비디아"
+  },
+  {
+   "code": "AAPL",
+   "mk": "us",
+   "name": "애플"
+  },
+  {
+   "code": "MSFT",
+   "mk": "us",
+   "name": "마이크로소프트"
+  },
+  {
+   "code": "GOOGL",
+   "mk": "us",
+   "name": "알파벳 Class A"
+  },
+  {
+   "code": "AMZN",
+   "mk": "us",
+   "name": "아마존닷컴"
+  },
+  {
+   "code": "META",
+   "mk": "us",
+   "name": "메타"
+  },
+  {
+   "code": "TSLA",
+   "mk": "us",
+   "name": "테슬라"
+  },
+  {
+   "code": "AVGO",
+   "mk": "us",
+   "name": "브로드컴"
+  },
+  {
+   "code": "AMD",
+   "mk": "us",
+   "name": "AMD(어드밴스드 마이크로 디바이시스)"
+  },
+  {
+   "code": "MU",
+   "mk": "us",
+   "name": "마이크론 테크놀로지"
+  },
+  {
+   "code": "ASML",
+   "mk": "us",
+   "name": "ASML 홀딩 ADR"
+  },
+  {
+   "code": "NFLX",
+   "mk": "us",
+   "name": "넷플릭스"
+  },
+  {
+   "code": "COST",
+   "mk": "us",
+   "name": "코스트코 홀세일"
+  },
+  {
+   "code": "QQQ",
+   "mk": "us",
+   "name": "Invesco QQQ Trust  Series 1"
+  },
+  {
+   "code": "SCHD",
+   "mk": "us",
+   "name": "Schwab US Dividend Equity ETF"
+  },
+  {
+   "code": "TQQQ",
+   "mk": "us",
+   "name": "ProShares UltraPro QQQ"
+  }
+ ]
+}
