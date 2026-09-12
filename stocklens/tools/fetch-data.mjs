@@ -346,8 +346,27 @@ async function debugUsFields(code) {
     await sleep(300);
   }
 }
+/* 국내 종목의 '업종' 이 어디 있는지 찾는 진단 */
+async function debugKrIndustry(code) {
+  for (const [name, u] of [['basic', NV.basic(code)], ['integration', NV.integ(code)]]) {
+    try {
+      const j = await get(u);
+      const seen = [];
+      const walk = (o, at, depth) => {
+        if (!o || typeof o !== 'object' || depth > 3) return;
+        for (const [k, v] of Object.entries(o)) {
+          if (/industry|업종/i.test(k)) seen.push(`${at}${k} = ${JSON.stringify(v).slice(0, 200)}`);
+          else if (v && typeof v === 'object') walk(v, `${at}${k}.`, depth + 1);
+        }
+      };
+      walk(j?.datas?.[0] || j, '', 0);
+      console.log(`${name}: ${seen.length ? '\n  ' + seen.join('\n  ') : '업종 비슷한 칸 없음'}`);
+    } catch (e) { console.log(`${name} → ${e.message}`); }
+    await sleep(300);
+  }
+}
 async function debugOne(code) {
-  if (process.env.DEBUG_US === '1') return debugUsFields(code);
+  if (process.env.DEBUG_US === '1') return /^\d{6}$/.test(code) ? debugKrIndustry(code) : debugUsFields(code);
   const isKr = /^\d{6}$/.test(code);
   const urls = isKr
     ? [['basic', NV.basic(code)], ['integration', NV.integ(code)], ['annual', NV.annual(code)], ['news', NV.news(code)], ['chart', NV.chart(code)]]
