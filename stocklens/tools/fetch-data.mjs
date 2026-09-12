@@ -204,8 +204,14 @@ async function industryNames() {
   if (INDUSTRY) return INDUSTRY;
   INDUSTRY = {};
   try {
-    const j = await get('https://m.stock.naver.com/api/stocks/industry?page=1&pageSize=300', { tries: 2 });
-    for (const g of j?.groups || []) if (g.no != null && g.name) INDUSTRY[String(g.no)] = g.name;
+    /* 한 번에 많이 달라고 하면 400 이 납니다 — 50개씩 나눠 받습니다 */
+    for (let page = 1; page <= 6; page++) {
+      const j = await get(`https://m.stock.naver.com/api/stocks/industry?page=${page}&pageSize=50`, { tries: 2 });
+      const gs = j?.groups || [];
+      for (const g of gs) if (g.no != null && g.name) INDUSTRY[String(g.no)] = g.name;
+      if (gs.length < 50) break;
+      await sleep(200);
+    }
     console.log(`업종 이름표 ${Object.keys(INDUSTRY).length}개`);
   } catch (e) { console.log('업종 이름표를 못 받았습니다 — ' + e.message); }
   return INDUSTRY;
@@ -461,10 +467,12 @@ async function debugOne(code) {
 async function main() {
   if (process.env.DEBUG_CODE) { for (const c of process.env.DEBUG_CODE.split(',')) await debugOne(c.trim()); return; }
   const list = JSON.parse(await readFile(path.join(ROOT, 'watchlist.json'), 'utf8'));
-  const targets = [
+  const all = [
     ...list.kr.map(x => ({ code: x.code, name: x.name, mk: 'kr' })),
     ...list.us.map(x => ({ code: x.code, name: x.name, mk: 'us' })),
   ];
+  const seen = new Set();                     /* 같은 종목이 두 번 들어 있어도 한 번만 받습니다 */
+  const targets = all.filter(t => !seen.has(t.code) && seen.add(t.code));
   await mkdir(path.join(DATA, 'fund'), { recursive: true });
   const prices = { updated: new Date().toISOString(), items: {} };
   const index = { updated: prices.updated, codes: [] };
