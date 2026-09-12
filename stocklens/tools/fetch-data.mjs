@@ -268,11 +268,19 @@ async function debugOne(code) {
           ['news D', `https://m.stock.naver.com/api/news/stock/${sym}?pageSize=8&page=1`],
         ];
       })();
+  const full = process.env.DEBUG_FULL === '1';
   for (const [name, u] of urls) {
     try {
       const t = await get(u, { json: false, tries: 1 });
-      console.log(`\n===== ${name} =====\n${u}\n${t.slice(0, 2600)}`);
-    } catch (e) { console.log(`\n===== ${name} =====\n${u}\n실패: ${e.message}`); }
+      let hint = '';
+      try {
+        const j = JSON.parse(t);
+        const arr = Array.isArray(j) ? j : (j.rowList || j.financeInfo?.rowList || j.totalInfos || j.priceInfos || null);
+        hint = Array.isArray(arr) ? `배열 ${arr.length}개` : '객체 ' + Object.keys(j).slice(0, 6).join(',');
+      } catch (e) { hint = 'JSON 아님'; }
+      console.log(`OK   ${name.padEnd(18)} ${String(t.length).padStart(7)}자 · ${hint}  ← ${u}`);
+      if (full) console.log('     ' + t.slice(0, 600).replace(/\n/g, ' '));
+    } catch (e) { console.log(`실패 ${name.padEnd(18)} ${e.message}  ← ${u}`); }
     await sleep(300);
   }
 }
