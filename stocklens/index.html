@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#274b6d">
+<meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="StockLens">
@@ -1414,6 +1415,7 @@ async function aiJournalReview(){
      (자산 앱이 가계부 방을 읽는 것과 같은 방식. 상대 방에는 아무것도 쓰지 않습니다)
    보유 수량·평단가가 붙으면 점수와 시나리오가 '내 계좌 기준 손익'으로 바뀝니다.
    ============================================================ */
+const BUILD = 'v0.2 (2026-09-13)';               /* 어느 판인지 확인용 — 설정 맨 아래에 보입니다 */
 const MA_KEY = 'myAssets.v1';
 const MA_CATS = { kr:'국내주식·ETF', us:'미국주식·ETF', coin:'코인', gold:'금', fx:'달러·외화', real:'부동산', cash:'예적금·현금', etc:'연금·펀드·기타', debt:'대출·부채' };
 const pad6 = c => String(c||'').replace(/\D/g,'').padStart(6,'0');
@@ -2407,7 +2409,9 @@ function openSettings(){
         <p class="tiny muted">${A.err ? '⚠️ '+esc(A.err) : `주식 ${n}개 · 전체 ${(A.holdings||[]).filter(h=>!h.hide).length}개 · ${A.at?new Date(A.at).toLocaleString('ko-KR'):'아직 안 읽음'}`}</p>` : ''}
       <p class="tiny muted mt">보유 수량·평단가를 읽어 오면 <b>내 계좌 기준 손익·비중</b>이 붙고, AI 질문에도 실제 비중이 함께 전달됩니다.</p>`; })()}
     <div class="sec-t">📡 데이터 (시세·재무·뉴스)</div>
-    <p class="tiny muted">서버가 없어서 공개 중계를 거쳐 네이버증권을 읽습니다. 공개 중계는 자주 막히니 <b>내 구글 스크립트 중계</b>를 한 번 만들어 두면 안정적입니다. (우리집 자산 앱에서 만든 주소가 있으면 자동으로 씁니다)</p>
+    <p class="tiny muted"><b>평소에는 아무것도 안 하셔도 됩니다.</b> GitHub 가 2시간마다 미리 받아 둔 자료(시세·투자지표·재무·일봉·뉴스)를 앱과 같은 주소에서 읽습니다 — 중계가 다 막혀도 화면이 찹니다.
+    ${_px?.updated ? `마지막으로 받아 둔 시각: <b>${esc(new Date(_px.updated).toLocaleString('ko-KR'))}</b>.` : ''}
+    아래 중계는 <b>분 단위 실시간 시세</b>가 필요할 때만 씁니다.</p>
     <div class="f"><label>내 중계 주소</label><input id="sRelay" value="${esc(s.relayUrl)}" placeholder="https://script.google.com/macros/s/…/exec"></div>
     <p class="tiny muted">${s.relayUrl ? (/script\.google\.com/.test(s.relayUrl) ? '구글 스크립트 중계를 쓰고 있습니다.' : '직접 넣은 주소를 쓰고 있습니다.') + (readLocalAssets()?.sync && !state.ui.relayTyped ? ' (자산 앱에서 물려받았을 수 있어요)' : '') : '아직 없습니다 — 공개 중계만 쓰면 시세가 자주 막힙니다.'}</p>
     <div class="btn-row"><button class="btn sm ghost" data-act="diag">🩺 시세 점검 — 어디서 막히는지 보기</button></div>
@@ -2417,7 +2421,7 @@ function openSettings(){
     <div class="sec-t">💾 백업</div>
     <div class="btn-row"><button class="btn sm ghost" data-act="export">내보내기</button><button class="btn sm ghost" data-act="import">불러오기</button><button class="btn sm warn" data-act="reset">전부 지우기</button></div>
     <input type="file" id="impFile" accept="application/json" class="hidden">
-    <p class="tiny muted mt">StockLens v0.1 · 저장 키 ${KEY} · 사라/팔라는 말하지 않습니다. 투자 판단과 결과는 본인의 몫입니다.</p>`);
+    <p class="tiny muted mt">StockLens ${BUILD} · 저장 키 ${KEY} · 사라/팔라는 말하지 않습니다. 투자 판단과 결과는 본인의 몫입니다.</p>`);
   $('#sProv').addEventListener('change', e => { state.settings.provider = e.target.value; state.settings.model=''; openSettings(); });
   $('#aMode').addEventListener('change', e => { $('#aCloud').classList.toggle('hidden', e.target.value!=='cloud'); });
 }
