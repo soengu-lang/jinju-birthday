@@ -12,9 +12,13 @@
 <link rel="icon" type="image/png" href="icon-180.png">
 <link rel="manifest" href="manifest.json">
 <title>StockLens AI — 투자 논리를 검증하는 AI 애널리스트</title>
+<!-- 글꼴은 '있으면 좋은 것'입니다. head 에서 기다리게 두면 네트워크가 나쁠 때
+     앱 전체가 몇십 초씩 멈춥니다 (스크립트가 아예 실행되지 않습니다).
+     그래서 화면을 막지 않게 나중에 붙입니다 — 못 받아도 폰 기본 글꼴로 잘 나옵니다. -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet"
+      media="print" onload="this.media='all'">
 <style>
 :root{
   --bg:#f4f2ed; --card:#fffdf8; --ink:#1e2430; --muted:#6f7683;
@@ -2015,6 +2019,28 @@ function mergeCached(d, c){
   }
   return out;
 }
+/* 앱을 열자마자 미리 받아 둔 자료로 화면을 채웁니다.
+   중계와 아무 상관 없이 앱과 같은 주소에서 읽으므로 1초면 끝납니다.
+   (전에는 중계가 죽어 있으면 새로고침이 한 종목씩 수십 초씩 걸려서
+    그동안 어제 저장된 낡은 화면이 그대로 보였습니다) */
+async function hydrateCache(){
+  if(state.ui.demo) return 0;
+  const codes = state.watch.map(w => w.code);
+  let n = 0;
+  for(let i=0; i<codes.length; i+=10){                       /* 한 번에 10개씩 */
+    const part = codes.slice(i, i+10);
+    const got = await Promise.all(part.map(c => loadCached(c).catch(()=>null)));
+    got.forEach((c, k) => {
+      if(!c) return;
+      const code = part[k], cur = state.data[code];
+      if(cur && has(cur.integ?.per) && cur.t >= c.t) return;  /* 이미 더 새롭고 온전하면 그대로 */
+      if(cur?.quarter?.cols?.length) c.quarter = cur.quarter;
+      state.data[code] = c; n++;
+    });
+  }
+  if(n){ save(); render(); }
+  return n;
+}
 async function refreshStock(code, opts={}){
   busy['r'+code] = true; if(!opts.quiet) render();
   /* ① 미리 받아 둔 자료부터 — 중계가 죽어 있어도 화면이 찹니다.
@@ -2624,8 +2650,10 @@ catch(e){ console.error('저장된 기록 읽기', e); toast('저장된 기록�
 try{ showTab(state.ui.tab && TABS.includes(state.ui.tab) ? state.ui.tab : 'home'); }
 catch(e){ const el = $('#tab-home'); if(el){ el.classList.remove('hidden'); el.innerHTML = crashHtml(e, '앱 시작'); } }
 (async () => {
+  try{ await hydrateCache(); }catch(e){ console.error('미리 받아 둔 자료', e); }   /* ① 먼저 화면부터 채웁니다 */
   await loadAssets({quiet:true});
   if(state.assets.mode !== 'off'){ render(); refreshOther().then(render); }
+  /* ② 그러고 나서 오래된 것만 실시간으로 다시 받아 봅니다 (중계가 죽었어도 화면은 이미 차 있습니다) */
   const stale = state.watch.filter(w => !state.data[w.code] || Date.now() - state.data[w.code].t > 6*3600000);
   if(stale.length){ busy.refreshAll = true; render(); for(const w of stale) await refreshStock(w.code, {quiet:true}); busy.refreshAll = false; save(); render(); }
 })();
