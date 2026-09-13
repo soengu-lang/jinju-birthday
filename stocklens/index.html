@@ -423,7 +423,7 @@ function logRelay(name, url, msg, ok){
 /* 중계 자체에 못 닿은 횟수만 셉니다.
    404·401 처럼 '중계는 살아 있는데 상대 쪽에 없는' 경우까지 세면
    심볼을 찾느라 몇 번 헛짚었을 때 중계 전체가 죽은 것으로 오해합니다 */
-const isRelayDown = e => !!(e && (e.net || e.http === 403 || e.http === 407 || e.http === 429 || e.http >= 500));
+const isRelayDown = e => !!(e && (e.net || e.http === 401 || e.http === 403 || e.http === 407 || e.http === 429 || e.http >= 500));
 const allDead = () => relayList().every((_,i) => (relayFail[i]||0) >= 2);
 async function getText(url, ms=8000){
   const ac = new AbortController(); const t = setTimeout(()=>ac.abort(), ms);
@@ -952,7 +952,10 @@ async function cachedPrices(){
   try{ _px = JSON.parse(await getText('data/prices.json' + bust(), 8000)); _pxAt = Date.now(); }catch(e){}
   return _px;
 }
+const _fund = {};                                  /* 같은 파일을 새로고침마다 다시 받지 않게 */
 async function loadCached(code){
+  const m = _fund[code];
+  if(m && Date.now() - m.t < 300000) return m.v;
   try{
     const [pj, f] = await Promise.all([
       cachedPrices(),
@@ -960,14 +963,16 @@ async function loadCached(code){
     ]);
     const p = pj?.items?.[code];
     const price = num(p?.p), prev = num(p?.prev);
-    if(!has(price) || !(price > 0)) return null;
-    return { code, mk: f.mk || 'kr', ccy: f.ccy || 'KRW', sym: f.sym || '',
+    if(!has(price) || !(price > 0)){ _fund[code] = { t: Date.now(), v: null }; return null; }
+    const rec = { code, mk: f.mk || 'kr', ccy: f.ccy || 'KRW', sym: f.sym || '',
       t: Date.parse(pj.updated) || Date.now(), cached: true, full: true, demo: false, errs: [],
       basic: { price, prev: has(prev) && prev > 0 ? prev : price, name: f.name || p.n || code,
                market: f.market || '', marketCap: f.integ?.marketCap },
       integ: f.integ || {}, annual: f.annual || { cols:[], table:{} }, quarter: { cols:[], table:{} },
       news: f.news || [], chart: f.chart || [] };
-  }catch(e){ return null; }
+    _fund[code] = { t: Date.now(), v: rec };
+    return rec;
+  }catch(e){ _fund[code] = { t: Date.now(), v: null }; return null; }
 }
 
 /* ============================================================
@@ -1985,31 +1990,62 @@ async function addWatch(code, name, mk, sym){
 }
 
 /* ---------- 데이터 새로고침 ---------- */
+/* 미리 받아 둔 자료(c)로 실시간 결과(d)의 빈 곳만 메웁니다 — 있는 값은 건드리지 않습니다.
+   중계가 절반만 살아 있을 때 지표·재무·일봉이 통째로 비어 버리던 것을 막습니다 */
+function mergeCached(d, c){
+  if(!c || !d) return d || c;
+  const out = Object.assign({}, d);
+  const used = [];
+  const before = Object.keys(d.integ || {}).filter(k => has(d.integ[k]) || d.integ[k]).length;
+  out.integ = fillInteg(Object.assign({}, d.integ || {}), c.integ || {});
+  const after = Object.keys(out.integ).filter(k => has(out.integ[k]) || out.integ[k]).length;
+  if(after > before) used.push('지표');
+  if(Object.keys(c.annual?.table||{}).length > Object.keys(d.annual?.table||{}).length){ out.annual = c.annual; used.push('재무'); }
+  if((c.chart?.length||0) > (d.chart?.length||0)){ out.chart = c.chart; used.push('일봉'); }
+  if((c.news?.length||0) > (d.news?.length||0)){ out.news = c.news; if(!d.news?.length) used.push('뉴스'); }
+  if(!has(out.basic?.price) && has(c.basic?.price)) out.basic = c.basic;
+  else if(!has(out.basic?.prev) && has(c.basic?.prev)) out.basic.prev = c.basic.prev;
+  out.fromCache = used;                       /* 무엇을 미리 받아 둔 값으로 채웠는지 */
+  if(out.srcs){                               /* 출처 줄이 '없음' 이라고 말하지 않게 */
+    const S = out.srcs = Object.assign({}, out.srcs);
+    if(used.includes('지표')) S.지표 = '미리 받아 둔 값';
+    if(used.includes('재무')) S.재무 = '미리 받아 둔 값';
+  }
+  return out;
+}
 async function refreshStock(code, opts={}){
   busy['r'+code] = true; if(!opts.quiet) render();
-  /* ① 미리 받아 둔 자료부터 — 중계가 죽어 있어도 화면이 찹니다 */
-  if(!state.ui.demo && !state.data[code]){
-    const c = await loadCached(code);
-    if(c){ state.data[code] = c; save(); if(!opts.quiet) render(); }
+  /* ① 미리 받아 둔 자료부터 — 중계가 죽어 있어도 화면이 찹니다.
+     이미 담아 둔 게 있어도 다시 읽습니다 (예전에 반쪽만 받아 둔 자료를 메워야 하니까요) */
+  let cached = null;
+  if(!state.ui.demo){
+    cached = await loadCached(code);
+    if(cached && (!state.data[code] || !has(state.data[code].integ?.per))){
+      state.data[code] = cached; save(); if(!opts.quiet) render();
+    }
   }
   try{
     const w = W(code);
     const d = state.ui.demo ? demoStock(code)
       : (w?.mk === 'us' ? await fetchStockUs(code, w.sym, opts) : await fetchStock(code, opts));
     if(!d.basic.name && W(code)) d.basic.name = W(code).name;
-    state.data[code] = d;
+    state.data[code] = state.ui.demo ? d : mergeCached(d, cached);
     if(w && d.sym && !w.sym){ w.sym = d.sym; }
-    const sc = computeScore(d), sn = scenarios(d, state.ui.adj?.[code]);
-    const snap = makeSnap(d, sc, sn);
+    const dd = state.data[code];
+    const sc = computeScore(dd), sn = scenarios(dd, state.ui.adj?.[code]);
+    const snap = makeSnap(dd, sc, sn);
     const arr = state.snaps[code] = state.snaps[code] || [];
     if(arr.length && arr[arr.length-1].date === snap.date) arr[arr.length-1] = snap; else arr.push(snap);
     if(arr.length > 90) arr.splice(0, arr.length-90);
-    if(!state.seenNews[code]){ state.seenNews[code] = {}; d.news.forEach(n => state.seenNews[code][n.id] = 1); }   /* 처음 담을 때 있던 뉴스는 '이미 본 것'으로. 그 뒤 새로 뜨는 기사만 변화로 칩니다 */
+    if(!state.seenNews[code]){ state.seenNews[code] = {}; dd.news.forEach(n => state.seenNews[code][n.id] = 1); }   /* 처음 담을 때 있던 뉴스는 '이미 본 것'으로. 그 뒤 새로 뜨는 기사만 변화로 칩니다 */
     save();
-    if(d.errs.length && !opts.quiet) toast('일부 데이터를 못 가져왔어요: ' + d.errs[0]);
+    /* 미리 받아 둔 값으로 다 메웠으면 굳이 알리지 않습니다 */
+    if(d.errs.length && !opts.quiet && !(dd.fromCache && dd.fromCache.length)) toast('일부 데이터를 못 가져왔어요: ' + d.errs[0]);
   }catch(e){
     state.ui.lastErr = e.message;
-    if(!opts.quiet) toast(state.data[code]?.cached ? '실시간 시세는 못 받았어요 — 미리 받아 둔 값으로 보여 드립니다' : e.message);
+    if(cached) state.data[code] = cached;     /* 반쪽짜리로 덮어쓰지 않습니다 */
+    save();
+    if(!opts.quiet) toast(cached ? '실시간 시세는 못 받았어요 — 미리 받아 둔 값으로 보여 드립니다' : e.message);
   }
   busy['r'+code] = false; if(!opts.quiet) render();
 }
@@ -2075,7 +2111,7 @@ function renderStock(){
     <div class="btn-row"><button class="btn sm ghost" data-act="refresh" data-code="${code}" ${busy['r'+code]?'disabled':''}>${busy['r'+code]?'<span class="spin dark"></span>':'🔄'} 새로고침</button><button class="btn sm ghost" data-act="askAbout" data-code="${code}">💬 AI에게 질문</button><button class="btn sm warn" data-act="unwatch" data-code="${code}">빼기</button></div>
     ${d.cached ? `<div class="note mt">📦 <b>미리 받아 둔 자료</b>입니다 (${new Date(d.t).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})} 기준).
       GitHub 이 2시간마다 받아 두는 값이라 중계가 막혀도 보입니다. 실시간 시세를 보시려면 <b>🔄 새로고침</b>을 눌러 주세요.</div>` : ''}
-    <p class="tiny muted mt">${new Date(d.t).toLocaleString('ko-KR')} · ${d.demo?'샘플 데이터(실제 아님)':d.cached?'미리 받아 둔 자료':(isUs(code)? (d.srcs?`시세 ${esc(d.srcs.시세)} · 지표 ${esc(d.srcs.지표)} · 재무 ${esc(d.srcs.재무)}`:'해외') :'네이버증권')}${d.errs&&d.errs.length?` · 일부 누락: ${esc(d.errs.slice(0,2).join(', '))}`:''}</p>
+    <p class="tiny muted mt">${new Date(d.t).toLocaleString('ko-KR')} · ${d.demo?'샘플 데이터(실제 아님)':d.cached?'미리 받아 둔 자료':(isUs(code)? (d.srcs?`시세 ${esc(d.srcs.시세)} · 지표 ${esc(d.srcs.지표)} · 재무 ${esc(d.srcs.재무)}`:'해외') :'네이버증권')}${(d.fromCache&&d.fromCache.length&&!d.srcs)?` · ${esc(d.fromCache.join('·'))}는 미리 받아 둔 값`:''}${(d.errs&&d.errs.length&&!(d.fromCache&&d.fromCache.length))?` · 일부 누락: ${esc(d.errs.slice(0,2).join(', '))}`:''}</p>
   </div>
 
   ${safe('내 보유', ()=>positionCard(code, sn))}
