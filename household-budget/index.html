@@ -1182,6 +1182,14 @@ async function investRemote(cfg){
   if(!Array.isArray(core?.led?.rows)) throw new Error('자산 앱에서 아직 금액을 올리지 않았어요');
   return core.led;
 }
+/* 읽고 나서 무슨 일이 있었는지 한 줄로 — '다시 읽었어요' 만으로는
+   0줄을 읽었는지 알 수가 없습니다 */
+function invReadMsg(){
+  const V = state.inv || {};
+  if(V.error) return V.error;
+  const n = (V.rows||[]).length;
+  return n ? `자산 ${n}줄을 읽었어요` : '읽어온 금액이 0줄이에요 — 아래 안내를 봐 주세요';
+}
 async function refreshInvest(){
   const V = state.inv;
   if(!V?.enabled) return;
@@ -1421,13 +1429,32 @@ function invCard(key){
   const plan = invPlan();
   const total = plan.reduce((a,b)=>a+b.sum, 0);
   const diffs = plan.filter(p=>p.ok && Math.round(p.sum) !== Math.round(assetRaw(p.rowId,key) ?? -1));
+  const nRows = (V.rows||[]).length;
+  const ageD = V.at? Math.floor((Date.now() - V.at) / 86400000) : -1;
+  const modeLabel = V.mode==='remote'? '자산 앱 방에서 읽는 중'
+                  : V.mode==='paste' ? '붙여넣은 요약'
+                                     : '이 브라우저에서 읽는 중';
   return `<div class="card" style="margin-top:12px">
     <div class="sec-head">
-      <div class="t">📊 자산 앱 ${V.mode==='remote'?'<span class="tiny muted" style="font-weight:600">방에서 읽는 중</span>'
-        : V.mode==='paste'?'<span class="tiny muted" style="font-weight:600">붙여넣은 요약</span>':''}</div>
+      <div class="t">📊 자산 앱 <span class="tiny muted" style="font-weight:600">${modeLabel}</span></div>
       <div class="v">${bigWon(total)}원</div>
     </div>
     ${V.error? `<div class="pad tiny" style="color:var(--spend)">⚠️ ${esc(V.error)}</div>` : ''}
+    ${!nRows? `<div class="pad" style="padding-top:0"><div class="note">
+      ⚠️ <b>자산 앱에서 읽어온 금액이 없어요</b>${V.error? '' : ' — 연동은 켜져 있지만 <b>0줄</b>을 읽었습니다.'}
+      <div style="margin-top:6px;line-height:1.7;font-weight:600">${
+        V.mode==='local'
+          ? `지금은 <b>이 브라우저 안</b>의 자산 앱에서 읽고 있어요.
+             홈 화면에 추가한 자산 앱과는 <b>저장 공간이 서로 달라서</b>, 거기 담아 둔 금액은 여기서 안 보입니다.
+             아래 <b>초대 링크로 연결</b>이나 <b>붙여넣어 가져오기</b>로 바꿔 주세요.`
+          : V.mode==='remote'
+          ? `자산 앱 방은 열렸는데 금액이 아직 안 올라왔어요.
+             자산 앱을 한 번 열어 두면(시세가 다 붙은 뒤) 방에 올라갑니다.`
+          : `붙여넣은 요약에 금액이 없었어요. 자산 앱 ⚙️ → <b>📋 가계부에 붙여넣을 요약 복사</b> 를 다시 해 주세요.`}</div>
+      <div class="row wrap" style="margin-top:9px">
+        ${V.mode!=='remote'? `<button class="btn sm" data-act="invOn" data-mode="remote">🔗 초대 링크로 연결</button>`:''}
+        <button class="btn ghost sm" data-act="invPaste">📋 붙여넣어 가져오기</button>
+      </div></div></div>`:''}
     ${plan.map(p=>{
       const cur = assetRaw(p.rowId, key);
       const same = cur !== undefined && Math.round(cur) === Math.round(p.sum);
@@ -1496,10 +1523,11 @@ function invCard(key){
 
     <div class="sec-foot" style="padding:10px 12px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
       ${diffs.length? `<button class="chip" data-act="invApplyAll" data-key="${esc(key)}">${assetKeyLabel(key)}에 모두 반영 (${diffs.length})</button>`
-                    : '<span class="tiny muted">모두 반영되어 있어요</span>'}
+                    : `<span class="tiny muted">${plan.length? '모두 반영되어 있어요' : '반영할 금액이 없어요'}</span>`}
       <button class="chip line" data-act="invRefresh">${V.mode==='paste'?'📋 다시 붙여넣기':'🔄 다시 읽기'}</button>
       <button class="chip line" data-act="invOff">연동 끄기</button>
       <span class="tiny muted">자산 앱 기준 ${V.at? new Date(V.at).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '-'}</span>
+      ${ageD >= 3? `<span class="tiny" style="color:var(--gold);font-weight:800">· ${ageD}일 전 기준이에요</span>`:''}
     </div>
     <div class="pad tiny muted" style="padding-top:0;line-height:1.7">
       부동산에 딸린 대출은 여기 금액에서 빼지 않았습니다 — 자산 앱의
@@ -2956,6 +2984,8 @@ function openSettings(){
                <div class="tiny muted" style="margin-top:4px;line-height:1.7">
                  종목 ${(V.rows||[]).length}개 · 합계 <b>${bigWon((V.rows||[]).reduce((a,r)=>a+(+r.value||0),0))}원</b><br>
                  ${V.error? `<span style="color:var(--spend)">⚠️ ${esc(V.error)}</span>`
+                   : !(V.rows||[]).length
+                   ? `<span style="color:var(--spend)">⚠️ 읽어온 금액이 0줄이에요 — 💎 자산 탭에서 고칠 수 있어요</span>`
                    : `💎 자산 탭에서 <b>평가액</b>을, 🧾 가계부 탭에서 <b>배당</b>을 반영할 수 있어요`}
                </div></div>`
           : `<div class="tiny muted" style="line-height:1.7;margin-bottom:8px">
@@ -3715,7 +3745,7 @@ document.addEventListener('click', async (e)=>{
     V.enabled = true; V.asked = true; V.mode = b.dataset.mode || 'local';
     if(V.mode==='remote'){ save(); openInvRemote(); break; }
     save(); await refreshInvest(); render();
-    toast(state.inv.error ? state.inv.error : '자산 앱에서 금액을 읽어왔어요');
+    toast(invReadMsg());
     break;
   }
   case 'invPaste': openInvPaste(); break;
@@ -3742,7 +3772,7 @@ document.addEventListener('click', async (e)=>{
     V.enabled = true; V.asked = true; V.mode = 'remote';
     V.apiKey = v.k; V.projectId = v.p; V.room = v.r;
     save(); closeModal(); await refreshInvest(); render();
-    toast(state.inv.error ? state.inv.error : '자산 앱 방을 읽어왔어요');
+    toast(invReadMsg());
     break; }
   case 'invOff':
     state.inv = blankInv(); state.inv.asked = true; save(); render();
@@ -3750,7 +3780,7 @@ document.addEventListener('click', async (e)=>{
   case 'invRefresh':
     if(state.inv?.mode === 'paste'){ openInvPaste(); break; }
     await refreshInvest(); render();
-    toast(state.inv?.error || '다시 읽었어요'); break;
+    toast(invReadMsg()); break;
   case 'invApply': {
     const v = +b.dataset.v || 0, rowId = b.dataset.row;
     if(!rowId) break;
