@@ -473,6 +473,198 @@ const RECIPE_PACK = [
       '굽기|모짜렐라를 덮고 200도 오븐이나 에어프라이어에서 15분 노릇하게 굽습니다.'] }
 ];
 
+/* 이 레시피를 지금 만들 수 있나? 부족한 재료 이름과 임박 재료 활용 수를 돌려준다 */
+function recipeStatus(r, list, servings){
+  const f = (servings||state.settings.people||2)/(r.servings||2);
+  const t = iso(today());
+  const miss = []; let urgent = 0;
+  for(const ing of r.ingredients){
+    const [need,u] = normUnit(ing.qty*f, ing.unit);
+    let s = findStock(list, ing.name, u);
+    if(!s && UNIT_BASE[ing.unit] && seasoningInStock(ing.name)) s = {qty:need, expDate:''};
+    if(!s || s.qty < need-0.001) miss.push(ing.name);
+    else if(s.expDate && dayDiff(s.expDate, t) <= 2) urgent++;
+  }
+  return { miss, urgent, ok: miss.length===0 };
+}
+/* 만들 수 있는 것 → 임박 재료를 쓰는 것 → 조금만 사면 되는 것 순 */
+function rankRecipes(){
+  const list = stockList();
+  return state.recipes.map(r=>({ r, ...recipeStatus(r, list) }))
+    .sort((a,b)=> (b.ok-a.ok) || (b.urgent-a.urgent) || (a.miss.length-b.miss.length)
+                  || (a.r.minutes||99)-(b.r.minutes||99));
+}
+
+/* ============================================================
+   냉장고 털이 레시피 만들기
+   ------------------------------------------------------------
+   한식 조합 규칙(단백질 + 채소 + 양념 + 조리법)으로 지금 재료에 맞는
+   요리를 지어낸다. 소비기한이 급한 재료를 먼저 집는다.
+   ============================================================ */
+const GEN_SKIP = /돈까스|핫도그|팝콘|만두|볶음밥|육개장|스프|생지|포도|사과|딸기|바나나|아이스|과자|부각|음료|커피/;
+function genPools(){
+  const usable = f => f.qty>0 && !GEN_SKIP.test(f.name);
+  const urgent = (a,b)=> (a.expDate||'9999').localeCompare(b.expDate||'9999');
+  const pick = (cat, extra=()=>true) =>
+    state.fridge.filter(f=>f.cat===cat && usable(f) && extra(f)).sort(urgent);
+  return {
+    protein: pick('단백질'),
+    veg:     pick('채소', f=>!/청양고추/.test(f.name)),
+    leaf:    pick('채소', f=>/상추|양배추|부추|공심채|깻잎|시금치|배추/.test(f.name)),
+    starch:  pick('면·곡물', f=>/면|파스타|스파게티|냉면|떡/.test(f.name)),
+    cheese:  pick('유제품·계란', f=>/치즈/.test(f.name)),
+    ready:   pick('단백질', f=>READY_PROT.test(f.name)),
+    has: n => state.fridge.some(f=>sameItem(f.name,n) && f.qty>0)
+  };
+}
+/* 재료 역할 구분 — 아무거나 섞지 않기 위한 최소한의 상식 */
+const AROMATIC  = /대파|쪽파|마늘|생강|청양고추/;              // 향신채: 주재료가 아니라 거들기만
+const MAIN_VEG  = /가지|애호박|양배추|양파|버섯|당근|감자|브로콜리|콩나물|숙주|공심채|부추|시금치|배추|파프리카|피망|무$|컬리플라워|토마토/;
+const BAKE_VEG  = /애호박|가지|양배추|양파|토마토|감자|브로콜리|컬리플라워/;   // 오븐에 층층이 쌓기 좋은 것
+const LEAF_VEG  = /상추|양배추|부추|공심채|깻잎|시금치|배추/;
+const GROUND    = /다진|간 /;                                  // 다짐육
+const WHOLE_FISH= /마리/;                                      // 통생선은 굽는 쪽으로
+const READY_PROT= /참치캔|크래미|햄|어묵/;                      // 바로 먹는 단백질
+
+/* 냉장고 단위를 살리되 한 끼에 알맞은 양으로. kg·L은 g·ml로 풀어서 적는다 */
+function genAmt(item, kind){
+  if(UNIT_BASE[item.unit]){
+    const capG  = kind==='protein' ? 250 : 150;
+    const haveG = normUnit(item.qty, item.unit)[0];
+    const useG  = Math.max(50, Math.min(capG, Math.round(haveG*0.5/10)*10));
+    const unit  = item.unit==='kg' ? 'g' : item.unit==='L' ? 'ml' : item.unit;
+    return { qty: Math.round(fromBase(useG, unit)), unit };
+  }
+  if(/봉|팩/.test(item.unit)) return { qty: kind==='veg' ? 0.5 : 1, unit:item.unit };
+  return { qty: Math.min(item.qty, kind==='protein' ? 2 : 1), unit:item.unit };
+}
+const GEN_TEMPLATES = [
+  { id:'간장볶음', tags:['한식','고단백'], minutes:20, kcal:360, protein:26,
+    prot: f=>!WHOLE_FISH.test(f.unit) && !READY_PROT.test(f.name),
+    veg:  f=>MAIN_VEG.test(f.name) && !AROMATIC.test(f.name),
+    need: p=>p.has('저염간장'),
+    build:(pr,v1,v2,p)=>({ name:`${v1.name} ${pr.name} 간장볶음`, emoji:'🍳',
+      main:[pr,v1,v2].filter(Boolean),
+      extra:[['저염간장',2,'큰술'],['다진마늘',1,'큰술'],['참기름',1,'큰술'],['알룰로스',1,'큰술'],['대파',1,'대']],
+      steps:[`재료 손질|${pr.name}은 한입 크기로, ${v1.name}${v2?`와 ${v2.name}`:''}은 먹기 좋게 썹니다.`,
+        '마늘 향내기|기름에 다진마늘을 약불로 30초만 볶아 향을 냅니다. 타면 쓴맛이 나요.',
+        `${pr.name} 볶기|센 불에서 겉면이 익을 때까지 먼저 볶습니다.`,
+        `채소와 양념|${v1.name}을 넣고 저염간장·알룰로스를 둘러 2~3분 볶은 뒤 참기름으로 마무리합니다.`] }) },
+
+  { id:'고추장볶음', tags:['한식','매콤'], minutes:25, kcal:400, protein:28,
+    prot: f=>!WHOLE_FISH.test(f.unit) && !READY_PROT.test(f.name),
+    veg:  f=>MAIN_VEG.test(f.name) && !AROMATIC.test(f.name),
+    need: p=>p.has('고추장'),
+    build:(pr,v1)=>({ name:`매콤 ${pr.name} ${v1.name}볶음`, emoji:'🌶️',
+      main:[pr,v1],
+      extra:[['고추장',2,'큰술'],['저염간장',1,'큰술'],['알룰로스',1,'큰술'],['다진마늘',1,'큰술']],
+      steps:['양념 만들기|고추장·저염간장·알룰로스·다진마늘을 미리 섞어 두면 맛이 고르게 배어요.',
+        `${pr.name} 재우기|한입 크기로 썰어 양념 절반에 15분 재웁니다.`,
+        '센 불 볶기|팬을 충분히 달군 뒤 고기부터 볶아 겉을 익힙니다.',
+        `${v1.name} 넣기|남은 양념과 함께 넣어 2분 더 볶습니다. 물이 생기면 불을 세게 올려 날리세요.`] }) },
+
+  { id:'맑은국', tags:['한식','국물'], minutes:25, kcal:180, protein:20,
+    prot: f=>!READY_PROT.test(f.name),
+    veg:  f=>/양배추|무$|배추|애호박|시금치|콩나물|숙주|양파|버섯/.test(f.name),
+    need: p=>p.has('다진마늘'),
+    build:(pr,v1)=>({ name:`${v1.name} ${pr.name}국`, emoji:'🍲',
+      main:[pr,v1],
+      extra:[['다진마늘',1,'큰술'],['저염간장',1,'큰술'],['소금',1,'작은술'],['대파',1,'대']],
+      steps:[`${pr.name} 손질|찬물에 잠깐 담가 핏물을 빼면 국물이 맑아집니다.`,
+        '국물 내기|물 1.2L에 다진마늘을 넣고 끓입니다.',
+        `재료 넣기|${pr.name}과 ${v1.name}을 넣고 10분 끓입니다. 거품은 걷어내세요.`,
+        '간 맞추기|저염간장으로 색을, 소금으로 간을 맞추고 대파를 넣습니다.'] }) },
+
+  { id:'구이', tags:['고단백','저탄수'], minutes:25, kcal:340, protein:32,
+    prot: f=>!GROUND.test(f.name) && !READY_PROT.test(f.name),
+    veg:  f=>MAIN_VEG.test(f.name) && !AROMATIC.test(f.name),
+    need: ()=>true,
+    build:(pr,v1)=>({ name:`${pr.name} 구이${v1?` · ${v1.name} 곁들임`:''}`, emoji:'🔥',
+      main:[pr,v1].filter(Boolean),
+      extra:[['소금',1,'작은술'],['맛술',1,'큰술']],
+      steps:[`밑간|${pr.name}에 맛술과 소금을 뿌려 10분 두면 잡내가 빠집니다.`,
+        '물기 제거|굽기 직전 키친타월로 물기를 닦아야 겉이 바삭해져요.',
+        '굽기|달군 팬에 중강불로 한 면을 충분히 구운 뒤 한 번만 뒤집습니다.',
+        v1? `곁들임|${v1.name}은 같은 팬에 살짝 구워 곁들이면 기름이 배어 맛있어요.`
+          : '마무리|불을 끄고 2분 두었다 썰면 육즙이 덜 빠집니다.'] }) },
+
+  { id:'토마토요리', tags:['양식'], minutes:30, kcal:330, protein:26,
+    prot: f=>!WHOLE_FISH.test(f.unit) && !READY_PROT.test(f.name),
+    veg:  f=>MAIN_VEG.test(f.name) && !/토마토/.test(f.name) && !AROMATIC.test(f.name),
+    need: p=>p.has('토마토'),
+    build:(pr,v1,v2,p)=>{ const n=p.starch[0];
+      return { name: n? `토마토 ${pr.name} ${n.name.replace(/\s*면\s*사리|\s*사리/,'')}` : `토마토 ${pr.name} 스튜`,
+        emoji: n? '🍝':'🍲', main:[pr,v1,n].filter(Boolean),
+        extra:[['토마토',400,'g'],['다진마늘',1,'큰술'],['소금',1,'작은술'],['알룰로스',1,'큰술']],
+        steps:['토마토 손질|열십자 칼집을 내 끓는 물에 30초 담갔다 빼면 껍질이 쉽게 벗겨집니다.',
+          `볶기|다진마늘과 ${pr.name}을 볶아 향과 기름을 냅니다.`,
+          '끓이기|토마토를 넣고 으깨가며 15분 졸입니다. 알룰로스 약간이 신맛을 잡아 줘요.',
+          n? `면 넣기|${n.name}을 삶아 소스에 버무립니다. 면수 半국자를 넣으면 잘 어우러져요.`
+            : '간 맞추기|소금으로 간하고 5분 더 끓입니다.'] }; } },
+
+  { id:'치즈구이', tags:['양식','고단백'], minutes:30, kcal:420, protein:24,
+    prot: f=>!WHOLE_FISH.test(f.unit) && !READY_PROT.test(f.name),
+    veg:  f=>BAKE_VEG.test(f.name) && !AROMATIC.test(f.name),
+    need: p=>p.cheese.length>0,
+    build:(pr,v1,v2,p)=>{ const ch=p.cheese[0];
+      return { name:`${v1.name} 치즈구이`, emoji:'🧀', main:[v1,pr,ch].filter(Boolean),
+        extra:[['소금',1,'작은술']],
+        steps:[`${v1.name} 준비|1cm 두께로 썰어 소금을 살짝 뿌려 10분 두었다 물기를 닦습니다.`,
+          pr? `속재료 볶기|${pr.name}을 먼저 볶아 소금으로 간해 둡니다.` : '팬 준비|기름을 살짝 두릅니다.',
+          '담기|내열 그릇에 재료를 켜켜이 담습니다.',
+          `치즈 올리기|${ch.name}를 덮고 에어프라이어 200도에서 12~15분 노릇하게 구워요.`] }; } },
+
+  { id:'무침', tags:['반찬','15분완성'], minutes:15, kcal:150, protein:10,
+    prot: ()=>false,
+    veg:  f=>LEAF_VEG.test(f.name),
+    need: ()=>true,
+    build:(pr,v1,v2,p)=>{ const t=p.ready[0];
+      return { name:`${v1.name} ${t? t.name.replace('캔','')+' 무침' : '무침'}`, emoji:'🥗',
+        main:[v1,t].filter(Boolean),
+        extra: t? [['마요네즈',2,'큰술'],['알룰로스',1,'큰술']]
+                : [['저염간장',1,'큰술'],['참기름',1,'큰술'],['다진마늘',1,'큰술']],
+        steps:[`${v1.name} 손질|찬물에 담갔다 건지면 아삭함이 살아납니다. 물기를 꼭 털어 주세요.`,
+          t? `${t.name} 준비|기름이나 물기를 빼 둡니다.` : '데치기|끓는 물에 30초만 데쳐 찬물에 헹굽니다.',
+          '양념 섞기|양념을 먼저 섞은 뒤 재료에 부어야 고르게 묻습니다.',
+          '버무리기|먹기 직전에 살살 버무려야 물이 생기지 않아요.'] }; } }
+];
+function generateRecipes(count=3){
+  const p = genPools();
+  const people = state.settings.people||2;
+  const out = [], usedNames = new Set(), usedTpl = new Set();
+  const nearTop = arr => arr.length ? arr[Math.floor(Math.random()*Math.min(3,arr.length))] : null;
+  const ready = GEN_TEMPLATES.filter(t=>t.need(p));
+
+  for(let guard=0; guard<60 && out.length<count; guard++){
+    const tpl = ready[Math.floor(Math.random()*ready.length)];
+    if(!tpl) break;
+    if(usedTpl.has(tpl.id) && usedTpl.size < ready.length) continue;
+    const prots = p.protein.filter(tpl.prot), vegs = p.veg.filter(tpl.veg);
+    const pr = nearTop(prots), v1 = nearTop(vegs);
+    if(!v1 && !pr) continue;
+    if(tpl.id!=='무침' && !pr) continue;      // 무침 말고는 단백질이 있어야 한 끼가 됨
+    if(!v1 && tpl.id!=='구이') continue;
+    const v2 = vegs.filter(x=>x!==v1)[0];
+    let spec; try{ spec = tpl.build(pr, v1, v2, p); }catch(e){ continue; }
+    if(!spec || !spec.main.length || usedNames.has(spec.name)) continue;
+
+    const ing = [];
+    spec.main.forEach(m=>{
+      if(ing.some(x=>sameItem(x.name,m.name))) return;
+      const a = genAmt(m, m.cat==='단백질' ? 'protein' : 'veg');
+      ing.push({ name:m.name, qty:a.qty, unit:a.unit });
+    });
+    spec.extra.forEach(([n,q,u])=>{ if(p.has(n) && !ing.some(x=>sameItem(x.name,n))) ing.push({name:n,qty:q,unit:u}); });
+
+    usedNames.add(spec.name); usedTpl.add(tpl.id);
+    out.push({ id:uid(), name:spec.name, emoji:spec.emoji, kcal:tpl.kcal, protein:tpl.protein,
+      minutes:tpl.minutes, servings:people, tags:[...tpl.tags,'냉장고털이'],
+      ingredients:ing, steps:spec.steps, youtube:'', instagram:'', image:'',
+      source:'냉장고 털이', fav:false, createdAt:Date.now() });
+  }
+  return out;
+}
+
 function seed(){
   const R = (name,emoji,kcal,protein,minutes,tags,ings,steps,yt)=>({
     id:uid(), name, emoji, kcal, protein, minutes, servings:2, tags,
@@ -1011,20 +1203,48 @@ function viewMenu(){
   if(ui.menuFilter==='⭐ 즐겨찾기') list = list.filter(r=>r.fav);
   else if(ui.menuFilter!=='전체') list = list.filter(r=>(r.tags||[]).includes(ui.menuFilter));
 
+  const ranked = rankRecipes();
+  const stat = {}; ranked.forEach(x=> stat[x.r.id] = x);
+  const top = ranked.slice(0,3);
+
   return `<section class="pane stack">
+    ${state.recipes.length? `
+    <div class="sec-title" style="margin-top:4px"><h2>오늘 뭐 먹지?</h2><p>냉장고 기준</p></div>
+    <div class="card">
+      ${top.map(x=>`<div class="prep-line">
+        <div class="em" style="font-size:20px;width:26px;text-align:center">${x.r.emoji||'🍽️'}</div>
+        <div class="grow" style="min-width:0">
+          <div style="font-size:13px;font-weight:800">${esc(x.r.name)} ${statusTag(x)}</div>
+          <div class="tiny muted">⏱ ${x.r.minutes||'-'}분 · ${x.r.kcal||'-'}kcal${
+            x.urgent? ` · <b style="color:var(--orange)">기한 임박 재료 ${x.urgent}가지 소진</b>`:''}</div>
+        </div>
+        <button class="btn ghost sm" data-act="planToday" data-id="${x.r.id}">오늘로</button>
+        <button class="btn sm" data-act="openRecipe" data-id="${x.r.id}">레시피</button>
+      </div>`).join('')}
+    </div>` : ''}
+
     <div class="row wrap">
-      <button class="btn orange sm grow" data-act="addByCapture">📷 캡처로 레시피 추가</button>
-      <button class="btn ghost sm" data-act="addRecipe">＋ 직접 입력</button>
+      <button class="btn orange sm grow" data-act="genRecipes">🎲 냉장고 털이 레시피 만들기</button>
     </div>
-    <button class="btn ghost block sm" data-act="openPack">🧊 우리 냉장고 재료로 만든 레시피 ${RECIPE_PACK.length}가지 보기</button>
+    <div class="row wrap">
+      <button class="btn ghost sm grow" data-act="addByCapture">📷 캡처로 추가</button>
+      <button class="btn ghost sm grow" data-act="openPack">🧊 추천 ${RECIPE_PACK.length}가지</button>
+      <button class="btn ghost sm" data-act="addRecipe">＋ 직접</button>
+    </div>
     <div class="row wrap" style="gap:5px">
       ${tags.map(t=>`<button class="chip ${ui.menuFilter===t?'on':''}" data-act="filter" data-t="${esc(t)}">${esc(t)}</button>`).join('')}
     </div>
-    ${list.length? `<div class="menu-grid">${list.map(r=>mcard(r,count[r.id])).join('')}</div>`
+    ${list.length? `<div class="menu-grid">${list.map(r=>mcard(r,count[r.id],stat[r.id])).join('')}</div>`
       : `<div class="card"><div class="empty">저장된 레시피가 없어요.<br>인스타·유튜브 캡처를 넣으면 자동으로 채워 드려요.</div></div>`}
   </section>`;
 }
-function mcard(r, cnt){
+function statusTag(x){
+  if(!x) return '';
+  if(x.ok) return `<span class="tag ok">지금 가능</span>`;
+  if(x.miss.length<=2) return `<span class="tag soon">${x.miss.map(esc).join('·')}만 사면</span>`;
+  return `<span class="tag">${x.miss.length}가지 부족</span>`;
+}
+function mcard(r, cnt, st){
   return `<div class="mcard">
     <div class="thumb" data-act="openRecipe" data-id="${r.id}">
       ${r.image? `<img src="${r.image}" alt="">` : (r.emoji||'🍽️')}
@@ -1033,6 +1253,7 @@ function mcard(r, cnt){
     </div>
     <div class="body">
       <h3>${esc(r.name)}</h3>
+      <div>${statusTag(st)}</div>
       <div class="meta">⏱ ${r.minutes||'-'}분 · ${r.kcal||'-'}kcal · 단백질 ${r.protein||'-'}g</div>
       <div class="row wrap" style="gap:4px">${(r.tags||[]).slice(0,3).map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div>
       <div class="row" style="margin-top:auto;padding-top:6px">
@@ -1681,6 +1902,51 @@ function openRecipePack(){
     <button class="btn block" style="margin-top:12px" data-act="addPack">선택한 레시피 담기</button>
   </div>`);
 }
+/* ---------- 냉장고 털이 레시피 미리보기 ---------- */
+let genDrafts = [];
+function openGenerated(){
+  genDrafts = generateRecipes(3);
+  if(!genDrafts.length){
+    openModal(`<div class="modal">
+      <div class="mhead"><h3>재료가 조금 부족해요</h3><button class="x" data-act="close">✕</button></div>
+      <div class="tiny muted" style="line-height:1.8">냉장고에 <b>단백질</b>이나 <b>채소</b>가 등록되어 있어야
+        조합을 만들 수 있어요. 재료를 몇 개 담고 다시 눌러 주세요.</div>
+      <button class="btn block" style="margin-top:12px" data-act="close">알겠어요</button>
+    </div>`);
+    return;
+  }
+  const list = stockList();
+  const cards = genDrafts.map((r,k)=>{
+    const st = recipeStatus(r, list, r.servings);
+    return `<div class="ing-box" style="margin-top:9px">
+      <div class="row" style="align-items:flex-start">
+        <button class="cb on" data-act="genTgl" data-k="${k}">✓</button>
+        <div class="grow" style="min-width:0">
+          <div style="font-size:13.5px;font-weight:900">${r.emoji} ${esc(r.name)}</div>
+          <div class="tiny muted" style="margin-top:2px">⏱ ${r.minutes}분 · ${r.servings}인분
+            · 약 ${r.kcal}kcal ${st.ok? '<span class="tag ok">재료 다 있음</span>':''}</div>
+          <div class="tiny" style="margin-top:6px;line-height:1.7">
+            <b>재료</b> ${r.ingredients.map(i=>`${esc(i.name)} ${nice(i.qty)}${i.unit}`).join(' · ')}</div>
+          <div class="tiny muted" style="margin-top:5px;line-height:1.7">
+            <b>조리</b> ${r.steps.map((s,i)=>`${i+1}. ${esc(s.split('|')[0])}`).join(' → ')}</div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  openModal(`<div class="modal" id="genBox">
+    <div class="mhead">
+      <div><h3>냉장고 털이 레시피</h3>
+        <div class="tiny muted">기한이 급한 재료부터 골라 조합했어요</div></div>
+      <button class="x" data-act="close">✕</button>
+    </div>
+    <div class="swap">⚠️ 칼로리·단백질은 <b>대략의 추정치</b>예요. 담은 뒤 수정할 수 있습니다.</div>
+    ${cards}
+    <div class="row" style="margin-top:12px">
+      <button class="btn ghost sm grow" data-act="genRecipes">🎲 다시 뽑기</button>
+      <button class="btn grow" data-act="saveGen">선택한 레시피 담기</button>
+    </div>
+  </div>`);
+}
 function openJoinByLink(){
   openModal(`<div class="modal">
     <div class="mhead"><h3>초대 링크로 참여하기</h3><button class="x" data-act="close">✕</button></div>
@@ -1859,6 +2125,20 @@ document.addEventListener('click', async (e)=>{
   case 'addRecipe': openRecipeForm(null,false); break;
   case 'addByCapture': openRecipeForm(null,true); break;
   case 'openPack': openRecipePack(); break;
+  case 'genRecipes': openGenerated(); break;
+  case 'genTgl': b.classList.toggle('on'); break;
+  case 'saveGen': {
+    let n = 0;
+    $('#genBox').querySelectorAll('[data-act="genTgl"]').forEach(cb=>{
+      if(!cb.classList.contains('on')) return;
+      const r = genDrafts[+cb.dataset.k];
+      if(!r || state.recipes.some(x=>sameItem(x.name, r.name))) return;
+      state.recipes.push(r); n++;
+    });
+    if(!n){ toast('담을 레시피를 골라 주세요'); break; }
+    save(); closeModal(); ui.tab='menu'; render();
+    toast(`${n}가지를 메뉴판에 담았어요`); break;
+  }
   case 'packTgl': b.classList.toggle('on'); break;
   case 'addPack': {
     let n = 0;
