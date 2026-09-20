@@ -275,7 +275,7 @@ section.pane{padding-bottom:28px}
    ============================================================ */
 const KEY = 'fridgeMealPlanner.v1';
 const WEEKDAYS = ['월','화','수','목','금','토','일'];
-const CATS = ['단백질','채소','유제품·계란','면·곡물','소스·양념','기타'];
+const CATS = ['단백질','채소','유제품·계란','면·곡물','간식','소스·양념','기타'];
 const UNITS = ['g','kg','ml','L','개','대','모','장','줌','컵','큰술','작은술','봉','팩','마리'];
 const EXP_TYPES = {
   grocery:{label:'장보기', color:'#2f4a34', emoji:'🛒'},
@@ -284,7 +284,11 @@ const EXP_TYPES = {
   cafe   :{label:'카페·간식',color:'#3f6fa8', emoji:'☕'}
 };
 /* 재료명 → 분류 추정 사전 */
+/* 간식·군것질거리. 새우깡→단백질, 감자칩→채소로 잘못 잡히지 않게 맨 앞에서 거른다.
+   팝콘치킨 같은 냉동 간편식은 간식이 아니라 그대로 두려고 팝콘(?!치킨)으로 제한 */
+const SNACK_RE = /과자|스낵|감자칩|포테토|프링글스|새우깡|꼬깔|칸초|쿠키|비스킷|크래커|웨하스|초콜릿|초코|사탕|캔디|젤리|껌$|아이스크림|하드바|빙과|라면|누들|팝콘(?!치킨)|시리얼|그래놀라|견과|아몬드|호두|땅콩|육포|쥐포|오징어채|칩|양파링|홈런볼|초코볼|카라멜|뻥튀기|약과|양갱|마카롱|도넛|와플|파이$|콘칩|나초|치토스|허니버터|빼빼로|칙촉|오예스|몽쉘|맥주|콜라|사이다|탄산|에이드|주스|음료|아이스티/;
 const CAT_HINTS = [
+  [SNACK_RE, '간식'],
   [/소고기|우둔|안심|등심|돼지|삼겹|목살|닭|가슴살|다리살|새우|연어|참치|오징어|계란|달걀|두부(?!면)|콩(?!나물)|햄|어묵|훈제/, '단백질'],
   [/우유|치즈|요거트|버터|두유|생크림/, '유제품·계란'],
   [/간장|고추장|고춧가루|된장|쌈장|소스|다진마늘|간마늘|알룰로스|올리고당|설탕|참기름|들기름|올리브유|식용유|소금|후추|허브|케첩|마요|식초|굴소스|스리라차|스테비아|다시다|육수|드레싱/, '소스·양념'],
@@ -298,11 +302,12 @@ const EMOJI_HINTS = [
   [/죽|스프|수프/,'🥣'],[/샐러드/,'🥗'],[/두부/,'🍲'],[/도시락/,'🍱']
 ];
 /* 분류별 기본 소비기한(일) */
-const SHELF = {'단백질':3,'채소':6,'유제품·계란':14,'면·곡물':60,'소스·양념':180,'기타':30};
+const SHELF = {'단백질':3,'채소':6,'유제품·계란':14,'면·곡물':60,'간식':120,'소스·양념':180,'기타':30};
 /* 보관 위치 */
 const PLACES = ['냉장','냉동','실온'];
 function guessPlace(name, cat){
   if(/냉동|아이스|얼린/.test(name)) return '냉동';
+  if(cat==='간식') return '실온';
   if(cat==='소스·양념') return '실온';
   if(cat==='면·곡물') return /밥|떡/.test(name) ? '냉장' : '실온';
   if(/양파|감자|고구마|마늘(?!.*다진)/.test(name)) return '실온';
@@ -353,7 +358,7 @@ function roundBuy(q,unit){
    1. 상태 (localStorage 자동 저장)
    ============================================================ */
 let state, ui = { tab:'week', weekOffset:0, monthOffset:0, menuFilter:'전체',
-                  addOpen:false, fq:'', fFilter:'all', fPlace:'전체', fSort:'exp' };
+                  addOpen:false, fq:'', fFilter:'all', fPlace:'전체', fCat:'전체', fSort:'exp' };
 
 let applyingRemote = false;
 function writeLocal(){
@@ -999,6 +1004,7 @@ function viewFridge(){
   const q = ui.fq.trim().toLowerCase();
   let items = all.filter(i=>{
     if(q && !i.name.toLowerCase().includes(q)) return false;
+    if(ui.fCat!=='전체' && i.cat!==ui.fCat) return false;
     if(ui.fPlace!=='전체' && (i.place||guessPlace(i.name,i.cat))!==ui.fPlace) return false;
     const d = i.expDate? dayDiff(i.expDate,t) : 9999;
     if(ui.fFilter==='soon' && !(i.expDate && d>=0 && d<=2)) return false;
@@ -1017,7 +1023,11 @@ function viewFridge(){
     <div class="card">${list.map(fridgeRow).join('')}</div>`;
   }).join('');
 
-  const quick = ['계란','대파','양파','두부','닭가슴살','우유','애호박','당근','토마토','곤약면']
+  const snackMoves = state.fridge.filter(f=>f.cat!=='간식' && SNACK_RE.test(f.name));
+  const quickList = ui.fCat==='간식'
+    ? ['라면','컵라면','과자','초콜릿','젤리','아이스크림','견과','콜라','맥주','시리얼']
+    : ['계란','대파','양파','두부','닭가슴살','우유','애호박','당근','토마토','곤약면'];
+  const quick = quickList
     .map(n=>`<button class="chip line" data-act="quickadd" data-name="${n}">＋ ${n}</button>`).join('');
   const on = (k,v)=> ui[k]===v ? 'on' : 'line';
 
@@ -1049,7 +1059,7 @@ function viewFridge(){
         <div><label class="tiny" style="font-weight:800;color:var(--muted)">단위</label>
           <select id="fUnit">${UNITS.map(u=>`<option ${u==='g'?'selected':''}>${u}</option>`).join('')}</select></div>
         <div><label class="tiny" style="font-weight:800;color:var(--muted)">보관</label>
-          <select id="fPlaceSel">${PLACES.map(p=>`<option ${p==='냉장'?'selected':''}>${p}</option>`).join('')}</select></div>
+          <select id="fPlaceSel"><option value="">자동</option>${PLACES.map(p=>`<option>${p}</option>`).join('')}</select></div>
       </div>
       <div class="g2" style="margin-top:8px">
         <div><label class="tiny" style="font-weight:800;color:var(--muted)">분류</label>
@@ -1071,6 +1081,10 @@ function viewFridge(){
       <div class="row wrap" style="gap:5px;margin-top:9px">
         ${['전체',...PLACES].map(p=>`<button class="chip ${on('fPlace',p)}" data-act="fPlace" data-p="${p}">${p}</button>`).join('')}
         <div class="grow"></div>
+        <select id="fCatSel" style="width:auto;padding:5px 8px;font-size:11.5px;border-radius:9px">
+          <option value="전체" ${ui.fCat==='전체'?'selected':''}>전체 분류</option>
+          ${CATS.map(c=>`<option value="${c}" ${ui.fCat===c?'selected':''}>${c==='간식'?'🍪 ':''}${c}</option>`).join('')}
+        </select>
         <select id="fSortSel" style="width:auto;padding:5px 8px;font-size:11.5px;border-radius:9px">
           <option value="exp" ${ui.fSort==='exp'?'selected':''}>기한 가까운 순</option>
           <option value="recent" ${ui.fSort==='recent'?'selected':''}>최근 등록순</option>
@@ -1078,6 +1092,9 @@ function viewFridge(){
         </select>
       </div>
     </div>
+
+    ${snackMoves.length? `<button class="btn ghost block sm" data-act="moveSnacks">
+      🍪 간식으로 보이는 ${snackMoves.length}개를 간식칸으로 옮기기</button>`:''}
 
     ${items.length? groups : `<div class="card"><div class="empty">${emptyMsg}</div></div>`}
   </section>`;
@@ -2030,15 +2047,32 @@ document.addEventListener('click', async (e)=>{
     const noExp = $('#fNoExp').checked;
     const exp = noExp ? '' : ($('#fExp').value || iso(addDays(today(), SHELF[cat]||14)));
     addToFridge({name, qty: isFinite(qty)&&qty>0? qty:1, unit, cat, expDate:exp,
-                 place: $('#fPlaceSel').value});
+                 place: $('#fPlaceSel').value || guessPlace(name, cat)});
     save(); render(); toast(`${name} 담았어요`); break;
   }
   case 'openAdd': ui.addOpen = true; render(); setTimeout(()=>$('#fName')?.focus(),50); break;
   case 'closeAdd': ui.addOpen = false; render(); break;
   case 'fFilter': ui.fFilter = (ui.fFilter===b.dataset.f? 'all' : b.dataset.f); render(); break;
   case 'fPlace': ui.fPlace = b.dataset.p; render(); break;
-  case 'fridgeReset': ui.fq=''; ui.fFilter='all'; ui.fPlace='전체'; render(); break;
+  case 'fridgeReset': ui.fq=''; ui.fFilter='all'; ui.fPlace='전체'; ui.fCat='전체'; render(); break;
   case 'editItem': openItemEdit(id); break;
+  case 'moveSnacks': {
+    const rows = state.fridge.filter(f=>f.cat!=='간식' && SNACK_RE.test(f.name));
+    openModal(`<div class="modal">
+      <div class="mhead"><h3>간식칸으로 옮길까요?</h3><button class="x" data-act="close">✕</button></div>
+      <div class="tiny muted" style="line-height:1.8">아래 ${rows.length}개를 <b>간식</b> 분류로 바꿉니다.
+        수량과 소비기한은 그대로예요. 나중에 재료를 눌러 분류를 되돌릴 수 있습니다.</div>
+      <div class="ing-box" style="margin-top:10px">${rows.map(f=>
+        `<div class="ing-line"><span>${esc(f.name)}</span><b class="muted">${esc(f.cat)} → 간식</b></div>`).join('')}</div>
+      <button class="btn block" style="margin-top:12px" data-act="doMoveSnacks">간식칸으로 옮기기</button>
+    </div>`);
+    break;
+  }
+  case 'doMoveSnacks': {
+    let n = 0;
+    state.fridge.forEach(f=>{ if(f.cat!=='간식' && SNACK_RE.test(f.name)){ f.cat='간식'; f.place=guessPlace(f.name,'간식'); n++; } });
+    save(); closeModal(); render(); toast(`${n}개를 간식칸으로 옮겼어요`); break;
+  }
   case 'saveItem': {
     const it = state.fridge.find(f=>f.id===id); if(!it) break;
     const q = parseFloat($('#eQty').value);
@@ -2096,7 +2130,9 @@ document.addEventListener('click', async (e)=>{
   }
   case 'quickadd': {
     const name = b.dataset.name, cat = guessCat(name);
-    addToFridge({name, qty:1, unit: /계란/.test(name)?'개':(guessCat(name)==='채소'?'개':'g'), cat, expDate: iso(addDays(today(), SHELF[cat]||14))});
+    const unit = /계란/.test(name) || cat==='채소' || cat==='간식' ? '개' : 'g';   // 라면 1g이 되지 않게
+    addToFridge({name, qty:1, unit, cat, place:guessPlace(name,cat),
+                 expDate: iso(addDays(today(), SHELF[cat]||14))});
     save(); render(); toast(`${name} 담았어요`); break;
   }
   case 'qty': {
@@ -2361,6 +2397,7 @@ document.addEventListener('input', (e)=>{
 });
 document.addEventListener('change', (e)=>{
   if(e.target.id==='fSortSel'){ ui.fSort = e.target.value; render(); return; }
+  if(e.target.id==='fCatSel'){ ui.fCat = e.target.value; render(); return; }
   const s = e.target.closest('[data-act="setDay"]');
   if(s){
     const d = s.dataset.date;
