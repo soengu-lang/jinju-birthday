@@ -450,7 +450,7 @@ function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('on
 /* ============================================================
    1. 상태
    ============================================================ */
-const SEED = {"year":2026,"items":[{"id":"income5","section":"income","name":"진주 급여","auto":false},{"id":"income6","section":"income","name":"성우 급여","auto":false},{"id":"income7","section":"income","name":"기타 수입(상여 등)","auto":false},{"id":"income8","section":"income","name":"부수입 (투자수입)","auto":false},{"id":"fixed11","section":"fixed","name":"월세","auto":true},{"id":"fixed12","section":"fixed","name":"관리비","auto":true},{"id":"fixed13","section":"fixed","name":"인터넷+TV","auto":true},{"id":"fixed14","section":"fixed","name":"핸드폰비(진주)","auto":true},{"id":"fixed15","section":"fixed","name":"핸드폰비(성우)","auto":true},{"id":"fixed16","section":"fixed","name":"진주 보험","auto":true},{"id":"fixed17","section":"fixed","name":"성우 보험(어머님 부담 제외)","auto":true},{"id":"fixed18","section":"fixed","name":"대출이자 합계","auto":true},{"id":"fixed19","section":"fixed","name":"구독료","auto":true},{"id":"fixed20","section":"fixed","name":"차량 유지비","auto":true},{"id":"fixed21","section":"fixed","name":"청약(진주+성우)","auto":true},{"id":"fixed22","section":"fixed","name":"기타 고정비","auto":false},{"id":"save25","section":"save","name":"적금(진주)","auto":false},{"id":"save26","section":"save","name":"적금(성우)","auto":false},{"id":"save27","section":"save","name":"ISA(진주)","auto":false},{"id":"save28","section":"save","name":"ISA(성우)","auto":false},{"id":"save29","section":"save","name":"연금펀드/IRP(진주)","auto":false},{"id":"save30","section":"save","name":"연금펀드/IRP(성우)","auto":false},{"id":"save31","section":"save","name":"주식·ETF 매수","auto":false},{"id":"save32","section":"save","name":"코인 매수","auto":false},{"id":"save33","section":"save","name":"기타 저축","auto":false},{"id":"living36","section":"living","name":"마트(식품)","auto":false},{"id":"living37","section":"living","name":"외식(식당, 카페)","auto":false},{"id":"living38","section":"living","name":"배달","auto":false},{"id":"living39","section":"living","name":"꾸밈비(의류·화장품)","auto":false},{"id":"living40","section":"living","name":"생활용품·가구","auto":false},{"id":"living41","section":"living","name":"의료비(병원·약)","auto":false},{"id":"living42","section":"living","name":"교통비(주유 외)","auto":false},{"id":"living43","section":"living","name":"운동·자기관리","auto":false},{"id":"living44","section":"living","name":"여가·취미","auto":false},{"id":"living45","section":"living","name":"경조사·선물","auto":false},{"id":"living46","section":"living","name":"교육·도서","auto":false},{"id":"living47","section":"living","name":"기타 생활비","auto":false}],"cells":{"income5|2026-01":2460000,"income5|2026-03":2386067,"income5|2026-04":5256020,"income5|2026-05":2680620,"income6|2026-01":3756000,"income6|2026-02":5052000,"income6|2026-03":4144000,"income6|2026-04":3994000,"income6|2026-05":4054000,"income7|2026-04":1866000,"income7|2026-05":2590000,"fixed11|2026-01":331020,"fixed11|2026-02":331020,"fixed11|2026-03":331020,"fixed11|2026-04":331020,"fixed11|2026-05":331020,"fixed12|2026-01":242480,"fixed12|2026-02":299130,"fixed12|2026-03":220180,"fixed12|2026-04":297770,"fixed12|2026-05":240790,"fixed13|2026-01":24200,"fixed13|2026-02":24200,"fixed13|2026-03":24200,"fixed13|2026-04":24200,"fixed13|2026-05":24200,"fixed14|2026-01":37000,"fixed14|2026-02":37000,"fixed14|2026-03":37000,"fixed14|2026-04":66570,"fixed14|2026-05":21000,"fixed15|2026-01":42350,"fixed15|2026-02":42350,"fixed15|2026-03":42350,"fixed15|2026-04":42350,"fixed15|2026-05":42350,"fixed16|2026-01":139818,"fixed16|2026-02":139818,"fixed16|2026-03":139818,"fixed16|2026-04":139818,"fixed16|2026-05":139818,"fixed17|2026-01":379101,"fixed17|2026-02":379101,"fixed17|2026-03":379101,"fixed17|2026-04":379101,"fixed17|2026-05":379101,"fixed18|2026-01":674800,"fixed18|2026-02":674800,"fixed18|2026-03":674800,"fixed18|2026-04":674800,"fixed18|2026-05":674800,"fixed19|2026-01":70490,"fixed19|2026-02":70490,"fixed19|2026-03":70490,"fixed19|2026-04":70490,"fixed19|2026-05":100490,"fixed20|2026-01":180000,"fixed20|2026-02":200000,"fixed20|2026-03":200000,"fixed20|2026-04":200000,"fixed20|2026-05":200000,"fixed20|2026-06":46987,"fixed21|2026-01":40000,"fixed21|2026-02":40000,"fixed21|2026-03":40000,"fixed21|2026-04":40000,"fixed21|2026-05":40000,"save25|2026-01":20000,"save25|2026-02":20000,"save25|2026-03":20000,"save25|2026-04":20000,"save25|2026-05":20000,"save26|2026-01":20000,"save26|2026-02":20000,"save26|2026-03":20000,"save26|2026-04":20000,"save26|2026-05":20000,"save26|2026-06":120000,"living36|2026-05":6910,"living36|2026-06":10670,"living37|2026-06":25100,"living38|2026-06":38900,"living39|2026-05":400000,"living39|2026-06":52900,"living40|2026-06":125000,"living41|2026-05":26000,"living41|2026-06":183210,"living42|2026-01":153173,"living42|2026-02":146939,"living42|2026-03":202627,"living42|2026-04":206010,"living42|2026-05":223074,"living45|2026-04":600000,"living45|2026-05":74550,"living47|2026-06":412702},"assetRows":[{"id":"a6","owner":"진주","name":"아파트"},{"id":"a7","owner":"진주","name":"CMA"},{"id":"a8","owner":"진주","name":"예적금"},{"id":"a9","owner":"진주","name":"주식·펀드"},{"id":"a10","owner":"진주","name":"코인"},{"id":"a11","owner":"진주","name":"연금펀드/ISA"},{"id":"a12","owner":"진주","name":"퇴직금"},{"id":"a13","owner":"진주","name":"기타 (ISA2)"},{"id":"a17","owner":"성우","name":"아파트"},{"id":"a18","owner":"성우","name":"토지(매수가)"},{"id":"a19","owner":"성우","name":"CMA"},{"id":"a20","owner":"성우","name":"예적금"},{"id":"a21","owner":"성우","name":"주식·펀드"},{"id":"a22","owner":"성우","name":"코인"},{"id":"a23","owner":"성우","name":"연금펀드/ISA"},{"id":"a24","owner":"성우","name":"퇴직금"},{"id":"a25","owner":"성우","name":"기타"},{"id":"a29","owner":"부채","name":"주택대출(미래에셋)"},{"id":"a30","owner":"부채","name":"신용대출(신한)"},{"id":"a31","owner":"부채","name":"카카오 원리금"},{"id":"a32","owner":"부채","name":"부산은행"},{"id":"a33","owner":"부채","name":"기타 대출"}],"assetCells":{"a6|init":350000000,"a6|2026-01":350000000,"a6|2026-02":350000000,"a6|2026-03":350000000,"a6|2026-04":350000000,"a6|2026-05":350000000,"a7|2026-06":1600000,"a9|2026-05":15939014,"a10|init":2280000,"a10|2026-01":2280000,"a10|2026-02":2280000,"a10|2026-03":2280000,"a10|2026-04":2280000,"a10|2026-05":2280000,"a11|init":5000000,"a11|2026-01":5500000,"a11|2026-02":6000000,"a11|2026-03":6500000,"a11|2026-04":7000000,"a11|2026-05":7852000,"a13|2026-05":1121700,"a17|init":170000000,"a17|2026-01":170000000,"a17|2026-02":170000000,"a17|2026-03":170000000,"a17|2026-04":170000000,"a17|2026-05":170000000,"a18|init":230000000,"a18|2026-01":230000000,"a18|2026-02":230000000,"a18|2026-03":230000000,"a18|2026-04":230000000,"a18|2026-05":230000000,"a19|init":20000000,"a19|2026-01":20000000,"a19|2026-02":20000000,"a19|2026-03":20000000,"a19|2026-04":20000000,"a19|2026-05":20000000,"a20|init":9600000,"a20|2026-01":9700000,"a20|2026-02":9800000,"a20|2026-03":9820000,"a20|2026-04":9840000,"a20|2026-05":9860000,"a21|init":33309003,"a21|2026-01":33309003,"a21|2026-02":33309003,"a21|2026-03":33309003,"a21|2026-04":33309003,"a21|2026-05":36493176,"a22|init":374435,"a22|2026-01":374435,"a22|2026-02":374435,"a22|2026-03":374435,"a22|2026-04":374435,"a22|2026-05":3643243,"a24|2026-05":50000000,"a29|init":53000000,"a29|2026-01":53000000,"a29|2026-02":53000000,"a29|2026-03":53000000,"a29|2026-04":53000000,"a29|2026-05":53000000,"a30|init":57000000,"a30|2026-01":57000000,"a30|2026-02":57000000,"a30|2026-03":57000000,"a30|2026-04":57000000,"a30|2026-05":57000000,"a31|init":5000000,"a31|2026-01":5000000,"a31|2026-02":5000000,"a31|2026-03":5000000,"a31|2026-04":5000000,"a31|2026-05":5000000,"a32|init":5000000,"a32|2026-01":5000000,"a32|2026-02":5000000,"a32|2026-03":5000000,"a32|2026-04":5000000,"a32|2026-05":5000000},"fixed":[{"id":"f4","cat":"주거","name":"월세","amount":365570,"who":"공동","day":5,"status":"유지","memo":"","save":0},{"id":"f5","cat":"주거","name":"관리비(헬스 포함)","amount":250000,"who":"공동","day":25,"status":"유지","memo":"","save":0},{"id":"f6","cat":"주거","name":"삼천리(가스)","amount":10000,"who":"공동","day":25,"status":"유지","memo":"","save":0},{"id":"f7","cat":"주거","name":"인터넷+TV","amount":24200,"who":"공동","day":10,"status":"점검","memo":"약정 재협상","save":5000},{"id":"f8","cat":"통신","name":"핸드폰(진주)","amount":21000,"who":"진주","day":10,"status":"유지","memo":"알뜰폰","save":0},{"id":"f9","cat":"통신","name":"핸드폰(성우)","amount":42350,"who":"성우","day":10,"status":"유지","memo":"알뜰폰","save":0},{"id":"f10","cat":"보험","name":"실비(진주)","amount":24750,"who":"진주","day":1,"status":"유지","memo":"필수","save":0},{"id":"f11","cat":"보험","name":"롯데(진주)","amount":70393,"who":"진주","day":1,"status":"점검","memo":"보장 내용 확인","save":0},{"id":"f12","cat":"보험","name":"암보험(진주)","amount":19925,"who":"진주","day":1,"status":"유지","memo":"","save":0},{"id":"f13","cat":"보험","name":"운전자(진주)","amount":24750,"who":"진주","day":1,"status":"유지","memo":"","save":0},{"id":"f14","cat":"보험","name":"실비(성우)","amount":11760,"who":"성우","day":5,"status":"유지","memo":"필수","save":0},{"id":"f15","cat":"보험","name":"롯데(성우)","amount":145927,"who":"성우","day":5,"status":"🚨 점검","memo":"보장 종류 확인","save":0},{"id":"f16","cat":"보험","name":"암보험미래","amount":28137,"who":"성우","day":5,"status":"점검","memo":"중복 가능성","save":0},{"id":"f17","cat":"보험","name":"종신(성우)","amount":438000,"who":"성우","day":5,"status":"유지","memo":"어머님이 부담","save":0},{"id":"f18","cat":"보험","name":"건강메리츠","amount":12060,"who":"성우","day":5,"status":"점검","memo":"","save":0},{"id":"f19","cat":"보험","name":"종합한화","amount":10546,"who":"성우","day":5,"status":"점검","memo":"","save":0},{"id":"f20","cat":"보험","name":"종합건강롯데","amount":10000,"who":"성우","day":5,"status":"점검","memo":"","save":0},{"id":"f21","cat":"보험","name":"어린이NH","amount":56826,"who":"성우","day":5,"status":"🚨 점검","memo":"자녀X, 만기확인","save":56826},{"id":"f22","cat":"보험","name":"한화자녀","amount":46345,"who":"성우","day":5,"status":"🚨 점검","memo":"자녀X, 만기확인","save":46345},{"id":"f23","cat":"보험","name":"아이사랑MG","amount":43500,"who":"성우","day":5,"status":"🚨 점검","memo":"자녀X, 만기확인","save":43500},{"id":"f24","cat":"보험","name":"운전자(성우)","amount":14000,"who":"성우","day":5,"status":"유지","memo":"","save":0},{"id":"f25","cat":"이자","name":"미래에셋","amount":314703,"who":"공동","day":25,"status":"확인","memo":"","save":0},{"id":"f26","cat":"이자","name":"카카오 원리금","amount":97733,"who":"공동","day":25,"status":"확인","memo":"","save":0},{"id":"f28","cat":"이자","name":"신한 신용","amount":215912,"who":"공동","day":25,"status":"🚨 확인","memo":"금리 높음 우선상환","save":0},{"id":"f29","cat":"구독","name":"쿠팡","amount":7890,"who":"공동","day":1,"status":"유지","memo":"","save":0},{"id":"f30","cat":"구독","name":"넷플","amount":8000,"who":"공동","day":1,"status":"유지","memo":"","save":0},{"id":"f31","cat":"구독","name":"유튜브","amount":14900,"who":"공동","day":1,"status":"유지","memo":"음악 포함이면 멜론 해지","save":0},{"id":"f32","cat":"구독","name":"와이즐리","amount":2900,"who":"공동","day":1,"status":"점검","memo":"","save":0},{"id":"f33","cat":"구독","name":"컬리","amount":2900,"who":"공동","day":1,"status":"점검","memo":"","save":0},{"id":"f34","cat":"구독","name":"네이버","amount":4900,"who":"공동","day":1,"status":"점검","memo":"쿠팡 혜택과 중복","save":4900},{"id":"f35","cat":"청약","name":"청약(진주)","amount":20000,"who":"진주","day":5,"status":"유지","memo":"","save":0},{"id":"f36","cat":"청약","name":"청약(성우)","amount":20000,"who":"성우","day":5,"status":"유지","memo":"","save":0},{"id":"f37","cat":"차량","name":"유류비","amount":180000,"who":"공동","day":0,"status":"유지","memo":"","save":0}],"loans":[{"id":"l4","name":"미래에셋 주택","bank":"미래에셋","kind":"주택담보","balance":0,"rate":0.04,"monthly":314703,"priority":3,"memo":"이자 큰 편","owner":"성우"},{"id":"l5","name":"카카오 원리금","bank":"카카오뱅크","kind":"신용","balance":0,"rate":0.055,"monthly":97733,"priority":1,"memo":"원리금 균등","owner":"성우"},{"id":"l7","name":"신한 신용","bank":"신한은행","kind":"신용","balance":0,"rate":0.0495,"monthly":215912,"priority":2,"memo":"🚨 금리 높음 우선상환","owner":"성우"}],"goal":{"target":1500000000,"rate":0.05,"monthlySave":3000000},"habits":[{"id":"h11","name":"☕ 카페 텀블러 사용","per":300,"target":20,"done":2,"memo":"다회용컵 할인"},{"id":"h12","name":"🚇 택시 대신 대중교통","per":5000,"target":8,"done":0,"memo":""},{"id":"h13","name":"🛒 식단표 작성 후 장보기","per":30000,"target":4,"done":0,"memo":"충동구매 방지"},{"id":"h14","name":"📦 배달앱 안쓰기","per":20000,"target":6,"done":1,"memo":""},{"id":"h15","name":"💧 생수 대신 정수기 물","per":1000,"target":20,"done":0,"memo":""},{"id":"h16","name":"🚶 1km 걷기","per":5000,"target":8,"done":0,"memo":""},{"id":"h17","name":"🛍️ 30일 룰","per":100000,"target":1,"done":0,"memo":"10만원+ 비필수 보류"},{"id":"h18","name":"📺 OTT 가족 공유","per":3000,"target":4,"done":0,"memo":""},{"id":"h19","name":"💡 에어컨 1도 올리기","per":5000,"target":4,"done":0,"memo":"여름"},{"id":"h20","name":"⛽ 오피넷 최저가 주유","per":2000,"target":4,"done":0,"memo":""},{"id":"h21","name":"🍷 술 한 잔 줄이기","per":5000,"target":4,"done":0,"memo":"건강+절약"}],"memo":"진주\n퇴직금 알아보기"};
+const SEED = {"year":2026,"items":[{"id":"income5","section":"income","name":"진주 급여","auto":false},{"id":"income6","section":"income","name":"성우 급여","auto":false},{"id":"income7","section":"income","name":"기타 수입(상여 등)","auto":false},{"id":"income8","section":"income","name":"부수입 (투자수입)","auto":false},{"id":"income9","section":"income","name":"보험 환급","auto":false},{"id":"fixed11","section":"fixed","name":"월세","auto":true},{"id":"fixed12","section":"fixed","name":"관리비","auto":true},{"id":"fixed13","section":"fixed","name":"인터넷+TV","auto":true},{"id":"fixed14","section":"fixed","name":"핸드폰비(진주)","auto":true},{"id":"fixed15","section":"fixed","name":"핸드폰비(성우)","auto":true},{"id":"fixed16","section":"fixed","name":"진주 보험","auto":true},{"id":"fixed17","section":"fixed","name":"성우 보험(어머님 부담 제외)","auto":true},{"id":"fixed18","section":"fixed","name":"대출이자 합계","auto":true},{"id":"fixed19","section":"fixed","name":"구독료","auto":true},{"id":"fixed20","section":"fixed","name":"차량 유지비","auto":true},{"id":"fixed21","section":"fixed","name":"청약(진주+성우)","auto":true},{"id":"fixed22","section":"fixed","name":"기타 고정비","auto":false},{"id":"save25","section":"save","name":"적금(진주)","auto":false},{"id":"save26","section":"save","name":"적금(성우)","auto":false},{"id":"save27","section":"save","name":"ISA(진주)","auto":false},{"id":"save28","section":"save","name":"ISA(성우)","auto":false},{"id":"save29","section":"save","name":"연금펀드/IRP(진주)","auto":false},{"id":"save30","section":"save","name":"연금펀드/IRP(성우)","auto":false},{"id":"save31","section":"save","name":"주식·ETF 매수","auto":false},{"id":"save32","section":"save","name":"코인 매수","auto":false},{"id":"save33","section":"save","name":"기타 저축","auto":false},{"id":"living36","section":"living","name":"마트(식품)","auto":false},{"id":"living37","section":"living","name":"외식(식당, 카페)","auto":false},{"id":"living38","section":"living","name":"배달","auto":false},{"id":"living39","section":"living","name":"꾸밈비(의류·화장품)","auto":false},{"id":"living40","section":"living","name":"생활용품·가구","auto":false},{"id":"living41","section":"living","name":"의료비(병원·약)","auto":false},{"id":"living42","section":"living","name":"교통비(주유 외)","auto":false},{"id":"living43","section":"living","name":"운동·자기관리","auto":false},{"id":"living44","section":"living","name":"여가·취미","auto":false},{"id":"living45","section":"living","name":"경조사·선물","auto":false},{"id":"living46","section":"living","name":"교육·도서","auto":false},{"id":"living47","section":"living","name":"기타 생활비","auto":false}],"cells":{"income5|2026-01":2460000,"income5|2026-03":2386067,"income5|2026-04":5256020,"income5|2026-05":2680620,"income6|2026-01":3756000,"income6|2026-02":5052000,"income6|2026-03":4144000,"income6|2026-04":3994000,"income6|2026-05":4054000,"income7|2026-04":1866000,"income7|2026-05":2590000,"fixed11|2026-01":331020,"fixed11|2026-02":331020,"fixed11|2026-03":331020,"fixed11|2026-04":331020,"fixed11|2026-05":331020,"fixed12|2026-01":242480,"fixed12|2026-02":299130,"fixed12|2026-03":220180,"fixed12|2026-04":297770,"fixed12|2026-05":240790,"fixed13|2026-01":24200,"fixed13|2026-02":24200,"fixed13|2026-03":24200,"fixed13|2026-04":24200,"fixed13|2026-05":24200,"fixed14|2026-01":37000,"fixed14|2026-02":37000,"fixed14|2026-03":37000,"fixed14|2026-04":66570,"fixed14|2026-05":21000,"fixed15|2026-01":42350,"fixed15|2026-02":42350,"fixed15|2026-03":42350,"fixed15|2026-04":42350,"fixed15|2026-05":42350,"fixed16|2026-01":139818,"fixed16|2026-02":139818,"fixed16|2026-03":139818,"fixed16|2026-04":139818,"fixed16|2026-05":139818,"fixed17|2026-01":379101,"fixed17|2026-02":379101,"fixed17|2026-03":379101,"fixed17|2026-04":379101,"fixed17|2026-05":379101,"fixed18|2026-01":674800,"fixed18|2026-02":674800,"fixed18|2026-03":674800,"fixed18|2026-04":674800,"fixed18|2026-05":674800,"fixed19|2026-01":70490,"fixed19|2026-02":70490,"fixed19|2026-03":70490,"fixed19|2026-04":70490,"fixed19|2026-05":100490,"fixed20|2026-01":180000,"fixed20|2026-02":200000,"fixed20|2026-03":200000,"fixed20|2026-04":200000,"fixed20|2026-05":200000,"fixed20|2026-06":46987,"fixed21|2026-01":40000,"fixed21|2026-02":40000,"fixed21|2026-03":40000,"fixed21|2026-04":40000,"fixed21|2026-05":40000,"save25|2026-01":20000,"save25|2026-02":20000,"save25|2026-03":20000,"save25|2026-04":20000,"save25|2026-05":20000,"save26|2026-01":20000,"save26|2026-02":20000,"save26|2026-03":20000,"save26|2026-04":20000,"save26|2026-05":20000,"save26|2026-06":120000,"living36|2026-05":6910,"living36|2026-06":10670,"living37|2026-06":25100,"living38|2026-06":38900,"living39|2026-05":400000,"living39|2026-06":52900,"living40|2026-06":125000,"living41|2026-05":26000,"living41|2026-06":183210,"living42|2026-01":153173,"living42|2026-02":146939,"living42|2026-03":202627,"living42|2026-04":206010,"living42|2026-05":223074,"living45|2026-04":600000,"living45|2026-05":74550,"living47|2026-06":412702},"assetRows":[{"id":"a6","owner":"진주","name":"아파트"},{"id":"a7","owner":"진주","name":"CMA"},{"id":"a8","owner":"진주","name":"예적금"},{"id":"a9","owner":"진주","name":"주식·펀드"},{"id":"a10","owner":"진주","name":"코인"},{"id":"a11","owner":"진주","name":"연금펀드/ISA"},{"id":"a12","owner":"진주","name":"퇴직금"},{"id":"a13","owner":"진주","name":"기타 (ISA2)"},{"id":"a17","owner":"성우","name":"아파트"},{"id":"a18","owner":"성우","name":"토지(매수가)"},{"id":"a19","owner":"성우","name":"CMA"},{"id":"a20","owner":"성우","name":"예적금"},{"id":"a21","owner":"성우","name":"주식·펀드"},{"id":"a22","owner":"성우","name":"코인"},{"id":"a23","owner":"성우","name":"연금펀드/ISA"},{"id":"a24","owner":"성우","name":"퇴직금"},{"id":"a25","owner":"성우","name":"기타"},{"id":"a29","owner":"부채","name":"주택대출(미래에셋)"},{"id":"a30","owner":"부채","name":"신용대출(신한)"},{"id":"a31","owner":"부채","name":"카카오 원리금"},{"id":"a32","owner":"부채","name":"부산은행"},{"id":"a33","owner":"부채","name":"기타 대출"}],"assetCells":{"a6|init":350000000,"a6|2026-01":350000000,"a6|2026-02":350000000,"a6|2026-03":350000000,"a6|2026-04":350000000,"a6|2026-05":350000000,"a7|2026-06":1600000,"a9|2026-05":15939014,"a10|init":2280000,"a10|2026-01":2280000,"a10|2026-02":2280000,"a10|2026-03":2280000,"a10|2026-04":2280000,"a10|2026-05":2280000,"a11|init":5000000,"a11|2026-01":5500000,"a11|2026-02":6000000,"a11|2026-03":6500000,"a11|2026-04":7000000,"a11|2026-05":7852000,"a13|2026-05":1121700,"a17|init":170000000,"a17|2026-01":170000000,"a17|2026-02":170000000,"a17|2026-03":170000000,"a17|2026-04":170000000,"a17|2026-05":170000000,"a18|init":230000000,"a18|2026-01":230000000,"a18|2026-02":230000000,"a18|2026-03":230000000,"a18|2026-04":230000000,"a18|2026-05":230000000,"a19|init":20000000,"a19|2026-01":20000000,"a19|2026-02":20000000,"a19|2026-03":20000000,"a19|2026-04":20000000,"a19|2026-05":20000000,"a20|init":9600000,"a20|2026-01":9700000,"a20|2026-02":9800000,"a20|2026-03":9820000,"a20|2026-04":9840000,"a20|2026-05":9860000,"a21|init":33309003,"a21|2026-01":33309003,"a21|2026-02":33309003,"a21|2026-03":33309003,"a21|2026-04":33309003,"a21|2026-05":36493176,"a22|init":374435,"a22|2026-01":374435,"a22|2026-02":374435,"a22|2026-03":374435,"a22|2026-04":374435,"a22|2026-05":3643243,"a24|2026-05":50000000,"a29|init":53000000,"a29|2026-01":53000000,"a29|2026-02":53000000,"a29|2026-03":53000000,"a29|2026-04":53000000,"a29|2026-05":53000000,"a30|init":57000000,"a30|2026-01":57000000,"a30|2026-02":57000000,"a30|2026-03":57000000,"a30|2026-04":57000000,"a30|2026-05":57000000,"a31|init":5000000,"a31|2026-01":5000000,"a31|2026-02":5000000,"a31|2026-03":5000000,"a31|2026-04":5000000,"a31|2026-05":5000000,"a32|init":5000000,"a32|2026-01":5000000,"a32|2026-02":5000000,"a32|2026-03":5000000,"a32|2026-04":5000000,"a32|2026-05":5000000},"fixed":[{"id":"f4","cat":"주거","name":"월세","amount":365570,"who":"공동","day":5,"status":"유지","memo":"","save":0},{"id":"f5","cat":"주거","name":"관리비(헬스 포함)","amount":250000,"who":"공동","day":25,"status":"유지","memo":"","save":0},{"id":"f6","cat":"주거","name":"삼천리(가스)","amount":10000,"who":"공동","day":25,"status":"유지","memo":"","save":0},{"id":"f7","cat":"주거","name":"인터넷+TV","amount":24200,"who":"공동","day":10,"status":"점검","memo":"약정 재협상","save":5000},{"id":"f8","cat":"통신","name":"핸드폰(진주)","amount":21000,"who":"진주","day":10,"status":"유지","memo":"알뜰폰","save":0},{"id":"f9","cat":"통신","name":"핸드폰(성우)","amount":42350,"who":"성우","day":10,"status":"유지","memo":"알뜰폰","save":0},{"id":"f10","cat":"보험","name":"실비(진주)","amount":24750,"who":"진주","day":1,"status":"유지","memo":"필수","save":0},{"id":"f11","cat":"보험","name":"롯데(진주)","amount":70393,"who":"진주","day":1,"status":"점검","memo":"보장 내용 확인","save":0},{"id":"f12","cat":"보험","name":"암보험(진주)","amount":19925,"who":"진주","day":1,"status":"유지","memo":"","save":0},{"id":"f13","cat":"보험","name":"운전자(진주)","amount":24750,"who":"진주","day":1,"status":"유지","memo":"","save":0},{"id":"f14","cat":"보험","name":"실비(성우)","amount":11760,"who":"성우","day":5,"status":"유지","memo":"필수","save":0},{"id":"f15","cat":"보험","name":"롯데(성우)","amount":145927,"who":"성우","day":5,"status":"🚨 점검","memo":"보장 종류 확인","save":0},{"id":"f16","cat":"보험","name":"암보험미래","amount":28137,"who":"성우","day":5,"status":"점검","memo":"중복 가능성","save":0},{"id":"f17","cat":"보험","name":"종신(성우)","amount":438000,"who":"성우","day":5,"status":"유지","memo":"어머님이 부담","save":0},{"id":"f18","cat":"보험","name":"건강메리츠","amount":12060,"who":"성우","day":5,"status":"점검","memo":"","save":0},{"id":"f19","cat":"보험","name":"종합한화","amount":10546,"who":"성우","day":5,"status":"점검","memo":"","save":0},{"id":"f20","cat":"보험","name":"종합건강롯데","amount":10000,"who":"성우","day":5,"status":"점검","memo":"","save":0},{"id":"f21","cat":"보험","name":"어린이NH","amount":56826,"who":"성우","day":5,"status":"🚨 점검","memo":"자녀X, 만기확인","save":56826},{"id":"f22","cat":"보험","name":"한화자녀","amount":46345,"who":"성우","day":5,"status":"🚨 점검","memo":"자녀X, 만기확인","save":46345},{"id":"f23","cat":"보험","name":"아이사랑MG","amount":43500,"who":"성우","day":5,"status":"🚨 점검","memo":"자녀X, 만기확인","save":43500},{"id":"f24","cat":"보험","name":"운전자(성우)","amount":14000,"who":"성우","day":5,"status":"유지","memo":"","save":0},{"id":"f25","cat":"이자","name":"미래에셋","amount":314703,"who":"공동","day":25,"status":"확인","memo":"","save":0},{"id":"f26","cat":"이자","name":"카카오 원리금","amount":97733,"who":"공동","day":25,"status":"확인","memo":"","save":0},{"id":"f28","cat":"이자","name":"신한 신용","amount":215912,"who":"공동","day":25,"status":"🚨 확인","memo":"금리 높음 우선상환","save":0},{"id":"f29","cat":"구독","name":"쿠팡","amount":7890,"who":"공동","day":1,"status":"유지","memo":"","save":0},{"id":"f30","cat":"구독","name":"넷플","amount":8000,"who":"공동","day":1,"status":"유지","memo":"","save":0},{"id":"f31","cat":"구독","name":"유튜브","amount":14900,"who":"공동","day":1,"status":"유지","memo":"음악 포함이면 멜론 해지","save":0},{"id":"f32","cat":"구독","name":"와이즐리","amount":2900,"who":"공동","day":1,"status":"점검","memo":"","save":0},{"id":"f33","cat":"구독","name":"컬리","amount":2900,"who":"공동","day":1,"status":"점검","memo":"","save":0},{"id":"f34","cat":"구독","name":"네이버","amount":4900,"who":"공동","day":1,"status":"점검","memo":"쿠팡 혜택과 중복","save":4900},{"id":"f35","cat":"청약","name":"청약(진주)","amount":20000,"who":"진주","day":5,"status":"유지","memo":"","save":0},{"id":"f36","cat":"청약","name":"청약(성우)","amount":20000,"who":"성우","day":5,"status":"유지","memo":"","save":0},{"id":"f37","cat":"차량","name":"유류비","amount":180000,"who":"공동","day":0,"status":"유지","memo":"","save":0}],"loans":[{"id":"l4","name":"미래에셋 주택","bank":"미래에셋","kind":"주택담보","balance":0,"rate":0.04,"monthly":314703,"priority":3,"memo":"이자 큰 편","owner":"성우"},{"id":"l5","name":"카카오 원리금","bank":"카카오뱅크","kind":"신용","balance":0,"rate":0.055,"monthly":97733,"priority":1,"memo":"원리금 균등","owner":"성우"},{"id":"l7","name":"신한 신용","bank":"신한은행","kind":"신용","balance":0,"rate":0.0495,"monthly":215912,"priority":2,"memo":"🚨 금리 높음 우선상환","owner":"성우"}],"goal":{"target":1500000000,"rate":0.05,"monthlySave":3000000},"habits":[{"id":"h11","name":"☕ 카페 텀블러 사용","per":300,"target":20,"done":2,"memo":"다회용컵 할인"},{"id":"h12","name":"🚇 택시 대신 대중교통","per":5000,"target":8,"done":0,"memo":""},{"id":"h13","name":"🛒 식단표 작성 후 장보기","per":30000,"target":4,"done":0,"memo":"충동구매 방지"},{"id":"h14","name":"📦 배달앱 안쓰기","per":20000,"target":6,"done":1,"memo":""},{"id":"h15","name":"💧 생수 대신 정수기 물","per":1000,"target":20,"done":0,"memo":""},{"id":"h16","name":"🚶 1km 걷기","per":5000,"target":8,"done":0,"memo":""},{"id":"h17","name":"🛍️ 30일 룰","per":100000,"target":1,"done":0,"memo":"10만원+ 비필수 보류"},{"id":"h18","name":"📺 OTT 가족 공유","per":3000,"target":4,"done":0,"memo":""},{"id":"h19","name":"💡 에어컨 1도 올리기","per":5000,"target":4,"done":0,"memo":"여름"},{"id":"h20","name":"⛽ 오피넷 최저가 주유","per":2000,"target":4,"done":0,"memo":""},{"id":"h21","name":"🍷 술 한 잔 줄이기","per":5000,"target":4,"done":0,"memo":"건강+절약"}],"memo":"진주\n퇴직금 알아보기"};
 let state, ui = { tab:'home', m:0, aKey:'', annual:false, fixedFilter:'전체' };
 let applyingRemote = false;
 
@@ -852,6 +852,41 @@ const annualDone = (a, m) => !!((a.done||{})[annualDoneKey(a,m)]);
 /* 이번 달에 낼 것 / 다음 달에 낼 것 */
 function annualsOfMonth(m){
   return annualList().filter(a=>(a.months||[]).includes(m) && !annualDone(a,m));
+}
+/* ============================================================
+   📆 이번 달 며칠에 무엇이 빠져나가나
+   ------------------------------------------------------------
+   고정비·대출·카드·세금이 저마다 다른 날에 나갑니다. 날짜를 적어 두면
+   한 줄로 모아 보여 줍니다. 날짜를 안 적은 것은 '날짜 미정'으로 따로 모읍니다.
+   ============================================================ */
+const PAYOUT_KINDS = { fixed:'🔁', loan:'💳', card:'💳', annual:'🔔' };
+const todayDay = () => new Date().getDate();
+function payoutDays(m){
+  const key = mk(m), out = [];
+  (state.fixed||[]).forEach(f=>{
+    if(f.active === false) return;
+    const amt = +f.amount||0; if(!amt) return;
+    out.push({ day:+f.day||0, name:f.name, sub:f.who||'', amount:amt, kind:'fixed' });
+  });
+  (state.loans||[]).forEach(l=>{
+    const amt = +l.monthly||0; if(!amt) return;
+    out.push({ day:+l.day||0, name:l.name, sub:l.owner||'', amount:amt, kind:'loan' });
+  });
+  payList().filter(p=>p.kind==='card' && p.billDay).forEach(p=>{
+    const v = stmtOf(p.id,key) || paySumPeriod(p.id, m);
+    if(!v) return;
+    out.push({ day:+p.billDay, name:p.name, sub:payPeriod(p,m).label, amount:v, kind:'card' });
+  });
+  annualsOfMonth(m).forEach(a=>{
+    const amt = +a.amount||0; if(!amt) return;
+    out.push({ day:+a.day||0, name:a.name, sub:'1년에 한두 번', amount:amt, kind:'annual' });
+  });
+  return out.sort((a,b)=> (a.day||99) - (b.day||99) || b.amount - a.amount);
+}
+/* 날짜를 안 적어 둔 것이 몇 개인지 (고정비·대출만 — 카드는 결제일이 필수라 이미 걸러집니다) */
+function payoutNoDay(){
+  return (state.fixed||[]).filter(f=>f.active!==false && (+f.amount||0) && !(+f.day)).length
+       + (state.loans||[]).filter(l=>(+l.monthly||0) && !(+l.day)).length;
 }
 /* 세금을 적어 둘 가계부 항목 (없으면 생활비에 만든다) */
 function taxItemId(){
@@ -1767,25 +1802,39 @@ function viewHome(){
     })()}
 
     ${(()=>{
-      const m = nowMonthIdx(), key = mk(m);
-      const cards = payList().filter(p=>p.kind==='card' && p.billDay);
-      if(!cards.length) return '';
-      const rows = cards.map(p=>({ p, st: stmtOf(p.id,key), sum: paySumPeriod(p.id, m) }))
-                        .sort((a,b)=>a.p.billDay-b.p.billDay);
-      const total = rows.reduce((s,r)=>s+(r.st || r.sum), 0);
-      if(!total) return '';
-      return `<div class="sec-title"><h2>📆 ${m}월 카드 결제 예정</h2>
-          <button class="chip" data-act="tab" data-tab="ledger">대조 ›</button></div>
+      const m = nowMonthIdx(), rows = payoutDays(m);
+      if(!rows.length) return '';
+      const today = todayDay();
+      const total = rows.reduce((s,r)=>s+r.amount, 0);
+      const left  = rows.filter(r=>!r.day || r.day >= today).reduce((s,r)=>s+r.amount, 0);
+      const noDay = payoutNoDay();
+      /* 같은 날에 나가는 것끼리 묶습니다 */
+      const days = []; 
+      rows.forEach(r=>{
+        const g = days.find(x=>x.day === r.day);
+        if(g){ g.list.push(r); g.sum += r.amount; } else days.push({ day:r.day, list:[r], sum:r.amount });
+      });
+      return `<div class="sec-title"><h2>📆 ${m}월 나가는 날</h2>
+          <button class="chip" data-act="tab" data-tab="fixed">결제일 고치기 ›</button></div>
         <div class="card">
-          ${rows.map(r=>`<div class="fx">
-            <div class="ic" style="background:var(--soft)">${r.p.billDay}일</div>
-            <div class="grow"><div class="nm" style="font-size:13px;font-weight:800">${esc(r.p.name)}</div>
-              <div class="tiny muted">${esc(payPeriod(r.p, m).label)}${r.st? '' : ' · 명세서 금액 미입력(적어 둔 합계로 계산)'}</div></div>
-            <div class="val">${num(r.st || r.sum)}</div>
-          </div>`).join('')}
-          <div class="sec-foot"><span>이 달 빠져나갈 카드값</span>
+          ${days.map(g=>`<button class="fx" data-act="payoutDay" data-d="${g.day}" style="width:100%;text-align:left">
+            <div class="ic" style="background:${g.day && g.day < today ? 'var(--soft)' : 'var(--gold-s)'};
+                 ${g.day && g.day < today ? 'opacity:.55' : ''}">${g.day? g.day+'일' : '미정'}</div>
+            <div class="grow" style="min-width:0">
+              <div class="nm" style="font-size:13px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                ${g.list.map(r=>`${PAYOUT_KINDS[r.kind]} ${esc(r.name)}`).join(' · ')}</div>
+              <div class="tiny muted">${g.day && g.day < today ? '지났어요 · ' : ''}${
+                g.list.length>1? `${g.list.length}건` : esc(g.list[0].sub||'')}</div></div>
+            <div class="val" style="${g.day && g.day < today ? 'opacity:.55' : ''}">${num(g.sum)}</div>
+          </button>`).join('')}
+          <div class="sec-foot"><span>이 달 다 나가면</span>
             <b style="font-size:14px">${num(total)}원</b></div>
-        </div>`;
+          ${left !== total? `<div class="sec-foot" style="border-top:none;padding-top:0">
+            <span>오늘(${today}일)부터 남은 것</span>
+            <b style="font-size:14px;color:var(--spend)">${num(left)}원</b></div>`:''}
+        </div>
+        ${noDay? `<div class="tiny muted" style="margin:7px 4px 0;line-height:1.7">
+          결제일을 안 적어 둔 게 <b>${noDay}개</b> 있어요 — 🔁 고정비 탭에서 넣어 두면 날짜에 맞춰 올라옵니다.</div>`:''}`;
     })()}
 
     <div class="card">
@@ -2230,6 +2279,7 @@ function viewFixed(){
             ${/🚨/.test(l.memo||'')? '<span class="badge alert">우선상환</span>':''}
             ${!(+l.balance)? '<span class="badge check">잔액 미입력</span>':''}</div>
           <div class="sub">${[esc(l.bank||''), l.rate? `연 ${(l.rate*100).toFixed(2)}%`:'', esc(l.owner||''),
+              l.day? `매달 ${l.day}일` : '<span style="color:var(--gold)">결제일 미입력</span>',
               l.memo? esc(l.memo.replace('🚨 ','')):''].filter(Boolean).join(' · ')}
             ${(+l.balance) && l.rate? `<br>이번 달 원금 <b>${num(principal)}</b> · 이자 <b>${num(interest)}</b>${loanInterestOnly(l,nowK)? ' · 이자만 내는 중':''}`:''}</div></div>
         <div style="text-align:right">
@@ -2438,6 +2488,28 @@ function openModal(html){
   $('#modalRoot .mask').addEventListener('click', e=>{ if(e.target.hasAttribute('data-mask')) closeModal(); });
 }
 
+/* 나가는 날 하나를 눌렀을 때 — 그 날 빠져나가는 것들 */
+function openPayoutDay(day){
+  const m = nowMonthIdx();
+  const list = payoutDays(m).filter(r=>r.day === day);
+  if(!list.length) return;
+  const sum = list.reduce((a,r)=>a+r.amount, 0);
+  const KIND = { fixed:'고정비', loan:'대출', card:'카드값', annual:'세금·연회비' };
+  openModal(`<div class="modal">
+    <div class="mhead"><h3>${day? `${m}월 ${day}일` : '결제일 미정'}</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted">${list.length}건 · 합계 <b>${num(sum)}원</b></div>
+    <div class="card" style="margin-top:11px">
+      ${list.map(r=>`<div class="line-item" style="cursor:default">
+        <div class="grow" style="min-width:0">
+          <div class="nm">${PAYOUT_KINDS[r.kind]} ${esc(r.name)}</div>
+          <div class="sub">${esc(KIND[r.kind])}${r.sub? ' · '+esc(r.sub):''}</div></div>
+        <div class="val">${num(r.amount)}</div></div>`).join('')}
+    </div>
+    ${!day? `<div class="note" style="margin-top:10px">결제일을 넣어 두면 날짜에 맞춰 올라옵니다 —
+      🔁 고정비 탭에서 해당 항목을 눌러 <b>결제일</b> 칸을 채워 주세요.</div>`:''}
+    <button class="btn ghost block sm" style="margin-top:10px" data-act="tab" data-tab="fixed">🔁 고정비에서 고치기</button>
+  </div>`);
+}
 /* ---------- 5-1. 가계부 칸 편집 ---------- */
 function openCell(itemId){
   const it = itemById(itemId); if(!it) return;
@@ -2668,7 +2740,7 @@ function openLoanFormDraft(l){
     </div>
     <div class="g2">
       <div class="field"><label>월 상환액 (원금+이자)</label><input id="lnMon" data-money inputmode="numeric" value="${l.monthly? num(l.monthly):''}"></div>
-      <div class="field"><label>상환 우선순위</label><input id="lnPri" type="number" min="0" value="${l.priority||0}"></div>
+      <div class="field"><label>결제일 (매달 며칠)</label><input id="lnDay" type="number" min="0" max="31" value="${l.day||0}"></div>
     </div>
     <div class="g2">
       <div class="field"><label>잔액 기준 달</label>
@@ -2680,6 +2752,7 @@ function openLoanFormDraft(l){
           <option value="grace" ${l.method==='grace'?'selected':''}>거치 중 (이자만) → 이후 원금</option>
         </select></div>
     </div>
+    <div class="field"><label>상환 우선순위</label><input id="lnPri" type="number" min="0" value="${l.priority||0}"></div>
     ${l.method==='grace'? `<div class="field"><label>거치 끝나는 달</label>
       <input id="lnGrace" type="month" value="${l.graceUntil||''}"></div>`
       : `<input id="lnGrace" type="hidden" value="${l.graceUntil||''}">`}
@@ -3144,6 +3217,8 @@ function openAnnualForm(id){
       <input id="anName" value="${esc(a.name)}" placeholder="예: 재산세 (주택)"></div>
     <div class="field"><label>한 번에 내는 금액 (모르면 비워 두세요)</label>
       <input id="anAmt" data-money inputmode="numeric" value="${a.amount? num(a.amount):''}"></div>
+    <div class="field"><label>내는 날 (매달 며칠 · 모르면 비워 두세요)</label>
+      <input id="anDay" type="number" min="0" max="31" value="${a.day||0}"></div>
     <div class="field"><label>내는 달 (여러 개 고를 수 있어요)</label>
       <div class="mgrid">
         ${Array.from({length:12},(_,i)=>i+1).map(m=>`<button class="${(a.months||[]).includes(m)?'on':''}"
@@ -3573,6 +3648,7 @@ document.addEventListener('click', async (e)=>{
   case 'anSave': {
     const o = { name:$('#anName').value.trim(), amount:parseAmount($('#anAmt').value)||0,
                 months:annualDraftMonths.slice().sort((x,y)=>x-y), itemId:$('#anItem').value,
+                day: Math.min(31, Math.max(0, +$('#anDay').value||0)),
                 memo:$('#anMemo').value.trim(), active:$('#anActive').checked };
     if(!o.name){ toast('이름을 넣어 주세요'); break; }
     if(!o.months.length){ toast('내는 달을 골라 주세요'); break; }
@@ -3657,6 +3733,7 @@ document.addEventListener('click', async (e)=>{
     toast(`${num(diff)}원을 ${+key.slice(5)}월 ${itemById(tid).name}에 넣었어요`); break;
   }
 
+  case 'payoutDay': openPayoutDay(+b.dataset.d||0); break;
   case 'pickMonth': openMonthPicker(); break;
   case 'pickAsset': openAssetPicker(); break;
   case 'goMonth': ui.m = +b.dataset.m; ui.tab='ledger'; ui.annual=false;
@@ -3915,6 +3992,7 @@ document.addEventListener('click', async (e)=>{
     const o = { name:$('#lnName').value.trim(), bank:$('#lnBank').value.trim(), owner:$('#lnOwner').value,
                 balance:parseAmount($('#lnBal').value)||0, rate:(parseFloat($('#lnRate').value)||0)/100,
                 monthly:parseAmount($('#lnMon').value)||0, priority:+$('#lnPri').value||0,
+                day: Math.min(31, Math.max(0, +$('#lnDay').value||0)),
                 memo:$('#lnMemo').value.trim(), itemId:$('#lnItem').value,
                 balanceAsOf:$('#lnAsOf').value || mk(nowMonthIdx()), method:$('#lnMethod').value,
                 graceUntil:$('#lnGrace')?.value || '', assetRowId:$('#lnAsset').value };
@@ -4149,6 +4227,7 @@ document.addEventListener('change', e=>{
       name:$('#lnName').value, bank:$('#lnBank').value, owner:$('#lnOwner').value,
       balance:parseAmount($('#lnBal').value)||0, rate:(parseFloat($('#lnRate').value)||0)/100,
       monthly:parseAmount($('#lnMon').value)||0, priority:+$('#lnPri').value||0,
+      day:+$('#lnDay').value||0,
       balanceAsOf:$('#lnAsOf').value, method:t.value, graceUntil:$('#lnGrace')?.value||'',
       itemId:$('#lnItem').value, assetRowId:$('#lnAsset').value, memo:$('#lnMemo').value });
     return;
@@ -4356,6 +4435,12 @@ state.stmtFill = state.stmtFill || {};
 state.payeeMap = state.payeeMap || {};
 state.annuals = state.annuals || [];
 if(state.autoFixed === undefined) state.autoFixed = true;
+/* 실비 환급처럼 '나갔던 돈이 돌아온 것'은 상여와 섞이면 안 돼서 칸을 따로 둡니다.
+   id 를 고정해 두어 두 폰이 각자 만들어도 하나로 남습니다. */
+if(!state.items.some(i=>i.id === 'income9' || /보험\s*환급/.test(i.name))){
+  const at = state.items.map((i,n)=>i.section==='income'? n : -1).reduce((a,b)=>Math.max(a,b), -1);
+  state.items.splice(at + 1, 0, { id:'income9', section:'income', name:'보험 환급', auto:false });
+}
 /* 🧊 냉장고 앱 기록이 같은 브라우저에 있으면 처음 한 번 자동으로 켠다 */
 if(!state.link) state.link = blankLink();
 if(!state.link.asked && fridgeHere()){ state.link.enabled = true; state.link.asked = true; }
