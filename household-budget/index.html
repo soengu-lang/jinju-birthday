@@ -883,6 +883,36 @@ function payoutDays(m){
   });
   return out.sort((a,b)=> (a.day||99) - (b.day||99) || b.amount - a.amount);
 }
+/* 수입 항목에 적어 둔 '들어오는 날' */
+function incomeDays(m){
+  const key = mk(m);
+  return itemsOf('income').map(i=>({ day:+i.day||0, name:i.name, sub:'', amount:cellVal(i.id,key),
+                                     kind:'income', itemId:i.id }))
+                          .filter(r=>r.amount > 0);
+}
+/* 들어오고 나가는 것을 날짜순으로 묶고, 그날그날 통장이 어떻게 되는지 더해 갑니다.
+   급여일이 서로 다르면 '월급 들어오기 전에 얼마가 빠져나가는지'가 여기서 드러납니다. */
+function cashDays(m){
+  const days = [];
+  [...incomeDays(m), ...payoutDays(m)].forEach(r=>{
+    let g = days.find(x=>x.day === (r.day||0));
+    if(!g){ g = { day:r.day||0, list:[], in:0, out:0 }; days.push(g); }
+    g.list.push(r);
+    if(r.kind === 'income') g.in += r.amount; else g.out += r.amount;
+  });
+  days.sort((a,b)=>(a.day||99) - (b.day||99));          /* 날짜 미정은 맨 뒤 */
+  let bal = 0;
+  days.forEach(g=>{ g.list.sort((a,b)=> (a.kind==='income'?0:1) - (b.kind==='income'?0:1) || b.amount-a.amount);
+                    bal += g.in - g.out; g.bal = bal; });
+  return days;
+}
+/* 달을 통틀어 통장이 가장 많이 마이너스로 내려가는 지점 — 미리 깔아 둬야 할 돈 */
+function cashLow(days){
+  const dated = days.filter(g=>g.day);
+  if(!dated.length) return null;
+  const low = dated.reduce((a,g)=> g.bal < a.bal ? g : a, dated[0]);
+  return low.bal < 0 ? low : null;
+}
 /* 날짜를 안 적어 둔 것이 몇 개인지 (고정비·대출만 — 카드는 결제일이 필수라 이미 걸러집니다) */
 function payoutNoDay(){
   return (state.fixed||[]).filter(f=>f.active!==false && (+f.amount||0) && !(+f.day)).length
@@ -1802,37 +1832,49 @@ function viewHome(){
     })()}
 
     ${(()=>{
-      const m = nowMonthIdx(), rows = payoutDays(m);
-      if(!rows.length) return '';
+      const m = nowMonthIdx(), days = cashDays(m);
+      if(!days.length) return '';
       const today = todayDay();
-      const total = rows.reduce((s,r)=>s+r.amount, 0);
-      const left  = rows.filter(r=>!r.day || r.day >= today).reduce((s,r)=>s+r.amount, 0);
-      const noDay = payoutNoDay();
-      /* 같은 날에 나가는 것끼리 묶습니다 */
-      const days = []; 
-      rows.forEach(r=>{
-        const g = days.find(x=>x.day === r.day);
-        if(g){ g.list.push(r); g.sum += r.amount; } else days.push({ day:r.day, list:[r], sum:r.amount });
-      });
-      return `<div class="sec-title"><h2>📆 ${m}월 나가는 날</h2>
+      const inTot  = days.reduce((a,g)=>a+g.in, 0);
+      const outTot = days.reduce((a,g)=>a+g.out, 0);
+      const left   = days.filter(g=>!g.day || g.day >= today).reduce((a,g)=>a+g.out, 0);
+      const noDay  = payoutNoDay();
+      const inNoDay = itemsOf('income').filter(i=>cellVal(i.id,mk(m)) && !(+i.day)).length;
+      const low = cashLow(days);
+      return `<div class="sec-title"><h2>📆 ${m}월 들어오고 나가는 날</h2>
           <button class="chip" data-act="tab" data-tab="fixed">결제일 고치기 ›</button></div>
         <div class="card">
-          ${days.map(g=>`<button class="fx" data-act="payoutDay" data-d="${g.day}" style="width:100%;text-align:left">
-            <div class="ic" style="background:${g.day && g.day < today ? 'var(--soft)' : 'var(--gold-s)'};
-                 ${g.day && g.day < today ? 'opacity:.55' : ''}">${g.day? g.day+'일' : '미정'}</div>
+          ${days.map(g=>{
+            const past = g.day && g.day < today, net = g.in - g.out;
+            return `<button class="fx" data-act="payoutDay" data-d="${g.day}" style="width:100%;text-align:left">
+            <div class="ic" style="background:${g.in && !g.out ? 'var(--income-s,#e6f4ec)' : past ? 'var(--soft)' : 'var(--gold-s)'};
+                 ${past? 'opacity:.55':''}">${g.day? g.day+'일' : '미정'}</div>
             <div class="grow" style="min-width:0">
               <div class="nm" style="font-size:13px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-                ${g.list.map(r=>`${PAYOUT_KINDS[r.kind]} ${esc(r.name)}`).join(' · ')}</div>
-              <div class="tiny muted">${g.day && g.day < today ? '지났어요 · ' : ''}${
-                g.list.length>1? `${g.list.length}건` : esc(g.list[0].sub||'')}</div></div>
-            <div class="val" style="${g.day && g.day < today ? 'opacity:.55' : ''}">${num(g.sum)}</div>
-          </button>`).join('')}
-          <div class="sec-foot"><span>이 달 다 나가면</span>
-            <b style="font-size:14px">${num(total)}원</b></div>
-          ${left !== total? `<div class="sec-foot" style="border-top:none;padding-top:0">
-            <span>오늘(${today}일)부터 남은 것</span>
+                ${g.list.map(r=>`${r.kind==='income'?'💰':PAYOUT_KINDS[r.kind]} ${esc(r.name)}`).join(' · ')}</div>
+              <div class="tiny muted">${past? '지났어요 · ':''}${g.list.length>1? `${g.list.length}건 · ` : ''}${
+                g.day? `이때까지 <b style="color:${g.bal<0?'var(--spend)':'var(--income)'}">${g.bal<0?'−':'+'}${num(Math.abs(g.bal))}</b>` : ''}</div></div>
+            <div class="val" style="${past? 'opacity:.55':''};color:${net>0?'var(--income)':'inherit'}">
+              ${net>0? '+'+num(net) : num(-net)}</div>
+          </button>`; }).join('')}
+          <div class="sec-foot"><span>들어올 돈</span>
+            <b style="font-size:14px;color:var(--income)">${num(inTot)}원</b></div>
+          <div class="sec-foot" style="border-top:none;padding-top:0"><span>나갈 돈</span>
+            <b style="font-size:14px">${num(outTot)}원</b></div>
+          <div class="sec-foot" style="border-top:none;padding-top:0"><span>이 달 남는 돈</span>
+            <b style="font-size:14px;color:${inTot-outTot<0?'var(--spend)':'var(--navy)'}">${num(inTot-outTot)}원</b></div>
+          ${left? `<div class="sec-foot" style="border-top:none;padding-top:0">
+            <span>오늘(${today}일)부터 나갈 것</span>
             <b style="font-size:14px;color:var(--spend)">${num(left)}원</b></div>`:''}
         </div>
+        ${low? `<div class="note" style="margin-top:8px">💡 <b>${low.day}일</b>이 가장 빠듯해요 —
+          그때까지 들어올 돈보다 <b>${num(-low.bal)}원</b>이 더 나갑니다.
+          <b>${num(-low.bal)}원</b>은 달 시작 전에 통장에 있어야 합니다.</div>`:''}
+        ${!inTot? `<div class="tiny muted" style="margin:7px 4px 0;line-height:1.7">
+          이 달 수입을 아직 안 적어서 <b>들어올 돈이 안 보여요</b> —
+          🧾 가계부 탭 💰 수입 카드의 <b>지난달 값 채우기</b>를 누르면 미리 채워집니다.</div>`:''}
+        ${inNoDay? `<div class="tiny muted" style="margin:7px 4px 0;line-height:1.7">
+          <b>들어오는 날</b>을 안 적어 둔 수입이 ${inNoDay}개 있어요 — 🧾 가계부에서 그 항목을 눌러 넣어 주세요.</div>`:''}
         ${noDay? `<div class="tiny muted" style="margin:7px 4px 0;line-height:1.7">
           결제일을 안 적어 둔 게 <b>${noDay}개</b> 있어요 — 🔁 고정비 탭에서 넣어 두면 날짜에 맞춰 올라옵니다.</div>`:''}`;
     })()}
@@ -1931,7 +1973,8 @@ function viewLedger(){
           const v = cellVal(i.id,cur), n = entriesOf(i.id,cur).length, lk = linkVal(i.id,cur);
           const fa = fixedAutoVal(i.id, cur);
           const gap = autoGapOf(i.id, cur);
-          const sub = [ fa? `🔁 고정비에서 ${num(fa)}원` : '',
+          const sub = [ i.section==='income' && i.day? `매달 ${i.day}일` : '',
+                        fa? `🔁 고정비에서 ${num(fa)}원` : '',
                         gap? `<span style="color:var(--gold)">🔁 고정비·대출은 ${num(gap.want)}원</span>` : '',
                         lk? `🧊 냉장고에서 ${num(lk)}원` : '',
                         n? `상세 기록 ${n}건` : '' ].filter(Boolean).join(' · ');
@@ -2491,23 +2534,29 @@ function openModal(html){
 /* 나가는 날 하나를 눌렀을 때 — 그 날 빠져나가는 것들 */
 function openPayoutDay(day){
   const m = nowMonthIdx();
-  const list = payoutDays(m).filter(r=>r.day === day);
-  if(!list.length) return;
-  const sum = list.reduce((a,r)=>a+r.amount, 0);
-  const KIND = { fixed:'고정비', loan:'대출', card:'카드값', annual:'세금·연회비' };
+  const g = cashDays(m).find(x=>x.day === day);
+  if(!g) return;
+  const list = g.list;
+  const KIND = { income:'수입', fixed:'고정비', loan:'대출', card:'카드값', annual:'세금·연회비' };
   openModal(`<div class="modal">
-    <div class="mhead"><h3>${day? `${m}월 ${day}일` : '결제일 미정'}</h3><button class="x" data-act="close">✕</button></div>
-    <div class="tiny muted">${list.length}건 · 합계 <b>${num(sum)}원</b></div>
+    <div class="mhead"><h3>${day? `${m}월 ${day}일` : '날짜 미정'}</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted">${list.length}건 ·
+      ${g.in? `들어올 돈 <b style="color:var(--income)">${num(g.in)}원</b>` : ''}${g.in&&g.out? ' · ':''}${
+        g.out? `나갈 돈 <b>${num(g.out)}원</b>` : ''}${
+        day? ` · 이때까지 <b style="color:${g.bal<0?'var(--spend)':'var(--income)'}">${g.bal<0?'−':'+'}${num(Math.abs(g.bal))}원</b>`:''}</div>
     <div class="card" style="margin-top:11px">
       ${list.map(r=>`<div class="line-item" style="cursor:default">
         <div class="grow" style="min-width:0">
-          <div class="nm">${PAYOUT_KINDS[r.kind]} ${esc(r.name)}</div>
+          <div class="nm">${r.kind==='income'?'💰':PAYOUT_KINDS[r.kind]} ${esc(r.name)}</div>
           <div class="sub">${esc(KIND[r.kind])}${r.sub? ' · '+esc(r.sub):''}</div></div>
-        <div class="val">${num(r.amount)}</div></div>`).join('')}
+        <div class="val" style="${r.kind==='income'?'color:var(--income)':''}">${r.kind==='income'?'+':''}${num(r.amount)}</div></div>`).join('')}
     </div>
-    ${!day? `<div class="note" style="margin-top:10px">결제일을 넣어 두면 날짜에 맞춰 올라옵니다 —
-      🔁 고정비 탭에서 해당 항목을 눌러 <b>결제일</b> 칸을 채워 주세요.</div>`:''}
-    <button class="btn ghost block sm" style="margin-top:10px" data-act="tab" data-tab="fixed">🔁 고정비에서 고치기</button>
+    ${!day? `<div class="note" style="margin-top:10px">날짜를 넣어 두면 그 날에 맞춰 올라옵니다 —
+      나가는 것은 🔁 고정비 탭에서 <b>결제일</b>, 들어오는 것은 🧾 가계부에서 <b>들어오는 날</b>을 채워 주세요.</div>`:''}
+    <div class="row" style="margin-top:10px">
+      ${g.in? `<button class="btn ghost sm grow" data-act="tab" data-tab="ledger">🧾 가계부에서 고치기</button>`:''}
+      ${g.out? `<button class="btn ghost sm grow" data-act="tab" data-tab="fixed">🔁 고정비에서 고치기</button>`:''}
+    </div>
   </div>`);
 }
 /* ---------- 5-1. 가계부 칸 편집 ---------- */
@@ -2548,6 +2597,10 @@ function openCell(itemId){
         <button class="x" data-act="delEntry" data-id="${e.id}">✕</button></div>`).join('')}</div>
       <div class="tiny muted" style="margin-top:6px">이 달 합계 = 직접 적은 ${num(base)}원 + 상세 ${num(extra)}원
         ${lk? `+ 냉장고 ${num(lk)}원 `:''}= <b>${num(base+extra+lk)}원</b></div></div>`:''}
+    ${it.section==='income'? `<div class="field"><label>들어오는 날 (매달 며칠 · 모르면 비워 두세요)</label>
+      <input id="cDay" type="number" min="0" max="31" value="${it.day||0}">
+      <div class="tiny muted" style="margin-top:5px">넣어 두면 홈 <b>📆 들어오고 나가는 날</b>에
+        월급이 언제 들어오는지 같이 보여 드려요.</div></div>` : `
     <div class="field"><label>결제수단</label>
       <select data-item-pay="${itemId}">
         <option value="">— 지정 안 함 —</option>
@@ -2555,7 +2608,7 @@ function openCell(itemId){
           ${(PAY_KINDS[p.kind]||PAY_KINDS.card).emoji} ${esc(p.name)}</option>`).join('')}
       </select>
       <div class="tiny muted" style="margin-top:5px">지정해 두면 카드 명세서와 자동으로 대조됩니다.</div>
-    </div>
+    </div>`}
     <div class="field"><label>상세 기록 추가 (선택)</label>
       <div class="row"><input id="eAmt" data-money inputmode="numeric" placeholder="금액" class="grow">
         <input id="eMemo" placeholder="메모" class="grow">
@@ -3602,6 +3655,8 @@ document.addEventListener('click', async (e)=>{
   case 'saveCell': {
     const v = parseAmount($('#cAmt').value)||0, key = `${id}|${mk(ui.m)}`;
     if(v) state.cells[key] = v; else delete state.cells[key];
+    const it = itemById(id);
+    if(it && $('#cDay')) it.day = Math.min(31, Math.max(0, +$('#cDay').value||0));
     save(); closeModal(); render(); toast('저장했어요'); break;
   }
   case 'addEntry': {
