@@ -1115,6 +1115,28 @@ function loanSplitAt(l, key){
 const loanBalanceNow = () => (state.loans||[]).reduce((s,l)=>s+loanBalanceAt(l, mk(nowMonthIdx())), 0);
 const loansNoBalance = () => (state.loans||[]).filter(l=>!(+l.balance)).length;
 const loanOfAssetRow = rowId => (state.loans||[]).find(l=>l.assetRowId===rowId);
+/* 자산 탭 부채 줄과 아직 안 이어진 대출 */
+const loansNoAsset = () => (state.loans||[]).filter(l =>
+  (+l.balance) && !(l.assetRowId && state.assetRows.some(r=>r.id===l.assetRowId)));
+/* 이름이 가장 길게 겹치는 부채 줄 찾기 ('주담대' ↔ '주택대출(미래에셋)')
+   대출·신용 같은 흔한 말만 겹치는 건 짝으로 보지 않습니다 */
+const LOAN_STOP = /대출|신용|원리금|잔액|은행/g;
+function assetRowForLoan(l){
+  const used = new Set((state.loans||[]).filter(x=>x!==l && x.assetRowId).map(x=>x.assetRowId));
+  const pool = ownerRows('부채').filter(r=>!used.has(r.id));
+  const key = (l.name||'').replace(/\s/g,'');
+  let best = null, bestLen = 0;
+  pool.forEach(r=>{
+    const t = (r.name||'').replace(/\s/g,'');
+    for(let a=0; a<key.length; a++) for(let b=key.length; b>a+1; b--){
+      const piece = key.slice(a,b);
+      if(piece.length <= bestLen || !t.includes(piece)) continue;
+      if(!piece.replace(LOAN_STOP,'').length) continue;   /* '대출' 만 겹치는 건 무시 */
+      best = r; bestLen = piece.length;
+    }
+  });
+  return bestLen >= 2 ? best : null;
+}
 
 /* ---------- 목표 ---------- */
 /* flat = 수익률을 적용하지 않고 그대로 두는 몫(부동산·토지·퇴직금을 뺄 때) */
@@ -2228,6 +2250,13 @@ function viewAsset(){
         }).join('')}
         <div class="sec-foot"><button class="chip line" data-act="addAssetRow" data-owner="${esc(o)}">＋ 항목 추가</button>
           ${i>0? `<button class="chip line" data-act="aFillPrev" data-owner="${esc(o)}">지난달 값 채우기</button>`:''}</div>
+        ${o==='부채' && loansNoAsset().length? `<div class="pad" style="padding-top:0"><div class="note">
+          💳 <b>대출 ${loansNoAsset().length}건</b>이 아직 이 줄들과 안 이어져 있어요 —
+          이으면 갚아 나간 만큼 <b>달마다 저절로 줄어듭니다</b>.
+          <div class="tiny muted" style="margin-top:5px;font-weight:600">
+            ${loansNoAsset().map(l=>esc(l.name)).join(' · ')}</div>
+          <button class="btn sm block" style="margin-top:9px" data-act="loanAssetLink">🔗 대출을 자산 줄에 한 번에 잇기</button>
+        </div></div>`:''}
       </div>`;
     }).join('')}
 
@@ -2378,6 +2407,8 @@ function viewFixed(){
             ${!(+l.balance)? '<span class="badge check">잔액 미입력</span>':''}</div>
           <div class="sub">${[esc(l.bank||''), l.rate? `연 ${(l.rate*100).toFixed(2)}%`:'', esc(l.owner||''),
               l.day? `매달 ${l.day}일` : '<span style="color:var(--gold)">결제일 미입력</span>',
+              (+l.balance) && !(l.assetRowId && state.assetRows.some(r=>r.id===l.assetRowId))
+                ? '<span style="color:var(--gold)">💎 자산 미연결</span>' : '',
               l.memo? esc(l.memo.replace('🚨 ','')):''].filter(Boolean).join(' · ')}
             ${(+l.balance) && l.rate? `<br>이번 달 원금 <b>${num(principal)}</b> · 이자 <b>${num(interest)}</b>${loanInterestOnly(l,nowK)? ' · 이자만 내는 중':''}`:''}</div></div>
         <div style="text-align:right">
@@ -2586,6 +2617,42 @@ function openModal(html){
   $('#modalRoot .mask').addEventListener('click', e=>{ if(e.target.hasAttribute('data-mask')) closeModal(); });
 }
 
+/* 대출을 자산 탭 부채 줄에 한 번에 잇기 */
+function openLoanAssetLink(){
+  const list = loansNoAsset().map(l=>({ l, row: assetRowForLoan(l) }));
+  if(!list.length){ toast('이을 대출이 없어요'); return; }
+  const cur = mk(nowMonthIdx());          /* 대출 예상 잔액이 잡히는 달로 견줍니다 */
+  const rowAmt = r => assetCarry(r.id, cur).v;
+  const filled = ownerRows('부채').filter(r=>rowAmt(r) > 0);
+  openModal(`<div class="modal">
+    <div class="mhead"><h3>대출을 자산 줄에 잇기</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted" style="line-height:1.8">
+      이어 두면 💎 자산 탭 부채 줄이 <b>달마다 갚은 만큼 줄어듭니다.</b>
+      직접 적어 넣은 달은 그 값이 늘 우선이라 어긋나지 않아요.</div>
+    ${filled.length? `<div class="note" style="margin-top:10px">⚠️ <b>같은 빚을 두 번 적지 않게</b> 봐 주세요.
+      이미 금액이 있는 줄(<b>${filled.map(r=>esc(r.name)).join(', ')}</b>)이 같은 대출이라면
+      <b>새로 만들지 말고 그 줄을 고르세요.</b> 새로 만들면 부채가 두 번 잡힙니다.</div>`:''}
+    <div class="card" style="margin-top:11px">
+      ${list.map(({l,row})=>`<div class="fx">
+        <div class="grow" style="min-width:0">
+          <div class="nm" style="font-size:13px;font-weight:800">${esc(l.name)}</div>
+          <div class="tiny muted">${bigWon(+l.balance||0)}원 · 월 ${num(l.monthly)}원</div></div>
+        <select data-la="${esc(l.id)}" style="max-width:52%">
+          <option value="__new__" ${row?'':'selected'}>＋ '${esc(l.name)}' 줄 새로 만들기</option>
+          ${ownerRows('부채').map(r=>`<option value="${r.id}" ${row&&row.id===r.id?'selected':''}>${esc(r.name)}${
+            rowAmt(r)? ` · 지금 ${bigWon(rowAmt(r))}` : ' · 비어 있음'}</option>`).join('')}
+          <option value="">— 잇지 않음 —</option>
+        </select>
+      </div>`).join('')}
+    </div>
+    <div class="sec-foot" style="padding:9px 2px 0"><span class="tiny muted">${nowMonthIdx()}월 기준 부채 합계</span>
+      <b>${bigWon(debtTotal(cur))}원</b></div>
+    <button class="btn block" style="margin-top:10px" data-act="loanAssetLinkRun">이대로 잇기</button>
+    <div class="tiny muted" style="margin-top:8px;line-height:1.7">
+      이름이 비슷한 줄은 미리 골라 뒀어요. 이은 뒤 부채 합계가 확 늘었다면
+      같은 빚이 두 줄로 들어간 것이니 💎 자산 탭에서 한 줄을 비워 주세요.</div>
+  </div>`);
+}
 /* 나가는 날 하나를 눌렀을 때 — 그 날 빠져나가는 것들 */
 function openPayoutDay(day){
   const m = nowMonthIdx();
@@ -3859,6 +3926,27 @@ document.addEventListener('click', async (e)=>{
     toast(`${num(diff)}원을 ${+key.slice(5)}월 ${itemById(tid).name}에 넣었어요`); break;
   }
 
+  case 'loanAssetLink': openLoanAssetLink(); break;
+  case 'loanAssetLinkRun': {
+    const k = mk(nowMonthIdx());
+    const hadFilled = ownerRows('부채').some(r=>assetCarry(r.id,k).v > 0);
+    let n = 0, made = 0;
+    $$('[data-la]').forEach(sel=>{
+      const l = (state.loans||[]).find(x=>x.id === sel.dataset.la);
+      if(!l || !sel.value) return;
+      if(sel.value === '__new__'){
+        const row = { id:uid(), owner:'부채', name:l.name };
+        state.assetRows.push(row); l.assetRowId = row.id; made++;
+      } else l.assetRowId = sel.value;
+      if(!l.balanceAsOf) l.balanceAsOf = k;
+      n++;
+    });
+    save(); closeModal(); render();
+    /* 이미 금액이 있는 줄이 있는데 새 줄을 만들었으면 같은 빚이 두 번일 수 있습니다 */
+    toast(n? (made && hadFilled
+          ? `이었어요 · 새 줄 ${made}개를 만들었어요 — 같은 빚이 두 줄이 아닌지 봐 주세요 (부채 ${bigWon(debtTotal(k))}원)`
+          : `대출 ${n}건을 자산 줄에 이었어요`) : '이은 게 없어요'); break;
+  }
   case 'payoutDay': openPayoutDay(+b.dataset.d||0); break;
   case 'pickMonth': openMonthPicker(); break;
   case 'pickAsset': openAssetPicker(); break;
