@@ -466,7 +466,7 @@ function blankState(){
     items:[], cells:{}, entries:[], assetRows:[], assetCells:{},
     fixed:[], loans:[], goal:{ target:0, rate:0.05, monthlySave:0 },
     habits:[], habitLog:{}, memo:'', sync:{ enabled:false }, link:blankLink(),
-    pays:DEF_PAYS.map(p=>({...p})), itemPay:{}, stmt:{}, stmtFill:{}, payeeMap:{}, annuals:[] };
+    pays:DEF_PAYS.map(p=>({...p})), itemPay:{}, itemAsset:{}, stmt:{}, stmtFill:{}, payeeMap:{}, annuals:[] };
 }
 function seedState(){
   const s = blankState();
@@ -994,6 +994,50 @@ const assetKeys = () => ['init', ...Array.from({length:12},(_,i)=>mk(i+1))];
 const assetKeyLabel = k => k==='init' ? `초기(${state.year-1}.12)` : `${+k.slice(5)}월`;
 const assetRaw = (rowId,key) => state.assetCells[`${rowId}|${key}`];
 /* 그 달에 안 적었으면 가장 최근에 적은 값이 이어집니다 */
+/* ============================================================
+   💸 가계부 항목 ↔ 💎 자산 줄 연결
+   ------------------------------------------------------------
+   여행비를 CMA 에서 쓴다고 정해 두면, 자산 탭 CMA 에서 그만큼 빠진 값을
+   보여 줍니다. 저축 항목(적금·ISA…)은 반대로 그 자산으로 들어갑니다.
+
+   ⚠️ 두 번 빼지 않으려면: 그 달 자산을 직접 적으셨으면 그 값이 늘 우선이고,
+   자동 계산은 '아직 안 적은 달'에만 씁니다. 고정비 자동 반영과 같은 규칙입니다.
+   ============================================================ */
+const assetOfItem = itemId => (state.itemAsset || {})[itemId] || '';
+/* 저축은 자산으로 들어가고(+), 고정비·생활비는 자산에서 빠집니다(−) */
+const assetSign = item => item.section === 'save' ? 1 : -1;
+/* 그 달 이 자산에 연결된 항목들이 만든 증감 */
+function assetMove(rowId, key){
+  const map = state.itemAsset;
+  if(!map || !rowId || key === 'init') return 0;
+  let sum = 0;
+  state.items.forEach(i=>{
+    if(map[i.id] !== rowId || i.section === 'income') return;
+    sum += assetSign(i) * cellVal(i.id, key);
+  });
+  return sum;
+}
+/* 마지막으로 적어 둔 달 다음부터 이 달까지 쌓인 증감 */
+function assetMoveSince(rowId, fromKey, toKey){
+  const keys = assetKeys(), a = keys.indexOf(fromKey), b = keys.indexOf(toKey);
+  if(a < 0 || b <= a) return 0;
+  let sum = 0;
+  for(let i = a + 1; i <= b; i++) sum += assetMove(rowId, keys[i]);
+  return sum;
+}
+/* 그 달 이 자산에서 오간 항목들 (화면에 이유를 적어 주려고) */
+function assetMoveItems(rowId, fromKey, toKey){
+  const map = state.itemAsset || {}, keys = assetKeys();
+  const a = keys.indexOf(fromKey), b = keys.indexOf(toKey), out = [];
+  if(a < 0 || b <= a) return out;
+  state.items.forEach(i=>{
+    if(map[i.id] !== rowId || i.section === 'income') return;
+    let v = 0;
+    for(let n = a + 1; n <= b; n++) if(keys[n] !== 'init') v += cellVal(i.id, keys[n]);
+    if(v) out.push({ name:i.name, v: assetSign(i) * v });
+  });
+  return out;
+}
 function assetCarry(rowId, key){
   const keys = assetKeys(), end = keys.indexOf(key);
   const now = assetRaw(rowId, key);
@@ -1004,7 +1048,12 @@ function assetCarry(rowId, key){
     return { v: loanBalanceAt(l, key), carried:false, proj:true };
   for(let i=end-1; i>=0; i--){
     const v = assetRaw(rowId, keys[i]);
-    if(v !== undefined && v !== null && v !== '') return { v:+v||0, carried:true };
+    if(v !== undefined && v !== null && v !== ''){
+      const base = +v||0, move = assetMoveSince(rowId, keys[i], key);
+      /* 직접 적은 값이 없는 달만 — 적어 두셨으면 위에서 이미 돌아갔습니다 */
+      return move ? { v: Math.max(0, base + move), carried:true, moved:move, from:keys[i] }
+                  : { v: base, carried:true };
+    }
   }
   return { v:0, carried:false };
 }
@@ -1973,7 +2022,9 @@ function viewLedger(){
           const v = cellVal(i.id,cur), n = entriesOf(i.id,cur).length, lk = linkVal(i.id,cur);
           const fa = fixedAutoVal(i.id, cur);
           const gap = autoGapOf(i.id, cur);
+          const aRow = state.assetRows.find(r=>r.id===assetOfItem(i.id));
           const sub = [ i.section==='income' && i.day? `매달 ${i.day}일` : '',
+                        aRow? `💎 ${esc(aRow.owner)} ${esc(aRow.name)}${i.section==='save'?'로':'에서'}` : '',
                         fa? `🔁 고정비에서 ${num(fa)}원` : '',
                         gap? `<span style="color:var(--gold)">🔁 고정비·대출은 ${num(gap.want)}원</span>` : '',
                         lk? `🧊 냉장고에서 ${num(lk)}원` : '',
@@ -2019,7 +2070,8 @@ function stmtOutHTML(p, cur){
    change 만 믿으면 아이폰에서 입력이 통째로 사라집니다. */
 function saveStmt(t){
   const v = parseAmount(t.value)||0, k = `${t.dataset.stmt}|${mk(ui.m)}`;
-  state.stmt = state.stmt || {};
+  state.itemAsset = state.itemAsset || {};
+state.stmt = state.stmt || {};
   if(v) state.stmt[k] = v; else delete state.stmt[k];
   save();
   const p = payById(t.dataset.stmt), out = $(`[data-stmt-out="${t.dataset.stmt}"]`);
@@ -2168,6 +2220,9 @@ function viewAsset(){
           return `<button class="line-item" data-act="aCell" data-id="${r.id}">
             <div class="grow"><div class="nm">${esc(r.name)}</div>
               ${c.proj? `<div class="sub">💳 대출 탭 잔액 · ${+loanBaseKey(loanOfAssetRow(r.id)).slice(5)}월 기준으로 갚은 만큼 뺀 예상</div>`
+                : c.moved? `<div class="sub">${assetKeyLabel(c.from)} 값에서 ${
+                    assetMoveItems(r.id, c.from, cur).slice(0,3).map(x=>`${esc(x.name)} ${x.v<0?'−':'+'}${num(Math.abs(x.v))}`).join(' · ')
+                  }${assetMoveItems(r.id, c.from, cur).length>3? ' …':''}</div>`
                 : c.carried && c.v? `<div class="sub">${assetKeyLabel(lastKeyWithValue(r.id,cur))} 값 이어짐</div>`:''}</div>
             <div class="val ${raw===undefined? (c.v?'carry':'zero') : ''}">${c.v? num(c.v):'—'}</div></button>`;
         }).join('')}
@@ -2608,6 +2663,17 @@ function openCell(itemId){
           ${(PAY_KINDS[p.kind]||PAY_KINDS.card).emoji} ${esc(p.name)}</option>`).join('')}
       </select>
       <div class="tiny muted" style="margin-top:5px">지정해 두면 카드 명세서와 자동으로 대조됩니다.</div>
+    </div>
+    <div class="field"><label>${it.section==='save'? '어느 자산으로 들어가나요' : '어느 자산에서 빠지나요'} (선택)</label>
+      <select id="cAsset">
+        <option value="">— 연결 안 함 —</option>
+        ${(state.settings.owners||[]).map(o=>`<optgroup label="${esc(o)}">
+          ${ownerRows(o).map(r=>`<option value="${r.id}" ${assetOfItem(itemId)===r.id?'selected':''}>${esc(r.name)}</option>`).join('')}
+        </optgroup>`).join('')}
+      </select>
+      <div class="tiny muted" style="margin-top:5px;line-height:1.7">
+        연결해 두면 💎 자산 탭의 그 줄에서 이 금액이 ${it.section==='save'? '<b>더해집니다</b>' : '<b>빠집니다</b>'}.
+        <b>그 달 자산을 직접 적으시면 적은 값이 우선</b>이라 두 번 빠지지 않아요.</div>
     </div>`}
     <div class="field"><label>상세 기록 추가 (선택)</label>
       <div class="row"><input id="eAmt" data-money inputmode="numeric" placeholder="금액" class="grow">
@@ -3657,6 +3723,11 @@ document.addEventListener('click', async (e)=>{
     if(v) state.cells[key] = v; else delete state.cells[key];
     const it = itemById(id);
     if(it && $('#cDay')) it.day = Math.min(31, Math.max(0, +$('#cDay').value||0));
+    if($('#cAsset')){
+      state.itemAsset = state.itemAsset || {};
+      const v = $('#cAsset').value;
+      if(v) state.itemAsset[id] = v; else delete state.itemAsset[id];
+    }
     save(); closeModal(); render(); toast('저장했어요'); break;
   }
   case 'addEntry': {
@@ -4404,7 +4475,7 @@ async function fsPut(path, json, rev){
 }
 const CORE_KEYS = ['year','settings','items','cells','entries','assetRows','assetCells','limits',
                    'fixed','loans','goal','habits','habitLog','memo',
-                   'pays','itemPay','stmt','stmtFill','payeeMap','annuals','autoFixed'];
+                   'pays','itemPay','itemAsset','stmt','stmtFill','payeeMap','annuals','autoFixed'];
 function corePayload(){
   const o = {}; CORE_KEYS.forEach(k=>o[k]=state[k]);
   return JSON.stringify(o);
