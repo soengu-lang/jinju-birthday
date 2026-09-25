@@ -1179,13 +1179,17 @@ const LOAN_STOP = /대출|신용|원리금|잔액|은행/g;
    안 그러면 기금대출·주택담보대출·신용대출이 전부 한 줄로 몰립니다. */
 function matchRowByName(name, pool){
   const key = String(name||'').replace(/\s/g,'');
+  /* 흔한 말('대출·신용·은행'…)을 양쪽에서 먼저 떼고 견줍니다.
+     안 그러면 '학자금대출' 과 '기금대출' 이 '금대' 로 붙어 버립니다. */
+  const bare = x => String(x||'').replace(/\s/g,'').replace(LOAN_STOP,'');
+  const kb = bare(key);
   let best = null, bestLen = 0;
   pool.forEach(r=>{
-    const t = String(r.name||'').replace(/\s/g,'');
-    for(let a=0; a<key.length; a++) for(let b=key.length; b>a+1; b--){
-      const piece = key.slice(a,b);
-      if(piece.length <= bestLen || !t.includes(piece)) continue;
-      if(!piece.replace(LOAN_STOP,'').length) continue;
+    const tb = bare(r.name);
+    if(!tb) return;
+    for(let a=0; a<kb.length; a++) for(let b=kb.length; b>a+1; b--){
+      const piece = kb.slice(a,b);
+      if(piece.length <= bestLen || !tb.includes(piece)) continue;
       best = r; bestLen = piece.length;
     }
   });
@@ -1732,6 +1736,8 @@ function invCard(key){
     <div class="sec-foot" style="padding:10px 12px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
       ${diffs.length? `<button class="chip" data-act="invApplyAll" data-key="${esc(key)}">${assetKeyLabel(key)}에 모두 반영 (${diffs.length})</button>`
                     : `<span class="tiny muted">${plan.length? '모두 반영되어 있어요' : '반영할 금액이 없어요'}</span>`}
+      ${plan.some(p=>!p.ok)? `<button class="chip" data-act="invMakeRows" data-key="${esc(key)}">＋ 못 찾은 ${
+        plan.filter(p=>!p.ok).reduce((a,p)=>a+p.from.length,0)}건 줄 만들어 가져오기</button>`:''}
       <button class="chip line" data-act="invRefresh">${V.mode==='paste'?'📋 다시 붙여넣기':'🔄 다시 읽기'}</button>
       <button class="chip line" data-act="invOff">연동 끄기</button>
       <span class="tiny muted">자산 앱 기준 ${V.at? new Date(V.at).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '-'}</span>
@@ -4287,6 +4293,28 @@ document.addEventListener('click', async (e)=>{
     save(); render();
     toast(V.autoFill ? '달이 바뀌면 빈 칸을 저절로 채울게요' : '자동 채우기를 껐어요');
     break; }
+  case 'invMakeRows': {
+    /* 자산 앱에 있는데 받을 줄이 없는 것들 — 같은 이름으로 줄을 만들어 그대로 가져옵니다 */
+    const key = b.dataset.key || ui.aKey;
+    const miss = invPlan().filter(p=>!p.ok);
+    if(!miss.length){ toast('만들 줄이 없어요'); break; }
+    const os = state.settings.owners || [];
+    let made = 0;
+    miss.forEach(p=>p.from.forEach(r=>{
+      const amt = r.cat === 'debt' ? (+r.loan||0) : (+r.value||0);
+      if(!(amt > 0)) return;
+      const owner = r.cat === 'debt' ? '부채' : (os.includes(r.owner) ? r.owner : os[0]);
+      const row = { id:uid(), owner, name:String(r.name||'').trim() || '이름 없음' };
+      state.assetRows.push(row);
+      state.inv.map = state.inv.map || {};
+      state.inv.map[invSig(r)] = row.id;               /* 다음부터는 이 줄로 갑니다 */
+      state.assetCells[`${row.id}|${key}`] = Math.round(amt);
+      made++;
+    }));
+    save(); render();
+    toast(made? `${made}개 줄을 만들고 ${assetKeyLabel(key)} 금액까지 넣었어요` : '가져올 금액이 없어요');
+    break;
+  }
   case 'invApplyAll': {
     const key = b.dataset.key || ui.aKey;
     let n = 0;
