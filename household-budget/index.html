@@ -216,6 +216,8 @@ section.pane{padding-bottom:34px}
 .note{background:var(--gold-s);border-radius:10px;padding:9px 11px;font-size:11.5px;font-weight:700;color:#a2661c;
   line-height:1.6}
 .note b{color:var(--gold)}
+.note.ok{background:#e8f5ee;color:#1d6b42}
+.note.ok b{color:#15803d}
 .keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px}
 .keypad button{background:#fff;border:1px solid var(--line);border-radius:11px;padding:12px 0;font-size:16px;
   font-weight:800}
@@ -905,6 +907,57 @@ function cashDays(m){
   days.forEach(g=>{ g.list.sort((a,b)=> (a.kind==='income'?0:1) - (b.kind==='income'?0:1) || b.amount-a.amount);
                     bal += g.in - g.out; g.bal = bal; });
   return days;
+}
+/* ============================================================
+   💰 이번 급여 구간 — 이 월급으로 다음 월급까지 버티나
+   ------------------------------------------------------------
+   급여일이 서로 다르면(진주 17일·성우 25일) 달력 달로는 답이 안 나옵니다.
+   25일에 받은 돈으로 다음 달 17일까지 버티는지는 달을 넘어가며 봐야 해요.
+   ============================================================ */
+const posOf = (m, d) => m * 100 + d;
+/* 오늘이 속한 급여 구간 — 마지막으로 지난 급여일 ~ 다음 급여일 */
+function payWindow(){
+  const inc = itemsOf('income').filter(i=>+i.day > 0);
+  if(!inc.length) return null;
+  const m = nowMonthIdx(), nowPos = posOf(m, todayDay());
+  const cands = [];
+  [m-1, m, m+1].forEach(mm=>{
+    if(mm < 1 || mm > 12) return;
+    inc.forEach(i=>cands.push({ m:mm, d:+i.day, name:i.name }));
+  });
+  cands.sort((a,b)=> posOf(a.m,a.d) - posOf(b.m,b.d));
+  let start = null, end = null;
+  cands.forEach(c=>{
+    const q = posOf(c.m, c.d);
+    if(q <= nowPos) start = c; else if(!end) end = c;
+  });
+  if(!start || !end) return null;              /* 해가 바뀌는 구간은 다루지 않습니다 */
+  return { start, end, startPos: posOf(start.m,start.d), endPos: posOf(end.m,end.d) };
+}
+/* 그 구간에 들어오고 나가는 것들 — 급여일에 받은 돈부터, 다음 급여일 직전까지 */
+function payWindowFlow(){
+  const w = payWindow(); if(!w) return null;
+  const rows = [];
+  for(let mm = w.start.m; mm <= w.end.m; mm++){
+    if(mm < 1 || mm > 12) continue;
+    [...incomeDays(mm), ...payoutDays(mm)].forEach(r=>{
+      if(!r.day) return;                        /* 날짜 미정은 구간 계산에서 뺍니다 */
+      const q = posOf(mm, r.day);
+      if(q < w.startPos || q >= w.endPos) return;   /* 다음 급여는 안 셉니다 */
+      rows.push({ ...r, m:mm, pos:q });
+    });
+  }
+  if(!rows.length) return null;
+  rows.sort((a,b)=> a.pos - b.pos || (a.kind==='income'?0:1) - (b.kind==='income'?0:1) || b.amount - a.amount);
+  let bal = 0, low = null;
+  rows.forEach(r=>{ bal += r.kind==='income' ? r.amount : -r.amount; r.bal = bal;
+                    if(!low || bal < low.bal) low = r; });
+  const inTot  = rows.filter(r=>r.kind==='income').reduce((a,r)=>a+r.amount, 0);
+  const outTot = rows.filter(r=>r.kind!=='income').reduce((a,r)=>a+r.amount, 0);
+  const days = Math.round((new Date(state.year, w.end.m-1, w.end.d) -
+                           new Date(state.year, w.start.m-1, w.start.d)) / 86400000);
+  return { ...w, rows, inTot, outTot, left: bal, low, days,
+           need: low && low.bal < 0 ? -low.bal : 0 };
 }
 /* 달을 통틀어 통장이 가장 많이 마이너스로 내려가는 지점 — 미리 깔아 둬야 할 돈 */
 function cashLow(days){
@@ -1830,6 +1883,52 @@ function viewHome(){
       <div><div class="n gold">${num(savedNow)}</div><div class="l">이번 달 절약</div></div>
     </div>
 
+    ${(()=>{
+      const F = payWindowFlow();
+      if(!F) return `<div class="card pad">
+        <div style="font-size:13px;font-weight:900">💰 이번 급여 구간</div>
+        <div class="tiny muted" style="margin-top:5px;line-height:1.7">
+          급여가 <b>며칠에</b> 들어오는지 넣어 두면, 그 돈으로 다음 급여까지 버티는지 알려 드려요.<br>
+          🧾 가계부 → 수입 항목을 눌러 <b>들어오는 날</b>을 채워 주세요.</div></div>`;
+      const cash = state.cash || {};
+      const have = +cash.amount || 0;
+      const endBal = have + F.left;                       /* 통장에 있는 돈으로 끝까지 가면 */
+      const lowBal = have + (F.low ? F.low.bal : 0);
+      const dLabel = r => `${r.m}/${r.day}`;
+      return `<div class="card">
+        <div class="sec-head"><div class="t">💰 이번 급여 구간</div>
+          <div class="v tiny muted" style="font-weight:700">${F.days}일</div></div>
+        <div class="pad" style="padding-bottom:0">
+          <div style="font-size:13.5px;font-weight:900">
+            ${F.start.m}/${F.start.d} ${esc(F.start.name)}
+            <span class="muted" style="font-weight:700">→</span>
+            ${F.end.m}/${F.end.d} ${esc(F.end.name)}</div>
+          <div class="tiny muted" style="margin-top:4px">
+            들어올 <b style="color:var(--income)">${num(F.inTot)}원</b> ·
+            나갈 <b>${num(F.outTot)}원</b></div>
+          ${F.need
+            ? `<div class="note" style="margin-top:9px">⚠️ 이 구간 돈만으로는
+                 <b>${num(F.need)}원</b>이 모자랍니다 —
+                 <b>${F.low.m}/${F.low.day}</b>(${esc(F.low.name)})이 바닥이에요.
+                 그 전에 통장에 <b>${num(F.need)}원</b>은 있어야 합니다.</div>`
+            : `<div class="note ok" style="margin-top:9px">✓ 이 구간은 들어온 돈으로 다 됩니다 ·
+                 다음 급여일에 <b>${num(F.left)}원</b> 남아요.</div>`}
+        </div>
+        <div class="pad" style="padding-top:9px">
+          <div class="tiny muted" style="font-weight:800;margin-bottom:5px">통장에 지금 얼마 있나요</div>
+          <div class="row">
+            <input class="grow" id="cashNow" data-cash data-money inputmode="numeric"
+              placeholder="예: 2,000,000" value="${have? num(have):''}"
+              style="padding:8px 10px;font-size:13px">
+          </div>
+          <div data-cash-out>${cashOutHTML(F, have)}</div>
+        </div>
+        <div class="sec-foot" style="border-top:1px solid var(--line)">
+          <span class="tiny muted">구간 안에 오가는 돈</span>
+          <button class="chip line" data-act="payWindowAll">${F.rows.length}건 보기</button></div>
+      </div>`;
+    })()}
+
     <div class="card">
       <div class="sec-head"><div class="t">🧾 ${ui.m||nowMonthIdx()}월 가계부</div>
         <button class="chip" data-act="tab" data-tab="ledger">자세히 ›</button></div>
@@ -2090,9 +2189,18 @@ function stmtOutHTML(p, cur){
 /* 명세서 금액 저장 — 글자를 칠 때마다 바로 담는다.
    사파리는 스크립트로 value 를 고치면(천 단위 콤마) change 를 안 띄워서,
    change 만 믿으면 아이폰에서 입력이 통째로 사라집니다. */
+/* 통장 잔고 — 치는 즉시 담고, 판정 줄만 그 자리에서 다시 그립니다 */
+function saveCash(t){
+  const v = parseAmount(t.value) || 0;
+  state.cash = v ? { amount:v, at:Date.now() } : {};
+  save();
+  const F = payWindowFlow(), out = $('[data-cash-out]');
+  if(F && out) out.innerHTML = cashOutHTML(F, v);
+}
 function saveStmt(t){
   const v = parseAmount(t.value)||0, k = `${t.dataset.stmt}|${mk(ui.m)}`;
   state.itemAsset = state.itemAsset || {};
+state.cash = state.cash || {};
 state.stmt = state.stmt || {};
   if(v) state.stmt[k] = v; else delete state.stmt[k];
   save();
@@ -2651,6 +2759,48 @@ function openLoanAssetLink(){
     <div class="tiny muted" style="margin-top:8px;line-height:1.7">
       이름이 비슷한 줄은 미리 골라 뒀어요. 이은 뒤 부채 합계가 확 늘었다면
       같은 빚이 두 줄로 들어간 것이니 💎 자산 탭에서 한 줄을 비워 주세요.</div>
+  </div>`);
+}
+/* 통장에 있는 돈으로 이 구간을 날 수 있는지 */
+function cashOutHTML(F, have){
+  if(!have) return `<div class="tiny muted" style="margin-top:6px">
+    넣어 두면 <b>지금 잔고로 버티는지</b> 바로 알려 드려요. 이 폰과 배우자 폰이 같이 봅니다.</div>`;
+  const lowBal = have + (F.low ? F.low.bal : 0);
+  const endBal = have + F.left;
+  const at = state.cash?.at ? Math.floor((Date.now() - state.cash.at) / 86400000) : 0;
+  return `<div class="tiny" style="margin-top:7px;line-height:1.8;font-weight:700">
+    ${lowBal < 0
+      ? `<span style="color:var(--spend)">⚠️ ${F.low.m}/${F.low.day}에 <b>${num(-lowBal)}원</b> 모자랍니다.</span>
+         그날까지 그만큼 더 채워 두세요.`
+      : `<span style="color:var(--income)">✓ 버팁니다.</span>
+         가장 빠듯한 ${F.low? `${F.low.m}/${F.low.day}에 <b>${num(lowBal)}원</b>` : '때'} 남고,
+         다음 급여일엔 <b>${num(endBal)}원</b>이 됩니다.`}
+    ${at > 3? `<br><span class="muted" style="font-weight:600">${at}일 전에 넣은 잔고예요 — 맞는지 봐 주세요.</span>`:''}
+  </div>`;
+}
+/* 구간에 오가는 돈 전부 */
+function openPayWindowAll(){
+  const F = payWindowFlow(); if(!F) return;
+  const KIND = { income:'수입', fixed:'고정비', loan:'대출', card:'카드값', annual:'세금·연회비' };
+  const have = +(state.cash?.amount) || 0;
+  openModal(`<div class="modal">
+    <div class="mhead"><h3>${F.start.m}/${F.start.d} → ${F.end.m}/${F.end.d}</h3>
+      <button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted">${F.days}일 · 들어올 <b style="color:var(--income)">${num(F.inTot)}원</b> ·
+      나갈 <b>${num(F.outTot)}원</b></div>
+    <div class="card" style="margin-top:11px">
+      ${F.rows.map(r=>`<div class="line-item" style="cursor:default">
+        <div class="ic" style="background:var(--soft);flex:none">${r.m}/${r.day}</div>
+        <div class="grow" style="min-width:0">
+          <div class="nm">${r.kind==='income'?'💰':PAYOUT_KINDS[r.kind]} ${esc(r.name)}</div>
+          <div class="sub">${esc(KIND[r.kind]||'')} · 이때까지
+            <b style="color:${have + r.bal < 0?'var(--spend)':'var(--income)'}">${num(have + r.bal)}</b></div></div>
+        <div class="val" style="${r.kind==='income'?'color:var(--income)':''}">
+          ${r.kind==='income'?'+':'−'}${num(r.amount)}</div></div>`).join('')}
+    </div>
+    <div class="tiny muted" style="margin-top:9px;line-height:1.7">
+      '이때까지'는 ${have? `통장에 넣어 두신 <b>${num(have)}원</b>에서 시작합니다.` : '0원에서 시작합니다 — 통장 잔고를 넣으면 실제 금액으로 보여 드려요.'}
+      날짜를 안 적어 둔 항목은 여기 안 나옵니다.</div>
   </div>`);
 }
 /* 나가는 날 하나를 눌렀을 때 — 그 날 빠져나가는 것들 */
@@ -3926,6 +4076,7 @@ document.addEventListener('click', async (e)=>{
     toast(`${num(diff)}원을 ${+key.slice(5)}월 ${itemById(tid).name}에 넣었어요`); break;
   }
 
+  case 'payWindowAll': openPayWindowAll(); break;
   case 'loanAssetLink': openLoanAssetLink(); break;
   case 'loanAssetLinkRun': {
     const k = mk(nowMonthIdx());
@@ -4384,6 +4535,7 @@ document.addEventListener('input', e=>{
     t.value = v? (+v).toLocaleString('ko-KR') : '';
   }
   if(t.dataset.stmt !== undefined) saveStmt(t);
+  if(t.dataset.cash !== undefined) saveCash(t);
 });
 document.addEventListener('change', e=>{
   const t = e.target;
@@ -4394,6 +4546,7 @@ document.addEventListener('change', e=>{
   }
   /* 💳 명세서 금액 · 결제수단 지정 */
   if(t.dataset.stmt !== undefined){ saveStmt(t); return; }
+  if(t.dataset.cash !== undefined){ saveCash(t); return; }
   if(t.dataset.itemPay !== undefined){
     state.itemPay = state.itemPay||{};
     if(t.value) state.itemPay[t.dataset.itemPay] = t.value; else delete state.itemPay[t.dataset.itemPay];
@@ -4563,7 +4716,7 @@ async function fsPut(path, json, rev){
 }
 const CORE_KEYS = ['year','settings','items','cells','entries','assetRows','assetCells','limits',
                    'fixed','loans','goal','habits','habitLog','memo',
-                   'pays','itemPay','itemAsset','stmt','stmtFill','payeeMap','annuals','autoFixed'];
+                   'pays','itemPay','itemAsset','cash','stmt','stmtFill','payeeMap','annuals','autoFixed'];
 function corePayload(){
   const o = {}; CORE_KEYS.forEach(k=>o[k]=state[k]);
   return JSON.stringify(o);
