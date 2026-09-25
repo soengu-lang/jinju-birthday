@@ -1174,21 +1174,39 @@ const loansNoAsset = () => (state.loans||[]).filter(l =>
 /* 이름이 가장 길게 겹치는 부채 줄 찾기 ('주담대' ↔ '주택대출(미래에셋)')
    대출·신용 같은 흔한 말만 겹치는 건 짝으로 보지 않습니다 */
 const LOAN_STOP = /대출|신용|원리금|잔액|은행/g;
-function assetRowForLoan(l){
-  const used = new Set((state.loans||[]).filter(x=>x!==l && x.assetRowId).map(x=>x.assetRowId));
-  const pool = ownerRows('부채').filter(r=>!used.has(r.id));
-  const key = (l.name||'').replace(/\s/g,'');
+/* 이름이 가장 길게 겹치는 줄 찾기 ('주담대' ↔ '주택담보대출').
+   '대출'·'신용' 같은 흔한 말만 겹치는 건 짝으로 보지 않습니다 —
+   안 그러면 기금대출·주택담보대출·신용대출이 전부 한 줄로 몰립니다. */
+function matchRowByName(name, pool){
+  const key = String(name||'').replace(/\s/g,'');
   let best = null, bestLen = 0;
   pool.forEach(r=>{
-    const t = (r.name||'').replace(/\s/g,'');
+    const t = String(r.name||'').replace(/\s/g,'');
     for(let a=0; a<key.length; a++) for(let b=key.length; b>a+1; b--){
       const piece = key.slice(a,b);
       if(piece.length <= bestLen || !t.includes(piece)) continue;
-      if(!piece.replace(LOAN_STOP,'').length) continue;   /* '대출' 만 겹치는 건 무시 */
+      if(!piece.replace(LOAN_STOP,'').length) continue;
       best = r; bestLen = piece.length;
     }
   });
-  return bestLen >= 2 ? best : null;
+  if(bestLen >= 2) return best;
+  /* 줄임말도 봅니다 — '주담대' 는 '주택담보대출' 의 글자를 순서대로 딴 것입니다.
+     헷갈릴 여지를 줄이려고 세 글자 이상이고, 딱 한 줄만 걸릴 때만 짝으로 봅니다. */
+  const inOrder = (short, long) => {
+    let i = 0;
+    for(const ch of long) if(ch === short[i] && ++i === short.length) return true;
+    return false;
+  };
+  const cands = pool.filter(r=>{
+    const t = String(r.name||'').replace(/\s/g,'');
+    if(!t || Math.min(t.length, key.length) < 3 || Math.max(t.length, key.length) < 4) return false;
+    return t.length < key.length ? inOrder(t, key) : inOrder(key, t);
+  });
+  return cands.length === 1 ? cands[0] : null;
+}
+function assetRowForLoan(l){
+  const used = new Set((state.loans||[]).filter(x=>x!==l && x.assetRowId).map(x=>x.assetRowId));
+  return matchRowByName(l.name, ownerRows('부채').filter(r=>!used.has(r.id)));
 }
 
 /* ---------- 목표 ---------- */
@@ -1411,10 +1429,9 @@ function invRowTarget(r){
   const os = state.settings.owners || [];
   /* 💳 대출은 명의와 상관없이 부채 칸으로 */
   if(r.cat === 'debt'){
-    const dp = state.assetRows.filter(x=>x.owner==='부채');
-    const n0 = String(r.name||'');
-    const hitD = dp.find(x=>x.name && (n0.includes(x.name) || x.name.includes(n0)))
-              || dp.find(x=>/기타/.test(x.name)) || dp[0];
+    /* 이름이 맞는 줄만 — 못 찾으면 비워 두고 고르시게 합니다.
+       예전에는 아무 줄에나(첫 줄) 넣어서 대출 여러 건이 한 줄로 합쳐졌습니다. */
+    const hitD = matchRowByName(r.name, ownerRows('부채'));
     return hitD ? hitD.id : '';
   }
   /* 공동 명의는 첫 번째 사람 칸으로 보냅니다 (직접 바꿀 수 있어요) */
@@ -1427,7 +1444,8 @@ function invRowTarget(r){
   }
   /* ② 이름이 겹치는 항목 (예: '우리집 아파트' → '아파트') */
   const n = String(r.name||'');
-  let hit = pool.find(x => x.name && (n.includes(x.name) || x.name.includes(n)));
+  let hit = pool.find(x => x.name && x.name.length > 1 &&
+    (n.includes(x.name) || (n.length > 1 && x.name.includes(n))));
   if(hit) return hit.id;
   /* ③ 종류 규칙으로 */
   hit = pool.find(x => invCat(r.cat).match.test(x.name));
@@ -1647,7 +1665,8 @@ function invCard(key){
     ${plan.map(p=>{
       const cur = assetRaw(p.rowId, key);
       const same = cur !== undefined && Math.round(cur) === Math.round(p.sum);
-      const names = p.from.map(f=>f.name + (f.atype && f.atype!=='일반' ? ` (${f.atype})` : '')).join(', ');
+      const names = (p.from.length > 1 ? `${p.from.length}건 합쳐짐 · ` : '')
+        + p.from.map(f=>f.name + (f.atype && f.atype!=='일반' ? ` (${f.atype})` : '')).join(', ');
       return `<div class="line-item" style="cursor:default">
         <div class="grow" style="min-width:0">
           <div class="nm">${p.ok? esc(p.owner)+' · '+esc(p.name)
