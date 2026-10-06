@@ -2572,7 +2572,10 @@ function viewFixed(){
       })()}
     </div>`:''}
 
-    <button class="btn ghost block sm" style="margin-top:10px" data-act="editLoan">＋ 대출 추가</button>
+    <div class="row" style="margin-top:10px">
+      <button class="btn ghost sm grow" data-act="loanSms">📩 은행 문자로 채우기</button>
+      <button class="btn ghost sm grow" data-act="editLoan">＋ 대출 추가</button>
+    </div>
 
     ${(()=>{ const lp = loanPlan(); if(!lp.length) return '';
       const diff = lp.filter(x=>!x.same);
@@ -2750,6 +2753,176 @@ function openModal(html){
   $('#modalRoot .mask').addEventListener('click', e=>{ if(e.target.hasAttribute('data-mask')) closeModal(); });
 }
 
+/* ============================================================
+   📩 은행 대출 문자 읽기
+   ------------------------------------------------------------
+   우리은행·국민·신한… 알림톡은 잔액·납입예정일·원금·이자를 다 적어 줍니다.
+   그대로 붙여넣으면(또는 캡처하면) 대출 칸을 채웁니다.
+   ============================================================ */
+const smsAmt = t => { const n = String(t||'').replace(/[^0-9]/g,''); return n? +n : 0; };
+/* 이름표 바로 뒤에 오는 금액 — 괄호 안의 다른 금액에 끌려가지 않게 가까이서만 봅니다 */
+function smsPick(text, labels, re){
+  for(const L of labels){
+    const m = text.match(new RegExp(L + (re || '[^0-9\\n]{0,8}([0-9][0-9,\\s]*)')));
+    if(m) return m[1];
+  }
+  return null;
+}
+function parseLoanSms(text){
+  const t = String(text||'').replace(/\u00a0/g,' ');
+  const o = { raw:t };
+  o.name    = (t.match(/대출\s*명\s*[:：]?\s*([^\n]+)/) || t.match(/상품\s*명\s*[:：]?\s*([^\n]+)/) || [])[1];
+  o.acct    = (t.match(/계좌\s*번호\s*[:：]?\s*([0-9*\-]{6,})/) || [])[1];
+  o.bank    = (t.match(/(우리|국민|신한|하나|농협|기업|카카오|토스|새마을|수협|부산|대구|경남|광주|전북|제주|SC|씨티|산업|수출입|저축)\s*은행/) || [])[0];
+  o.balance = smsAmt(smsPick(t, ['대출\\s*잔액','잔\\s*액','남은\\s*원금','대출원금잔액','원금\\s*잔액']));
+  o.monthly = smsAmt(smsPick(t, ['납입\\s*금액','출금\\s*금액','이체\\s*금액','상환\\s*금액','청구\\s*금액','결제\\s*금액']));
+  o.principal = smsAmt(smsPick(t, ['분할\\s*상환\\s*원금','상환\\s*원금','원\\s*금']));
+  o.interest  = smsAmt(smsPick(t, ['납입\\s*이자','이자\\s*금액','이\\s*자']));
+  /* 납입예정일 — 2026.10.16 / 2026-10-16 / 10월 16일 */
+  const dm = t.match(/(?:납입\s*예정일|출금\s*예정일|이체\s*예정일|결제\s*예정일|납기\s*일|이체\s*일)[^0-9\n]{0,8}(\d{2,4})[.\-/년\s]+(\d{1,2})[.\-/월\s]+(\d{1,2})/)
+          || t.match(/(?:납입\s*예정일|출금\s*예정일|납기\s*일)[^0-9\n]{0,8}(\d{1,2})[월\s.\-/]+(\d{1,2})/);
+  if(dm){
+    if(dm.length === 4){
+      const y = +dm[1] < 100 ? 2000 + +dm[1] : +dm[1];
+      o.year = y; o.month = +dm[2]; o.day = +dm[3];
+    } else { o.month = +dm[1]; o.day = +dm[2]; o.year = state.year; }
+  }
+  /* 원금+이자가 납입금액과 맞는지 — 잘못 읽었는지 가늠합니다 */
+  o.sumOk = !!(o.principal && o.interest && o.monthly) &&
+            Math.abs(o.principal + o.interest - o.monthly) <= 2;
+  /* 이자로 연이율을 되짚어 봅니다 (날짜 수에 따라 조금 다를 수 있어요) */
+  o.rate = (o.interest && o.balance) ? (o.interest * 12 / o.balance) : 0;
+  o.ok = !!(o.balance || o.monthly);
+  return o;
+}
+/* 읽은 내용이 어느 대출인지 짐작 */
+function guessLoanFor(o){
+  const loans = state.loans || [];
+  if(!loans.length) return null;
+  if(o.bank){
+    const b = loans.find(l=>l.bank && (o.bank.includes(l.bank) || l.bank.includes(o.bank.replace('은행',''))));
+    if(b) return b;
+  }
+  if(o.name){
+    const hit = matchRowByName(o.name, loans);
+    if(hit) return hit;
+  }
+  if(o.monthly){            /* 월 상환액이 가장 비슷한 대출 */
+    const near = loans.slice().sort((a,b)=>
+      Math.abs((+a.monthly||0)-o.monthly) - Math.abs((+b.monthly||0)-o.monthly))[0];
+    if(near && Math.abs((+near.monthly||0) - o.monthly) < o.monthly * 0.25) return near;
+  }
+  return null;
+}
+/* 📷 캡처에서 글자 읽기 — 폰 안에서 도는 Tesseract 를 씁니다. 사진이 밖으로 나가지 않아요. */
+function smsShrink(file, max=1600, q=0.92){
+  return new Promise((res, rej)=>{
+    const fr = new FileReader();
+    fr.onload = () => { const img = new Image();
+      img.onload = () => {
+        const sc = Math.min(1, max/Math.max(img.width, img.height));
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.width*sc); c.height = Math.round(img.height*sc);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        res(c.toDataURL('image/jpeg', q));
+      };
+      img.onerror = ()=>rej(new Error('사진을 열지 못했어요')); img.src = fr.result; };
+    fr.onerror = ()=>rej(new Error('사진을 읽지 못했어요')); fr.readAsDataURL(file);
+  });
+}
+/* OCR 은 0 을 영문 O 로, 1 을 l 로 읽곤 합니다. 금액이 통째로 틀리지 않게 다듬습니다. */
+function smsTidy(t){
+  return String(t||'')
+    .replace(/[|｜]/g,' ').replace(/[’'`]/g,'')
+    .replace(/(\d)\s+,\s*(\d)/g,'$1,$2').replace(/(\d),\s+(\d)/g,'$1,$2')
+    .replace(/[0-9OoIl][0-9OoIl.,]*/g, x => /\d/.test(x) ? x.replace(/[Oo]/g,'0').replace(/[Il]/g,'1') : x)
+    .replace(/\u00a0/g,' ')
+    .split(/\r?\n/).map(l=>l.trim()).filter(Boolean).join('\n');
+}
+async function smsOcr(file){
+  const say = h => { const m = $('#smsMsg'); if(m) m.innerHTML = h; };
+  try{
+    say('사진 준비 중…');
+    const url = await smsShrink(file);
+    say('글자 읽는 중… 0%');
+    if(!window.Tesseract)
+      await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js');
+    const { data } = await window.Tesseract.recognize(url, 'kor+eng', {
+      logger: m => { if(m.status === 'recognizing text') say(`글자 읽는 중… ${Math.round(m.progress*100)}%`); }
+    });
+    const text = smsTidy(data.text || '');
+    if($('#smsBox')) $('#smsBox').value = text;
+    smsDraft = parseLoanSms(text);
+    $('#smsOut').innerHTML = smsPreviewHTML(smsDraft);
+    say(smsDraft.ok
+      ? '<b style="color:var(--gold)">사진에서 읽었어요 — 숫자가 맞는지 꼭 봐 주세요.</b> 틀렸으면 위 칸에서 고치고 <b>읽기</b>를 다시 누르세요.'
+      : '사진에서 금액을 못 찾았어요. 글자가 또렷한 캡처로 다시 해 보시거나, 문자를 복사해 붙여넣어 주세요.');
+  }catch(err){
+    say(`<span style="color:var(--spend)">읽지 못했어요 — ${esc(err.message||'오류')}</span>
+      · 인터넷이 되는지 보시고, 안 되면 문자를 복사해 붙여넣어 주세요.`);
+  }
+}
+let smsDraft = null;
+function openLoanSms(){
+  smsDraft = null;
+  openModal(`<div class="modal">
+    <div class="mhead"><h3>📩 은행 문자로 채우기</h3><button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted" style="line-height:1.8">
+      은행이 보내 준 <b>대출 이자(원리금) 납부 안내</b> 를 그대로 붙여넣으세요.
+      잔액·납입예정일·원금·이자를 읽어 대출 칸을 채웁니다.</div>
+    <div class="field" style="margin-top:10px"><label>문자 내용</label>
+      <textarea id="smsBox" rows="6" placeholder="카카오톡·문자에서 길게 눌러 복사 → 여기에 붙여넣기"></textarea></div>
+    <div class="row wrap">
+      <button class="btn sm grow" data-act="smsRead">읽기</button>
+      <button class="btn ghost sm" data-act="smsShot">📷 캡처에서 읽기</button>
+      <input type="file" id="smsFile" accept="image/*" class="hidden">
+    </div>
+    <div id="smsMsg" class="tiny muted" style="margin-top:7px;line-height:1.7"></div>
+    <div id="smsOut"></div>
+    <div class="tiny muted" style="margin-top:10px;line-height:1.7">
+      읽은 내용은 이 폰 안에서만 처리합니다 — 사진도 글자도 밖으로 나가지 않아요.</div>
+  </div>`);
+}
+/* 읽은 결과 미리보기 — 무엇을 넣을지 고르고 반영합니다 */
+function smsPreviewHTML(o){
+  if(!o.ok) return `<div class="note" style="margin-top:10px">⚠️ 금액을 못 찾았어요.
+    <b>대출잔액</b>·<b>납입금액</b> 이 들어간 안내 문자인지 봐 주세요.</div>`;
+  const loans = state.loans || [];
+  const guess = guessLoanFor(o);
+  const mk2 = o.year && o.month ? `${o.year}-${pad2(o.month)}` : mk(nowMonthIdx());
+  const row = (id, label, now, next, on) => !next ? '' : `
+    <label class="fx" style="cursor:pointer">
+      <input type="checkbox" id="${id}" ${on?'checked':''} style="width:18px;height:18px;flex:none">
+      <div class="grow" style="min-width:0">
+        <div class="nm" style="font-size:13px;font-weight:800">${label}</div>
+        <div class="tiny muted">${now!=null? `지금 ${now} → ` : ''}<b>${next}</b></div></div>
+    </label>`;
+  const L = guess || loans[0];
+  return `
+    <div class="note ${o.sumOk?'ok':''}" style="margin-top:11px">
+      ${o.sumOk? '✓ 원금 + 이자가 납입금액과 맞아요 — 제대로 읽었습니다.'
+               : '⚠️ 원금 + 이자가 납입금액과 안 맞아요 — 숫자를 한 번 봐 주세요.'}
+      ${o.name? `<div class="tiny" style="margin-top:4px;font-weight:600">${esc(o.name)}</div>`:''}
+    </div>
+    <div class="field" style="margin-top:11px"><label>어느 대출에 넣을까요</label>
+      <select id="smsLoan">
+        ${loans.map(l=>`<option value="${l.id}" ${L&&L.id===l.id?'selected':''}>${esc(l.name)}${
+          l.bank? ' · '+esc(l.bank):''}</option>`).join('')}
+        <option value="__new__">＋ '${esc((o.name||'새 대출').slice(0,14))}' 새 대출로 추가</option>
+      </select></div>
+    <div class="card" style="margin-top:10px">
+      ${row('smsBal',  '잔액',            L&&+L.balance? num(L.balance)+'원':null, o.balance? num(o.balance)+'원':'', true)}
+      ${row('smsMon',  '월 상환액(원금+이자)', L&&+L.monthly? num(L.monthly)+'원':null, o.monthly? num(o.monthly)+'원':'', true)}
+      ${row('smsDay',  '결제일',          L&&+L.day? `매달 ${L.day}일`:null, o.day? `매달 ${o.day}일`:'', true)}
+      ${row('smsAsOf', '잔액 기준 달',     L&&L.balanceAsOf? L.balanceAsOf:null, mk2, true)}
+      ${row('smsRate', '연 금리 (이자로 되짚음)', L&&+L.rate? (L.rate*100).toFixed(2)+'%':null,
+            o.rate? (o.rate*100).toFixed(2)+'%':'', false)}
+    </div>
+    ${o.rate? `<div class="tiny muted" style="margin-top:7px;line-height:1.7">
+      금리는 <b>이자 ÷ 잔액 × 12</b> 로 되짚은 값이라 실제와 조금 다를 수 있어요(날짜 수 때문).
+      확실하지 않으면 켜지 마세요.</div>`:''}
+    <button class="btn block" style="margin-top:12px" data-act="smsApply">이대로 넣기</button>`;
+}
 /* 대출을 자산 탭 부채 줄에 한 번에 잇기 */
 function openLoanAssetLink(){
   const list = loansNoAsset().map(l=>({ l, row: assetRowForLoan(l) }));
@@ -4101,6 +4274,39 @@ document.addEventListener('click', async (e)=>{
     toast(`${num(diff)}원을 ${+key.slice(5)}월 ${itemById(tid).name}에 넣었어요`); break;
   }
 
+  case 'loanSms': openLoanSms(); break;
+  case 'smsRead': {
+    const t = ($('#smsBox')?.value||'').trim();
+    if(!t){ toast('문자 내용을 붙여넣어 주세요'); break; }
+    smsDraft = parseLoanSms(t);
+    $('#smsOut').innerHTML = smsPreviewHTML(smsDraft);
+    $('#smsMsg').textContent = '';
+    break;
+  }
+  case 'smsShot': $('#smsFile')?.click(); break;
+  case 'smsApply': {
+    const o = smsDraft; if(!o?.ok){ toast('읽은 내용이 없어요'); break; }
+    const pick = $('#smsLoan')?.value;
+    let l = (state.loans||[]).find(x=>x.id === pick);
+    if(pick === '__new__' || !l){
+      l = { id:uid(), name:(o.name||'새 대출').slice(0,20), bank:o.bank||'', owner:'',
+            balance:0, rate:0, monthly:0, method:'amort', itemId:'', priority:0, memo:'' };
+      (state.loans = state.loans||[]).push(l);
+    }
+    const mk2 = o.year && o.month ? `${o.year}-${pad2(o.month)}` : mk(nowMonthIdx());
+    let n = 0;
+    if($('#smsBal')?.checked  && o.balance){ l.balance = o.balance; n++; }
+    if($('#smsMon')?.checked  && o.monthly){ l.monthly = o.monthly; n++; }
+    if($('#smsDay')?.checked  && o.day){ l.day = Math.min(31, o.day); n++; }
+    if($('#smsAsOf')?.checked){ l.balanceAsOf = mk2; n++; }
+    if($('#smsRate')?.checked && o.rate){ l.rate = o.rate; n++; }
+    if(!l.bank && o.bank) l.bank = o.bank;
+    /* 원금이 0 이라고 적혀 있으면 아직 이자만 내는 중입니다 */
+    if(o.principal === 0 && o.interest > 0 && l.method === 'amort') l.method = 'interest';
+    save(); closeModal(); render();
+    toast(n? `${esc(l.name)} ${n}가지를 문자대로 넣었어요` : '고른 게 없어요');
+    break;
+  }
   case 'payWindowAll': openPayWindowAll(); break;
   case 'loanAssetLink': openLoanAssetLink(); break;
   case 'loanAssetLinkRun': {
@@ -4586,6 +4792,11 @@ document.addEventListener('input', e=>{
 });
 document.addEventListener('change', e=>{
   const t = e.target;
+  if(t.id === 'smsFile'){
+    const f = t.files?.[0]; t.value = '';
+    if(f) smsOcr(f);
+    return;
+  }
   if(t.dataset.stmtItem !== undefined){
     const r = (stmtDraft||[])[+t.dataset.stmtItem];
     if(r){ r.item = t.value; drawStmtPreview(); }
