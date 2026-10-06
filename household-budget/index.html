@@ -2921,6 +2921,28 @@ function smsPreviewHTML(o){
     ${o.rate? `<div class="tiny muted" style="margin-top:7px;line-height:1.7">
       금리는 <b>이자 ÷ 잔액 × 12</b> 로 되짚은 값이라 실제와 조금 다를 수 있어요(날짜 수 때문).
       확실하지 않으면 켜지 마세요.</div>`:''}
+    ${(()=>{
+      if(!o.balance) return '';
+      const rows = ownerRows('부채');
+      const linked = L && L.assetRowId && rows.find(r=>r.id === L.assetRowId);
+      const guessRow = linked || (L ? assetRowForLoan(L) : null)
+                    || (o.name ? matchRowByName(o.name, rows) : null);
+      const amtOf = r => assetCarry(r.id, mk2).v;
+      const filled = rows.some(r=>amtOf(r) > 0);
+      const pre = guessRow ? guessRow.id : (filled ? '' : '__new__');
+      return `<div class="field" style="margin-top:11px"><label>💎 자산 탭 부채 줄에도 넣기</label>
+        <select id="smsAsset">
+          <option value="" ${pre?'':'selected'}>— 넣지 않음 —</option>
+          ${rows.map(r=>`<option value="${r.id}" ${pre===r.id?'selected':''}>${esc(r.name)} · ${
+            amtOf(r)? `지금 ${bigWon(amtOf(r))}` : '비어 있음'}</option>`).join('')}
+          <option value="__new__" ${pre==='__new__'?'selected':''}>＋ '${esc((L?L.name:o.name||'대출').slice(0,12))}' 줄 새로 만들기</option>
+        </select>
+        <div class="tiny muted" style="margin-top:5px;line-height:1.7">
+          켜 두면 <b>${mk2}</b> 칸을 문자 잔액으로 덮어씁니다 —
+          <b>은행 문자를 기준</b>으로 쓰시는 길이에요. 그 뒤 달은 갚아 나간 만큼 저절로 줄어듭니다.
+          ${filled && !guessRow? '<br>⚠️ 이미 금액이 있는 줄이 같은 빚이라면 <b>새로 만들지 말고 그 줄</b>을 고르세요.':''}</div>
+      </div>`;
+    })()}
     <button class="btn block" style="margin-top:12px" data-act="smsApply">이대로 넣기</button>`;
 }
 /* 대출을 자산 탭 부채 줄에 한 번에 잇기 */
@@ -4301,6 +4323,20 @@ document.addEventListener('click', async (e)=>{
     if($('#smsAsOf')?.checked){ l.balanceAsOf = mk2; n++; }
     if($('#smsRate')?.checked && o.rate){ l.rate = o.rate; n++; }
     if(!l.bank && o.bank) l.bank = o.bank;
+    /* 💎 자산 탭 부채 줄 — 문자를 기준으로 쓰실 수 있게 그 달 칸을 덮어씁니다.
+       (평소 규칙은 '직접 적은 값이 우선' 이지만, 은행 잔액이 제일 정확해서
+        여기서는 문자가 이깁니다. 켜고 끌 수 있게 해 두었습니다.) */
+    const pickA = $('#smsAsset')?.value;
+    if(pickA && o.balance){
+      let rid = pickA;
+      if(pickA === '__new__'){
+        const row = { id:uid(), owner:'부채', name:l.name };
+        state.assetRows.push(row); rid = row.id;
+      }
+      l.assetRowId = rid;                       /* 다음 달부터는 저절로 */
+      state.assetCells[`${rid}|${mk2}`] = o.balance;
+      n++;
+    }
     /* 원금이 0 이라고 적혀 있으면 아직 이자만 내는 중입니다 */
     if(o.principal === 0 && o.interest > 0 && l.method === 'amort') l.method = 'interest';
     save(); closeModal(); render();
