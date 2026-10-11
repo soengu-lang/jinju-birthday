@@ -1272,12 +1272,32 @@ function fridgeFbConfig(){
     return (c?.apiKey && c?.projectId) ? { apiKey:c.apiKey, projectId:c.projectId } : null;
   }catch(e){ return null; }
 }
+/* 이 항목에 딸려 있는 연결들 — 지우기 전에 무엇이 풀리는지 알려 주려고 */
+function itemTies(id){
+  const out = [];
+  LINK_KINDS.forEach(k=>{ if((state.link?.map||{})[k.k] === id) out.push(`🧊 냉장고 ${k.label}`); });
+  const nf = (state.fixed||[]).filter(f=>f.itemId === id).length;
+  if(nf) out.push(`🔁 고정비 ${nf}건`);
+  const nl = (state.loans||[]).filter(l=>l.itemId === id).length;
+  if(nl) out.push(`💳 대출 ${nl}건`);
+  const na = (state.annuals||[]).filter(a=>a.itemId === id).length;
+  if(na) out.push(`🔔 세금·연회비 ${na}건`);
+  if((state.itemAsset||{})[id]){
+    const r = state.assetRows.find(x=>x.id === state.itemAsset[id]);
+    out.push(`💎 자산 ${r? r.name : '줄'}`);
+  }
+  if((state.itemPay||{})[id]) out.push('💳 결제수단 지정');
+  return out;
+}
 /* 냉장고 분류 → 가계부 항목 id (저장된 게 없으면 이름으로 자동 매칭) */
 function linkItemId(kind){
   const m = state.link?.map || {};
-  /* 한 번이라도 직접 고른 적이 있으면 그대로 따른다 (빈 값 = 넣지 않음) */
-  if(Object.prototype.hasOwnProperty.call(m, kind))
-    return (m[kind] && itemById(m[kind])) ? m[kind] : '';
+  /* 한 번이라도 직접 고른 적이 있으면 그대로 따른다 (빈 값 = 일부러 '넣지 않음') */
+  if(Object.prototype.hasOwnProperty.call(m, kind)){
+    if(m[kind] === '') return '';
+    if(itemById(m[kind])) return m[kind];
+    /* 가리키던 항목이 지워졌으면 — 조용히 사라지지 않게 이름으로 다시 찾습니다 */
+  }
   const rule = LINK_KINDS.find(x=>x.k===kind);
   const hit = itemsOf('living').find(i=>rule.match.test(i.name));
   return hit? hit.id : '';
@@ -4188,11 +4208,25 @@ document.addEventListener('click', async (e)=>{
     save(); closeModal(); render(); break;
   }
   case 'delItem': {
-    if(!confirm('이 항목과 올해 값이 모두 지워져요. 계속할까요?')) break;
+    const ties = itemTies(id);
+    if(!confirm(`이 항목과 올해 값이 모두 지워져요.${
+      ties.length? '\n\n딸린 연결도 함께 풀립니다 —\n· ' + ties.join('\n· ') : ''}\n\n계속할까요?`)) break;
     state.items = state.items.filter(i=>i.id!==id);
     Object.keys(state.cells).forEach(k=>{ if(k.startsWith(id+'|')) delete state.cells[k]; });
     state.entries = state.entries.filter(e=>e.itemId!==id);
-    save(); closeModal(); render(); break;
+    /* 지워진 항목을 가리키는 것들을 남겨 두면 조용히 어긋납니다 */
+    Object.keys(state.link?.map || {}).forEach(k=>{ if(state.link.map[k] === id) delete state.link.map[k]; });
+    Object.keys(state.link?.cells || {}).forEach(k=>{ if(k.startsWith(id+'|')) delete state.link.cells[k]; });
+    delete (state.itemPay   || {})[id];
+    delete (state.itemAsset || {})[id];
+    Object.keys(state.stmtFill || {}).forEach(k=>{ if(state.stmtFill[k]?.itemId === id) delete state.stmtFill[k]; });
+    (state.fixed  || []).forEach(f=>{ if(f.itemId === id) f.itemId = ''; });
+    (state.loans  || []).forEach(l=>{ if(l.itemId === id) l.itemId = ''; });
+    (state.annuals|| []).forEach(a=>{ if(a.itemId === id) a.itemId = ''; });
+    if(state.inv?.divItem === id) delete state.inv.divItem;
+    save(); closeModal(); render();
+    toast(ties.length? `지웠어요 · 연결 ${ties.length}가지도 함께 풀렸습니다` : '지웠어요');
+    break;
   }
   case 'addItem': openItemForm(b.dataset.sec); break;
   case 'saveNewItem': {
