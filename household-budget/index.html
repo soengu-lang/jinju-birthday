@@ -4136,13 +4136,22 @@ function openLinkSetup(){
     ${L.enabled? `<button class="btn ghost sm block" style="margin-top:8px" data-act="linkRefresh">🔄 지금 다시 읽기</button>`:''}
 
     <div class="field"><label>어디에 넣을지</label>
-      ${LINK_KINDS.map(k=>`<div class="map-row">
+      ${LINK_KINDS.map(k=>{
+        const cur = linkItemId(k.k);
+        const have = living.some(i=>k.match.test(i.name));
+        return `<div class="map-row">
         <div class="h">${k.label}<span>냉장고 식비 분류</span></div>
         <select data-link-map="${k.k}">
           <option value="">— 넣지 않음 —</option>
-          ${living.map(i=>`<option value="${i.id}" ${linkItemId(k.k)===i.id?'selected':''}>${esc(i.name)}</option>`).join('')}
-        </select></div>`).join('')}
-      <div class="tiny muted" style="margin-top:6px">냉장고의 <b>카페·간식</b>은 외식과 함께 계산됩니다.</div>
+          ${living.map(i=>`<option value="${i.id}" ${cur===i.id?'selected':''}>${esc(i.name)}</option>`).join('')}
+        </select></div>
+        ${!cur? `<div class="row" style="margin:-2px 0 8px">
+          <button class="btn ${have?'ghost ':''}sm grow" data-act="linkMakeItem" data-k="${k.k}">
+            ${have? `🔗 '${esc((living.find(i=>k.match.test(i.name))||{}).name||'')}' 에 넣기`
+                  : `＋ ${esc(k.make)} 만들어서 넣기`}</button></div>`:''}`;
+      }).join('')}
+      <div class="tiny muted" style="margin-top:6px">냉장고의 <b>카페·간식</b>은 외식과 함께 계산됩니다.
+        <br>받을 항목을 지우셨으면 위 <b>만들어서 넣기</b> 한 번이면 됩니다.</div>
     </div>
 
     <div class="field"><label>폰·브라우저가 다를 때</label>
@@ -4352,9 +4361,11 @@ document.addEventListener('click', async (e)=>{
     let it = itemsOf('living').find(i=>k.match.test(i.name));
     if(!it){ it = { id:uid(), section:'living', name:k.make, auto:false }; state.items.push(it); }
     (state.link.map = state.link.map || {})[k.k] = it.id;   /* 바로 이어 둡니다 */
+    const inSettings = !!$('[data-link-map]');
     save(); render();
     await refreshLink();                                    /* 냉장고 금액을 다시 셈합니다 */
     render();
+    if(inSettings) openLinkSetup();                         /* 연동 설정 창이었으면 그대로 다시 */
     toast(`${it.name} 을(를) ${k.label} 과 이었어요`);
     break;
   }
