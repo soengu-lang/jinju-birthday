@@ -1249,10 +1249,17 @@ function goalFlatPart(key){
    ============================================================ */
 const FRIDGE_KEY = 'fridgeMealPlanner.v1';
 const LINK_KINDS = [
-  { k:'grocery',  label:'🛒 장보기',    match:/마트|장보기|식료|식품/ },
-  { k:'dining',   label:'🍽️ 외식·카페', match:/외식|식당|카페/ },
-  { k:'delivery', label:'🛵 배달',      match:/배달/ }
+  { k:'grocery',  label:'🛒 장보기',    match:/마트|장보기|식료|식품/, make:'마트(식품)' },
+  { k:'dining',   label:'🍽️ 외식·카페', match:/외식|식당|카페/,        make:'외식(식당, 카페)' },
+  { k:'delivery', label:'🛵 배달',      match:/배달/,                  make:'배달' }
 ];
+/* 냉장고에 돈은 들어오는데 받을 항목이 없는 분류 — 항목을 지웠을 때 여기 걸립니다.
+   ⚙️ 에서 일부러 '넣지 않음' 으로 꺼 둔 건 뺍니다. */
+function linkMissingKinds(){
+  if(!state.link?.enabled) return [];
+  const m = state.link.map || {};
+  return LINK_KINDS.filter(k => m[k.k] !== '' && !linkItemId(k.k));
+}
 function blankLink(){
   return { enabled:false, mode:'local', remote:null, map:{}, cells:{}, lastAt:0, error:'', total:0 };
 }
@@ -2207,6 +2214,16 @@ function viewLedger(){
         </div>
       </div>`;
     }).join('')}
+
+    ${(()=>{ const miss = linkMissingKinds(); if(!miss.length) return '';
+      return `<div class="note" style="margin-top:11px">⚠️ 🧊 냉장고 <b>${
+        miss.map(k=>esc(k.label)).join(' · ')}</b> 를 받을 항목이 없어요 —
+        그 금액이 가계부에 안 들어오고 있습니다. 항목을 지우셨다면 다시 만들어 주세요.
+        <div class="row wrap" style="margin-top:9px">
+          ${miss.map(k=>`<button class="btn sm" data-act="linkMakeItem" data-k="${k.k}">
+            ＋ ${esc(k.make)} 만들기</button>`).join('')}
+        </div></div>`;
+    })()}
 
     <button class="btn ghost block sm" style="margin-top:12px" data-act="pasteTx">
       📋 카드·계좌 내역 붙여넣기</button>
@@ -4330,6 +4347,17 @@ document.addEventListener('click', async (e)=>{
     toast(`${num(diff)}원을 ${+key.slice(5)}월 ${itemById(tid).name}에 넣었어요`); break;
   }
 
+  case 'linkMakeItem': {
+    const k = LINK_KINDS.find(x=>x.k === b.dataset.k); if(!k) break;
+    let it = itemsOf('living').find(i=>k.match.test(i.name));
+    if(!it){ it = { id:uid(), section:'living', name:k.make, auto:false }; state.items.push(it); }
+    (state.link.map = state.link.map || {})[k.k] = it.id;   /* 바로 이어 둡니다 */
+    save(); render();
+    await refreshLink();                                    /* 냉장고 금액을 다시 셈합니다 */
+    render();
+    toast(`${it.name} 을(를) ${k.label} 과 이었어요`);
+    break;
+  }
   case 'loanSms': openLoanSms(); break;
   case 'smsRead': {
     const t = ($('#smsBox')?.value||'').trim();
