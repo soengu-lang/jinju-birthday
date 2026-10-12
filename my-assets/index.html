@@ -1696,7 +1696,7 @@ async function refreshPrices(manual){
     }
   } finally {
     refreshing = false;
-    render();
+    manual ? render() : renderIdle();
     pushAlerts(newAlerts());          /* 새로 생긴 알림은 폰 알림으로도 */
     if(manual) toast(
       relayDead ? '시세 서버에 닿지 못했어요 — 인터넷을 확인하거나 종목을 눌러 직접 넣어 주세요'
@@ -3227,7 +3227,7 @@ function viewNote(){
   <div class="card">
     <h2>오늘 한 줄 <span class="sub">${iso(new Date())}</span></h2>
     <div class="f" style="margin-bottom:8px">
-      <textarea id="dText" placeholder="예) 환율 1,400 넘어서 달러 더 안 사기로. 삼성전자는 9만원까지 들고 간다."></textarea>
+      <textarea id="dText" placeholder="예) 환율 1,400 넘어서 달러 더 안 사기로. 삼성전자는 9만원까지 들고 간다.">${esc(ui.dNote||'')}</textarea>
     </div>
     <button class="btn block" data-act="dAdd">기록에 남기기</button>
     <div class="tiny muted mt">적을 때 <b>그 순간 순자산</b>도 같이 저장돼서, 나중에 그때 무슨 생각이었는지 같이 보입니다.</div>
@@ -4737,7 +4737,7 @@ async function syncPull(){
     const doc = await fsGet(`rooms/${c.room}/assets/core`);
     if(doc && doc.rev > (c.rev||0) && doc.by !== DEVICE){
       applyingRemote = true; applyCore(doc.json); applyingRemote = false;
-      c.rev = doc.rev; writeLocal(); render();
+      c.rev = doc.rev; writeLocal(); renderIdle();
       toast('배우자가 바꾼 내용을 받아왔어요');
       refreshPrices();
     }
@@ -4860,6 +4860,7 @@ function openCopyFallback(text){
    11. 그리기 · 손가락 동작
    ============================================================ */
 function render(){
+  renderWait = false;
   renderTabs();
   const v = ui.tab==='home' ? viewHome()
           : ui.tab==='list' ? viewList()
@@ -4874,6 +4875,23 @@ function render(){
            doSearch._t = setTimeout(doSearch, 240); };
          if(ui.q) q.setSelectionRange(ui.q.length, ui.q.length); }
 }
+/* 글을 쓰는 중에는 화면을 새로 그리지 않습니다 — 쓰던 글과 키보드가 날아가지 않게.
+   시세 갱신·배우자 동기화처럼 저절로 일어나는 새로고침에만 씁니다. */
+let renderWait = false;
+function typingNow(){
+  const el = document.activeElement;
+  return !!el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') && !!$('#view')?.contains(el);
+}
+function renderIdle(){
+  if(typingNow()){ renderWait = true; return; }   /* 다 쓰고 나면 그립니다 */
+  render();
+}
+document.addEventListener('focusout', ()=>{
+  if(!renderWait) return;
+  setTimeout(()=>{                                /* 버튼을 누른 것이면 그 처리가 먼저 끝나도록 */
+    if(renderWait && !typingNow()) render();
+  }, 250);
+});
 const segPick = (wrapId, def) => {
   const el = $('#'+wrapId); if(!el) return def;
   const on = el.querySelector('button.on');
@@ -4894,6 +4912,7 @@ function logChange(t, h, dv){
 function whyChanged(){ const r = monthReview(iso(new Date()).slice(0,7)); return r.total===null ? null : r; }
 
 document.addEventListener('input', ev=>{
+  if(ev.target && ev.target.id === 'dText'){ ui.dNote = ev.target.value; return; }   /* 쓰던 글을 들고 있습니다 */
   if(ev.target && ev.target.id === 'dq'){
     ui.dq = ev.target.value;
     clearTimeout(ui._dqT); ui._dqT = setTimeout(()=>{ const pos = ev.target.selectionStart; render();
@@ -5206,9 +5225,9 @@ document.addEventListener('click', async ev=>{
 
   /* ---------- 📝 기록 ---------- */
   case 'dAdd': {
-    const t = ($('#dText')?.value||'').trim();
+    const t = (($('#dText')?.value ?? ui.dNote) || '').trim();
     if(!t){ toast('적을 내용을 써 주세요'); break; }
-    addDiary(t); save(); render(); toast('기록에 남겼어요');
+    addDiary(t); ui.dNote = ''; save(); render(); toast('기록에 남겼어요');
     break; }
   case 'dDel': {
     if(!confirm('이 기록을 지울까요?')) break;
