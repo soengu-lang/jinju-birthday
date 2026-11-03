@@ -3105,7 +3105,22 @@ function viewFlow(){
   return `
     ${(()=>{
     const y = new Date().getFullYear(), m = new Date().getMonth()+1;
-    const list = (state.divs||[]).slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))).slice(0,12);
+    /* 달마다 받은 것은 위에 있으니, 아래는 종목별로 합쳐서 보여 줍니다 */
+    const all = state.divs || [];
+    const thisY = all.filter(d=>String(d.date||'').slice(0,4) === String(y));
+    const older = all.length - thisY.length;
+    const scope = (ui.divScope === 'all' && older) ? 'all' : 'year';
+    const gmap = new Map();
+    (scope==='all' ? all : thisY).forEach(d=>{
+      const k = d.code ? `${d.cat||''}:${d.code}` : `n:${d.name||'배당'}`;
+      const g = gmap.get(k) || { k, name:d.name||'배당', sum:0, n:0, last:'', items:[] };
+      g.sum += divKrw(d); g.n++; g.items.push(d);
+      if(String(d.date||'') > g.last){ g.last = String(d.date||''); g.name = d.name || g.name; }
+      gmap.set(k, g);
+    });
+    const groups = [...gmap.values()].sort((a,b)=>b.sum - a.sum);
+    groups.forEach(g=>g.items.sort((a,b)=>String(b.date).localeCompare(String(a.date))));
+    const gtot = groups.reduce((a,g)=>a + g.sum, 0);
     return `<div class="card">
       <h2>💰 배당 <span class="sub">${y}년</span></h2>
       ${(()=>{
@@ -3184,17 +3199,43 @@ function viewFlow(){
 
       <button class="btn block mt" data-act="divAdd">＋ 배당 받은 것 기록하기</button>
 
-      ${list.length? `<div style="margin-top:10px">
-        ${list.map(d=>`<div class="hold" data-act="divEdit" data-id="${d.id}">
-          <div class="ic" style="background:var(--gold-s);color:var(--gold)">💰</div>
-          <div class="mid">
-            <div class="nm">${esc(d.name || '배당')}</div>
-            <div class="sb">${esc(String(d.date||'').replace(/-/g,'.'))}${d.memo? ' · '+esc(d.memo):''}</div>
+      ${groups.length? `<div style="margin-top:12px">
+        <div class="between" style="margin-bottom:6px">
+          <div style="font-size:12.5px;font-weight:800">종목별 받은 배당</div>
+          ${older? `<div class="row" style="gap:5px">
+            <button class="chip ${scope==='year'?'':'line'}" data-act="divScope" data-v="year">${y}년</button>
+            <button class="chip ${scope==='all'?'':'line'}" data-act="divScope" data-v="all">전체</button>
+          </div>`:''}
+        </div>
+        ${groups.map(g=>{
+          const open = ui.divGrp === g.k;
+          const pct = gtot>0 ? Math.round(g.sum/gtot*100) : 0;
+          return `<div class="hold" data-act="divGrp" data-k="${esc(g.k)}">
+            <div class="ic" style="background:var(--gold-s);color:var(--gold)">💰</div>
+            <div class="mid">
+              <div class="nm">${esc(g.name)}</div>
+              <div class="sb">${g.n}번 · 최근 ${esc(String(g.last).replace(/-/g,'.'))}${groups.length>1? ` · 비중 ${pct}%`:''}</div>
+            </div>
+            <div class="rt"><div class="amt num">${won(Math.round(g.sum))}</div>
+              <div class="pl muted">${open? '접기 ▲' : '▾'}</div></div>
           </div>
-          <div class="rt"><div class="amt num">${won(divKrw(d))}</div>
-            ${d.ccy==='USD'? `<div class="pl muted num">$${(+d.amount).toFixed(2)}</div>`:''}</div>
-        </div>`).join('')}
-      </div>` : '<div class="empty">아직 기록한 배당이 없어요</div>'}
+          ${open? g.items.map(d=>`
+            <div class="between" data-act="divEdit" data-id="${d.id}"
+                 style="padding:5px 0 5px 54px;font-size:12.5px;border-top:1px solid var(--line);cursor:pointer">
+              <div style="min-width:0;padding-right:8px">
+                <div>${esc(String(d.date||'').replace(/-/g,'.'))} 받음</div>
+                ${d.memo? `<div class="tiny muted">${esc(d.memo)}</div>`:''}
+              </div>
+              <div class="num" style="font-weight:800;white-space:nowrap">${won(divKrw(d))}${
+                d.ccy==='USD'? ` <span class="tiny muted">$${(+d.amount).toFixed(2)}</span>`:''}</div>
+            </div>`).join('') : ''}`;
+        }).join('')}
+        ${scope==='all'? `<div class="between" style="border-top:1px solid var(--line);padding-top:7px;margin-top:3px;font-size:12.5px">
+          <div style="font-weight:800">전체 합계</div>
+          <div class="num" style="font-weight:900">${won(Math.round(gtot))}</div>
+        </div>`:''}
+        <div class="tiny muted mt" style="line-height:1.7">종목을 누르면 <b>받은 날짜 하나하나</b>가 펼쳐지고, 날짜를 누르면 고치거나 지울 수 있어요.</div>
+      </div>` : `<div class="empty">${older? `${y}년에 기록한 배당이 없어요` : '아직 기록한 배당이 없어요'}</div>`}
     </div>`;
   })()}
 
@@ -5214,7 +5255,7 @@ document.addEventListener('click', async ev=>{
     const cur = state.divs.find(x=>x.id===id);
     if(cur) Object.assign(cur, o);
     else state.divs.push({ id:uid(), at:Date.now(), ...o });
-    save(); closeModal(); ui.tab='note'; render();
+    save(); closeModal(); ui.tab='flow'; render();
     toast(cur? '고쳤어요' : `${o.name} 배당 ${won(divKrw(o))} 기록했어요`);
     break; }
   case 'divDel': {
@@ -5593,6 +5634,8 @@ document.addEventListener('click', async ev=>{
     toast(`${h.name} ${qtyS(st.res.add, h.cat)}${CAT(h.cat).unit} 더 산 것으로 고쳤어요`);
     break; }
   case 'divMon': ui.divMon = +b.dataset.m || 0; render(); break;
+  case 'divGrp': ui.divGrp = (ui.divGrp === b.dataset.k) ? '' : b.dataset.k; render(); break;
+  case 'divScope': ui.divScope = b.dataset.v; ui.divGrp = ''; render(); break;
   case 'rbEdit': openRebalance(); break;
   case 'rbSave': {
     const tg = {};
