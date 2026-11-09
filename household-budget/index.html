@@ -981,7 +981,12 @@ function taxItemId(){
 }
 
 /* ---------- 💳 결제수단 · 카드 대조 ---------- */
-const PAY_KINDS = { card:{label:'카드', emoji:'💳'}, account:{label:'계좌', emoji:'🏦'}, cash:{label:'현금', emoji:'💵'} };
+const PAY_KINDS = { card:{label:'카드', emoji:'💳'}, account:{label:'계좌', emoji:'🏦'},
+                   cash:{label:'현금', emoji:'💵'}, point:{label:'복지포인트', emoji:'🎟️'} };
+/* 카드는 쓴 달과 빠져나가는 달이 달라(카드값으로 따로 나갑니다) 자산에서 바로 빼지 않습니다.
+   복지포인트·현금·계좌는 쓰는 즉시 그 잔액에서 빠지므로 자산 줄과 이을 수 있습니다. */
+const PAY_CAN_ASSET = k => k === 'point' || k === 'cash' || k === 'account';
+const payAssetOn = () => payList().some(p => p.assetRowId && PAY_CAN_ASSET(p.kind));
 const payList = () => state.pays || [];
 const payById = id => payList().find(p=>p.id===id);
 const payOf = itemId => (state.itemPay||{})[itemId] || '';
@@ -992,6 +997,24 @@ const paySum = (payId, key) => spendItems().filter(i=>payOf(i.id)===payId)
 const stmtOf = (payId, key) => +((state.stmt||{})[`${payId}|${key}`]) || 0;
 const fillOf = (payId, key) => (state.stmtFill||{})[`${payId}|${key}`];
 const unassignedCount = () => spendItems().filter(i=>!payOf(i.id)).length;
+/* 그 달 이 결제수단으로 나간 돈.
+   · 항목 전체를 그 결제수단으로 지정했으면 그 항목의 금액
+   · 상세 기록은 기록마다 붙은 결제수단(없으면 항목의 것)을 따릅니다
+   · 항목별 자산 연결이 따로 있으면 그쪽이 세므로 여기선 뺍니다 (이중 차감 방지) */
+function paySpend(payId, key){
+  if(!payId || key === 'init') return 0;
+  let sum = 0;
+  spendItems().forEach(i=>{
+    if(assetOfItem(i.id)) return;
+    const whole = payOf(i.id) === payId;
+    if(whole) sum += (+state.cells[`${i.id}|${key}`] || 0) + linkVal(i.id, key) + fixedAutoVal(i.id, key);
+    entriesOf(i.id, key).forEach(e=>{
+      const ep = e.pay || (whole ? payId : '');
+      if(ep === payId) sum += +e.amount || 0;
+    });
+  });
+  return sum;
+}
 /* 카드는 쓴 날과 빠져나가는 날이 다르다.
    결제일(billDay)과 사용 기간(term)을 알려주면 "그 명세서는 몇 월 사용분"인지 맞춰 계산한다.
    term 'prev'   = 전월 1일~말일 (결제일 10~15일 카드에서 흔함)
@@ -1061,12 +1084,16 @@ const assetOfItem = itemId => (state.itemAsset || {})[itemId] || '';
 const assetSign = item => item.section === 'save' ? 1 : -1;
 /* 그 달 이 자산에 연결된 항목들이 만든 증감 */
 function assetMove(rowId, key){
-  const map = state.itemAsset;
-  if(!map || !rowId || key === 'init') return 0;
+  if(!rowId || key === 'init') return 0;
   let sum = 0;
-  state.items.forEach(i=>{
+  const map = state.itemAsset;
+  if(map) state.items.forEach(i=>{
     if(map[i.id] !== rowId || i.section === 'income') return;
     sum += assetSign(i) * cellVal(i.id, key);
+  });
+  /* 🎟️ 복지포인트처럼 결제수단에 이어 둔 자산은 그 수단으로 쓴 만큼 빠집니다 */
+  (state.pays || []).forEach(p=>{
+    if(p.assetRowId === rowId && PAY_CAN_ASSET(p.kind)) sum -= paySpend(p.id, key);
   });
   return sum;
 }
@@ -1088,6 +1115,12 @@ function assetMoveItems(rowId, fromKey, toKey){
     let v = 0;
     for(let n = a + 1; n <= b; n++) if(keys[n] !== 'init') v += cellVal(i.id, keys[n]);
     if(v) out.push({ name:i.name, v: assetSign(i) * v });
+  });
+  (state.pays || []).forEach(p=>{
+    if(p.assetRowId !== rowId || !PAY_CAN_ASSET(p.kind)) return;
+    let v = 0;
+    for(let n = a + 1; n <= b; n++) if(keys[n] !== 'init') v += paySpend(p.id, keys[n]);
+    if(v) out.push({ name:`${(PAY_KINDS[p.kind]||{}).emoji||''} ${p.name}`.trim(), v: -v });
   });
   return out;
 }
@@ -3121,7 +3154,8 @@ function openCell(itemId){
     ${list.length? `<div class="field"><label>상세 기록 ${list.length}건 (합계 ${num(extra)}원)</label>
       <div class="card">${list.map(e=>`<div class="line-item">
         <div class="grow"><div class="nm" style="font-size:12.5px">${esc(e.memo||'기록')}</div>
-          <div class="sub">${e.date.slice(5).replace('-','월 ')}일</div></div>
+          <div class="sub">${e.date.slice(5).replace('-','월 ')}일${
+            e.pay && payById(e.pay)? ` · ${(PAY_KINDS[payById(e.pay).kind]||PAY_KINDS.card).emoji} ${esc(payById(e.pay).name)}`:''}</div></div>
         <div class="val" style="font-size:13px">${num(e.amount)}</div>
         <button class="x" data-act="delEntry" data-id="${e.id}">✕</button></div>`).join('')}</div>
       <div class="tiny muted" style="margin-top:6px">이 달 합계 = 직접 적은 ${num(base)}원 + 상세 ${num(extra)}원
@@ -3149,6 +3183,13 @@ function openCell(itemId){
         연결해 두면 💎 자산 탭의 그 줄에서 이 금액이 ${it.section==='save'? '<b>더해집니다</b>' : '<b>빠집니다</b>'}.
         <b>그 달 자산을 직접 적으시면 적은 값이 우선</b>이라 두 번 빠지지 않아요.</div>
     </div>`}
+    ${payAssetOn()? `<div class="field"><label>이 기록은 무엇으로 냈나요</label>
+      <select id="ePay">
+        <option value="">${esc(itemById(itemId) && payById(payOf(itemId))? payById(payOf(itemId)).name+' (항목 기본)' : '지정 안 함')}</option>
+        ${payList().map(p=>`<option value="${p.id}">${(PAY_KINDS[p.kind]||PAY_KINDS.card).emoji} ${esc(p.name)}</option>`).join('')}
+      </select>
+      <div class="tiny muted" style="margin-top:5px">🎟️ 복지포인트처럼 자산과 이어 둔 수단을 고르면 그 자산에서 빠집니다.</div>
+    </div>`:''}
     <div class="field"><label>상세 기록 추가 (선택)</label>
       <div class="row"><input id="eAmt" data-money inputmode="numeric" placeholder="금액" class="grow">
         <input id="eMemo" placeholder="메모" class="grow">
@@ -3183,6 +3224,11 @@ function openQuickAdd(){
       </optgroup>`).join('')}</select></div>
     <div class="amt-box" style="margin-top:11px">
       <span class="won">－</span><input id="qaAmt" data-money inputmode="numeric" placeholder="0"><span class="won">원</span></div>
+    ${payAssetOn()? `<div class="field"><label>무엇으로 냈나요</label>
+      <select id="qaPay">
+        <option value="">항목에 지정한 대로</option>
+        ${payList().map(p=>`<option value="${p.id}">${(PAY_KINDS[p.kind]||PAY_KINDS.card).emoji} ${esc(p.name)}</option>`).join('')}
+      </select></div>`:''}
     <div class="field"><label>메모</label><input id="qaMemo" placeholder="예: 이마트 장보기"></div>
     <div class="field"><label>날짜</label><input id="qaDate" type="date" value="${iso(today())}"></div>
     <button class="btn block" style="margin-top:12px" data-act="qaSave">기록하기</button>
@@ -4002,6 +4048,18 @@ function openPayManage(){
         </select>
         <button class="x" data-act="delPay" data-id="${p.id}">✕</button>
       </div>
+      ${PAY_CAN_ASSET(p.kind)? `
+        <div class="tiny muted" style="margin:9px 0 4px;font-weight:800">💎 어느 자산에서 빠지나요 (선택)</div>
+        <select data-pay-asset="${p.id}">
+          <option value="">— 안 함 —</option>
+          ${(state.settings.owners||[]).map(o=>`<optgroup label="${esc(o)}">
+            ${ownerRows(o).map(r=>`<option value="${r.id}" ${p.assetRowId===r.id?'selected':''}>${esc(r.name)}</option>`).join('')}
+          </optgroup>`).join('')}
+          <option value="__new__">＋ '${esc(p.name)}' 줄 새로 만들기</option>
+        </select>
+        <div class="tiny muted" style="margin-top:5px;line-height:1.7">
+          이으면 이 수단으로 쓴 만큼 💎 자산에서 <b>저절로 빠집니다</b>.
+          그 달 자산을 직접 적으시면 적은 값이 우선이에요.</div>`:''}
       ${p.kind==='card'? `
         <div class="tiny muted" style="margin:9px 0 4px;font-weight:800">결제일과 사용 기간</div>
         <div class="row">
@@ -4038,6 +4096,12 @@ function openPayManage(){
         </select>
         <button class="btn" data-act="addPay">추가</button>
       </div>
+      ${payList().some(p=>p.kind==='point')? '' : `
+        <button class="btn ghost sm block" style="margin-top:8px" data-act="addPoint">
+          🎟️ 복지포인트 한 번에 만들기</button>
+        <div class="tiny muted" style="margin-top:5px;line-height:1.7">
+          결제수단 <b>복지포인트</b> 와 💎 자산 <b>복지포인트</b> 줄을 만들어 이어 둡니다.
+          쓴 만큼 그 줄에서 빠져요.</div>`}
     </div>
     <button class="btn ghost block sm" style="margin-top:11px" data-act="payAssign">항목별 지정하러 가기 →</button>
   </div>`);
@@ -4218,7 +4282,8 @@ document.addEventListener('click', async (e)=>{
     if(!amt){ toast('금액을 넣어 주세요'); break; }
     const d = today(); const day = Math.min(d.getDate(), 28);
     const date = ui.m===nowMonthIdx()? iso(d) : `${mk(ui.m)}-${pad2(day)}`;
-    state.entries.push({ id:uid(), itemId:id, date, amount:amt, memo:$('#eMemo').value.trim() });
+    state.entries.push({ id:uid(), itemId:id, date, amount:amt, memo:$('#eMemo').value.trim(),
+                         pay: $('#ePay')?.value || '' });
     save(); openCell(id); render(); toast('상세 기록을 더했어요'); break;
   }
   case 'delEntry': {
@@ -4321,6 +4386,17 @@ document.addEventListener('click', async (e)=>{
   /* ---- 💳 카드 대조 ---- */
   case 'payManage': openPayManage(); break;
   case 'payAssign': openPayAssign(); break;
+  case 'addPoint': {
+    const owner = (state.settings.owners||[])[0] || '공동';
+    let row = ownerRows(owner).find(r=>/복지\s*포인트|복지P/i.test(r.name));
+    if(!row){ row = { id:uid(), owner, name:'복지포인트' }; state.assetRows.push(row); }
+    let p2 = payList().find(x=>x.kind==='point');
+    if(!p2){ p2 = { id:uid(), name:'복지포인트', kind:'point', fillItem:'' };
+             (state.pays = state.pays||[]).push(p2); }
+    p2.assetRowId = row.id;
+    save(); openPayManage(); render();
+    toast(`복지포인트를 만들고 ${esc(owner)} 자산 줄과 이었어요`); break;
+  }
   case 'addPay': {
     const name = $('#npName').value.trim(); if(!name){ toast('이름을 넣어 주세요'); break; }
     (state.pays = state.pays||[]).push({ id:uid(), name, kind:$('#npKind').value, fillItem:'' });
@@ -4486,7 +4562,7 @@ document.addEventListener('click', async (e)=>{
     const amt = parseAmount($('#qaAmt').value)||0, itemId = $('#qaItem').value;
     if(!amt){ toast('금액을 넣어 주세요'); break; }
     state.entries.push({ id:uid(), itemId, date:$('#qaDate').value||iso(today()),
-                         amount:amt, memo:$('#qaMemo').value.trim() });
+                         amount:amt, memo:$('#qaMemo').value.trim(), pay: $('#qaPay')?.value || '' });
     save(); closeModal(); render(); toast(`${num(amt)}원 기록했어요`); break;
   }
 
@@ -4964,6 +5040,18 @@ document.addEventListener('change', e=>{
       day:+$('#lnDay').value||0,
       balanceAsOf:$('#lnAsOf').value, method:t.value, graceUntil:$('#lnGrace')?.value||'',
       itemId:$('#lnItem').value, assetRowId:$('#lnAsset').value, memo:$('#lnMemo').value });
+    return;
+  }
+  if(t.dataset.payAsset !== undefined){
+    const p2 = payById(t.dataset.payAsset);
+    if(p2){
+      if(t.value === '__new__'){
+        const owner = (state.settings.owners||[])[0] || '공동';
+        const row = { id:uid(), owner, name:p2.name };
+        state.assetRows.push(row); p2.assetRowId = row.id;
+      } else p2.assetRowId = t.value;
+      save(); openPayManage(); render();
+    }
     return;
   }
   if(t.dataset.payFill !== undefined){
