@@ -1934,6 +1934,130 @@ function render(){
 /* ============================================================
    4. 화면
    ============================================================ */
+/* 지난 석 달 평균보다 눈에 띄게 많이 쓴 항목 — 월말에 '어디서 샜지' 를 대신 찾아 줍니다 */
+function spendSpikes(key){
+  const m = +String(key).slice(5), out = [];
+  if(m <= 1) return out;
+  spendItems().forEach(i=>{
+    const now = cellVal(i.id, key); if(now < 50000) return;
+    const past = [];
+    for(let k = Math.max(1, m-3); k < m; k++){ const v = cellVal(i.id, mk(k)); if(v) past.push(v); }
+    if(past.length < 2) return;
+    const avg = past.reduce((a,b)=>a+b,0) / past.length;
+    if(avg > 0 && now >= avg * 1.5 && now - avg >= 50000)
+      out.push({ item:i, now, avg: Math.round(avg), up: Math.round(now - avg) });
+  });
+  return out.sort((a,b)=>b.up - a.up).slice(0, 4);
+}
+/* ============================================================
+   ↩️ 되돌리기 — 실수로 지워도 되살릴 수 있게
+   ------------------------------------------------------------
+   큰 변화 앞에서 그때 상태를 따로 챙겨 둡니다. 부부 공유에는 안 보냅니다
+   (내 폰에서 한 실수를 내 폰에서 되돌리는 것이라서요).
+   ============================================================ */
+const UNDO_KEY = 'homeLedger.undo';
+const UNDO_KEEP = 5;
+const undoList = () => { try{ return JSON.parse(localStorage.getItem(UNDO_KEY) || '[]'); }catch(e){ return []; } };
+function undoPush(label){
+  try{
+    const list = undoList();
+    list.unshift({ at: Date.now(), label, snap: JSON.stringify(state) });
+    localStorage.setItem(UNDO_KEY, JSON.stringify(list.slice(0, UNDO_KEEP)));
+  }catch(e){ /* 자리가 모자라면 그냥 넘어갑니다 */ }
+}
+function undoApply(i){
+  const u = undoList()[i]; if(!u) return false;
+  try{
+    state = JSON.parse(u.snap);
+    const list = undoList(); list.splice(0, i + 1);
+    localStorage.setItem(UNDO_KEY, JSON.stringify(list));
+    save(); render(); return true;
+  }catch(e){ return false; }
+}
+const agoText = ms => { const m = Math.round((Date.now()-ms)/60000);
+  return m < 1 ? '방금' : m < 60 ? `${m}분 전` : m < 1440 ? `${Math.round(m/60)}시간 전` : `${Math.round(m/1440)}일 전`; };
+function openUndo(){
+  const list = undoList();
+  openModal(`<div class="modal">
+    <div class="mhead"><h3>↩️ 되돌리기</h3><button class="x" data-act="close">✕</button></div>
+    ${list.length? `<div class="tiny muted" style="line-height:1.8">
+        고른 시점으로 <b>통째로</b> 되돌립니다. 그 뒤에 한 일도 함께 사라져요.</div>
+      <div class="card" style="margin-top:11px">
+        ${list.map((u,i)=>`<div class="fx">
+          <div class="grow" style="min-width:0">
+            <div class="nm" style="font-size:13px;font-weight:800">${esc(u.label)}</div>
+            <div class="tiny muted">${agoText(u.at)} · 이 일을 하기 직전으로</div></div>
+          <button class="btn sm" style="flex:none" data-act="undoGo" data-i="${i}">되돌리기</button>
+        </div>`).join('')}
+      </div>
+      <div class="tiny muted" style="margin-top:9px;line-height:1.7">
+        최근 ${UNDO_KEEP}번까지 챙겨 둡니다. 이 폰에만 있고 배우자 폰에는 안 갑니다.</div>`
+    : `<div class="note" style="margin-top:10px">아직 되돌릴 게 없어요.
+        항목·결제수단·대출을 지우거나, 한 번에 바꾸는 일을 하면 여기에 쌓입니다.</div>`}
+  </div>`);
+}
+/* 최근에 적은 생활비 항목을 앞으로 — 매번 11개에서 찾지 않게 */
+function recentItems(n){
+  const living = itemsOf('living'), seen = [];
+  (state.entries||[]).slice().sort((a,b)=>String(b.date).localeCompare(String(a.date)))
+    .forEach(e=>{ if(seen.length < n && !seen.includes(e.itemId) && living.some(i=>i.id===e.itemId)) seen.push(e.itemId); });
+  const out = seen.map(id=>living.find(i=>i.id===id));
+  living.forEach(i=>{ if(out.length < n && !out.includes(i)) out.push(i); });
+  return out;
+}
+/* ============================================================
+   📋 이번 달 할 일 — 기능을 찾아다니지 않게
+   ------------------------------------------------------------
+   만들어 둔 것들이 가계부·고정비·자산 깊숙이 흩어져 있어서, 매달 하는 일인데도
+   매번 찾아야 했습니다. 그 달에 할 일만 모아 바로 그 자리로 보내 줍니다.
+   ============================================================ */
+const todoDone = id => !!(state.todoDone||{})[`${mk(nowMonthIdx())}|${id}`];
+function monthTodos(){
+  const m = nowMonthIdx(), key = mk(m), out = [];
+  const add = o => { if(!todoDone(o.id)) out.push(o); };
+
+  /* 수입 — 월초에 채워 두면 저축률이 달 내내 쓸모 있습니다 */
+  if(!itemsOf('income').some(i=>cellVal(i.id,key)))
+    add({ id:'income', icon:'💰', t:`${m}월 수입을 아직 안 적었어요`,
+          s:'지난달 값 채우기로 미리 넣어 두면 저축률이 바로 보여요', act:'tab', tab:'ledger' });
+
+  /* 카드 명세서 — 결제일이 지난 카드부터 */
+  payList().filter(p=>p.kind==='card' && p.billDay && !stmtOf(p.id,key))
+    .forEach(p=>add({ id:'stmt_'+p.id, icon:'💳', t:`${esc(p.name)} 명세서 금액 넣기`,
+      s:`${m}월 ${p.billDay}일 결제 · 넣으면 빠진 소비를 찾아 드려요`, act:'tab', tab:'ledger' }));
+
+  /* 대출 — 잔액이 두 달 넘게 묵었으면 은행 문자로 */
+  (state.loans||[]).filter(l=>(+l.balance) && l.balanceAsOf &&
+      (m - (+String(l.balanceAsOf).slice(5) || m)) >= 2)
+    .forEach(l=>add({ id:'loan_'+l.id, icon:'📩', t:`${esc(l.name)} 잔액이 ${+String(l.balanceAsOf).slice(5)}월 기준이에요`,
+      s:'은행 문자를 붙여넣으면 잔액·상환액이 한 번에 맞춰져요', act:'loanSms' }));
+
+  /* 세금·연회비 */
+  annualsOfMonth(m).forEach(a=>add({ id:'ann_'+a.id, icon:'🔔', t:`${esc(a.name)} 낼 차례`,
+    s: a.amount? `${num(a.amount)}원` : '금액을 넣어 주세요', act:'tab', tab:'fixed' }));
+
+  /* 고정비·대출이 막혔을 때 */
+  if(autoGaps(key).length)
+    add({ id:'gap', icon:'🔁', t:'고정비·대출 금액이 가계부에 안 들어가고 있어요',
+          s:`${autoGaps(key).length}개 항목 · 한 번에 맞출 수 있어요`, act:'tab', tab:'fixed' });
+
+  /* 냉장고 받을 항목 */
+  if(linkMissingKinds().length)
+    add({ id:'fridge', icon:'🧊', t:'냉장고 금액을 받을 항목이 없어요',
+          s: linkMissingKinds().map(k=>k.label).join(' · '), act:'tab', tab:'ledger' });
+
+  /* 자산 — 말일 가까우면 */
+  if(todayDay() >= 25 && !state.assetRows.some(r=>assetRaw(r.id,key)!==undefined))
+    add({ id:'asset', icon:'💎', t:`${m}월 자산을 아직 안 적었어요`,
+          s:'월말에 한 번만 적어 두면 순자산 추이가 이어집니다', act:'tab', tab:'asset' });
+
+  /* 통장 잔고가 오래됐을 때 */
+  if(state.cash?.at && Date.now() - state.cash.at > 14*864e5)
+    add({ id:'cash', icon:'🏦', t:'통장 잔고가 2주 넘었어요',
+          s:'다시 넣으면 급여 구간 판정이 정확해져요', act:'tab', tab:'home' });
+
+  return out;
+}
 /* ---------- 4-1. 홈 ---------- */
 function viewHome(){
   const aKey = latestAssetKey(), keys = assetKeys();
@@ -1949,7 +2073,7 @@ function viewHome(){
   const trend = trendKeys.map(k=>netWorth(k));
   const alerts = (state.fixed||[]).filter(f=>/🚨/.test(f.status||'')).length;
   const living = itemsOf('living');
-  const quickItems = living.slice(0,8);
+  const quickItems = recentItems(8);
 
   return `<section class="pane stack">
     <div class="banner">
@@ -1967,6 +2091,21 @@ function viewHome(){
       <div><div class="n">${pctS(s.rate,0)}</div><div class="l">저축률</div></div>
       <div><div class="n gold">${num(savedNow)}</div><div class="l">이번 달 절약</div></div>
     </div>
+
+    ${(()=>{ const td = monthTodos(); if(!td.length) return '';
+      return `<div class="sec-title"><h2>📋 ${nowMonthIdx()}월 할 일</h2>
+          <p>${td.length}가지</p></div>
+        <div class="card">
+          ${td.map(x=>`<div class="fx">
+            <div class="ic" style="background:var(--gold-s)">${x.icon}</div>
+            <div class="grow" style="min-width:0">
+              <div class="nm" style="font-size:13px;font-weight:800">${x.t}</div>
+              <div class="tiny muted">${x.s}</div></div>
+            <button class="btn sm" style="flex:none" data-act="${x.act}" ${x.tab?`data-tab="${x.tab}"`:''}>가기</button>
+            <button class="x" data-act="todoDone" data-id="${esc(x.id)}" title="이번 달은 됐어요">✓</button>
+          </div>`).join('')}
+        </div>`;
+    })()}
 
     ${(()=>{
       const F = payWindowFlow();
@@ -2040,6 +2179,9 @@ function viewHome(){
         <span class="won">－</span>
         <input id="qAmt" data-money inputmode="numeric" placeholder="0">
         <span class="won">원</span>
+      </div>
+      <div class="keypad" style="margin-top:7px">
+        ${[10000,30000,50000,100000,300000,500000].map(v=>`<button class="act" data-act="qPlus" data-n="${v}">+${shortWon(v)}</button>`).join('')}
       </div>
       <div class="scroller" style="margin-top:8px">
         ${quickItems.map(i=>`<button class="chip ${ui.qItem===i.id?'on':'line'}" data-act="qItem" data-id="${i.id}">
@@ -2248,6 +2390,14 @@ function viewLedger(){
       </div>`;
     }).join('')}
 
+    ${(()=>{ const sp = spendSpikes(cur); if(!sp.length) return '';
+      return `<div class="note" style="margin-top:11px">📈 지난 석 달보다 눈에 띄게 많이 쓴 곳이에요.
+        ${sp.map(x=>`<div style="margin-top:6px">· <b>${esc(x.item.name)}</b> ${num(x.now)}원
+          <span class="muted" style="font-weight:600">(평소 ${num(x.avg)}원 · +${num(x.up)})</span></div>`).join('')}
+        <div class="tiny muted" style="margin-top:6px;font-weight:600">
+          큰 지출이 있었던 달이면 그냥 넘기셔도 됩니다.</div></div>`;
+    })()}
+
     ${(()=>{ const miss = linkMissingKinds(); if(!miss.length) return '';
       return `<div class="note" style="margin-top:11px">⚠️ 🧊 냉장고 <b>${
         miss.map(k=>esc(k.label)).join(' · ')}</b> 를 받을 항목이 없어요 —
@@ -2296,6 +2446,7 @@ function saveStmt(t){
   const v = parseAmount(t.value)||0, k = `${t.dataset.stmt}|${mk(ui.m)}`;
   state.itemAsset = state.itemAsset || {};
 state.cash = state.cash || {};
+state.todoDone = state.todoDone || {};
 state.stmt = state.stmt || {};
   if(v) state.stmt[k] = v; else delete state.stmt[k];
   save();
@@ -3208,6 +3359,10 @@ function openCell(itemId){
     </div>
     <button class="btn block" style="margin-top:12px" data-act="saveCell" data-id="${itemId}">저장</button>
     <div class="row" style="margin-top:7px">
+      <button class="btn ghost sm grow" data-act="moveItem" data-id="${itemId}" data-d="-1">↑ 위로</button>
+      <button class="btn ghost sm grow" data-act="moveItem" data-id="${itemId}" data-d="1">↓ 아래로</button>
+    </div>
+    <div class="row" style="margin-top:7px">
       <button class="btn ghost sm grow" data-act="renameItem" data-id="${itemId}">이름 바꾸기</button>
       <button class="btn ghost sm grow" style="color:var(--spend)" data-act="delItem" data-id="${itemId}">항목 삭제</button>
     </div>
@@ -3222,8 +3377,15 @@ function openQuickAdd(){
       <select id="qaItem">${SECTIONS.map(s=>`<optgroup label="${esc(s.label)}">
         ${itemsOf(s.key).map(i=>`<option value="${i.id}" ${ui.qItem===i.id?'selected':''}>${esc(i.name)}</option>`).join('')}
       </optgroup>`).join('')}</select></div>
+    ${(()=>{ const r = recentItems(5); if(!r.length) return '';
+      return `<div class="scroller" style="margin-top:7px">
+        ${r.map(i=>`<button class="chip line" data-act="qaPick" data-id="${i.id}">${esc(i.name)}</button>`).join('')}
+      </div>`; })()}
     <div class="amt-box" style="margin-top:11px">
       <span class="won">－</span><input id="qaAmt" data-money inputmode="numeric" placeholder="0"><span class="won">원</span></div>
+    <div class="keypad" style="margin-top:7px">
+      ${[10000,30000,50000,100000,300000,500000].map(v=>`<button class="act" data-act="qaPlus" data-n="${v}">+${shortWon(v)}</button>`).join('')}
+    </div>
     ${payAssetOn()? `<div class="field"><label>무엇으로 냈나요</label>
       <select id="qaPay">
         <option value="">항목에 지정한 대로</option>
@@ -3752,6 +3914,7 @@ function openSettings(){
       <div class="tiny muted" style="line-height:1.7;margin-bottom:8px">
         모든 기록은 이 브라우저 안에만 저장돼요(서버 없음). 폰을 바꾸거나 브라우저 기록을 지우면 사라지니 가끔 백업해 두세요.</div>
       <button class="btn sm block" data-act="copyBackup">📋 백업 내용 복사</button>
+      <button class="btn ghost sm block" style="margin-top:7px" data-act="undo">↩️ 되돌리기 (최근 5번)</button>
       <button class="btn ghost sm block" style="margin-top:7px" data-act="pasteRestore">📥 붙여넣어 복원하기</button>
       <button class="btn ghost sm block" style="margin-top:7px" data-act="expJson">⬇️ 백업 파일 내려받기 (JSON)</button>
       <button class="btn ghost sm block" style="margin-top:7px" data-act="impJsonBtn">⬆️ 백업 파일 불러오기</button>
@@ -4300,6 +4463,7 @@ document.addEventListener('click', async (e)=>{
   }
   case 'delItem': {
     const ties = itemTies(id);
+    undoPush(`항목 '${itemById(id)?.name||''}' 지움`);
     if(!confirm(`이 항목과 올해 값이 모두 지워져요.${
       ties.length? '\n\n딸린 연결도 함께 풀립니다 —\n· ' + ties.join('\n· ') : ''}\n\n계속할까요?`)) break;
     state.items = state.items.filter(i=>i.id!==id);
@@ -4403,6 +4567,7 @@ document.addEventListener('click', async (e)=>{
     save(); openPayManage(); render(); break;
   }
   case 'delPay': {
+    undoPush(`결제수단 '${payById(id)?.name||''}' 지움`);
     state.pays = payList().filter(p=>p.id!==id);
     Object.keys(state.itemPay||{}).forEach(k=>{ if(state.itemPay[k]===id) delete state.itemPay[k]; });
     Object.keys(state.stmt||{}).forEach(k=>{ if(k.startsWith(id+'|')) delete state.stmt[k]; });
@@ -4456,6 +4621,7 @@ document.addEventListener('click', async (e)=>{
   }
   case 'smsShot': $('#smsFile')?.click(); break;
   case 'smsApply': {
+    undoPush('은행 문자로 대출 채움');
     const o = smsDraft; if(!o?.ok){ toast('읽은 내용이 없어요'); break; }
     const pick = $('#smsLoan')?.value;
     let l = (state.loans||[]).find(x=>x.id === pick);
@@ -4492,9 +4658,37 @@ document.addEventListener('click', async (e)=>{
     toast(n? `${esc(l.name)} ${n}가지를 문자대로 넣었어요` : '고른 게 없어요');
     break;
   }
+  case 'moveItem': {
+    /* 같은 묶음 안에서만 자리를 바꿉니다 */
+    const it = itemById(id); if(!it) break;
+    const sib = itemsOf(it.section), at = sib.indexOf(it), to = at + (+b.dataset.d||0);
+    if(to < 0 || to >= sib.length){ toast(to<0? '맨 위예요' : '맨 아래예요'); break; }
+    const ia = state.items.indexOf(it), ib = state.items.indexOf(sib[to]);
+    state.items[ia] = sib[to]; state.items[ib] = it;
+    save(); render(); openCell(id); break;
+  }
+  case 'undo': openUndo(); break;
+  case 'undoGo': {
+    const i = +b.dataset.i || 0, u = undoList()[i];
+    if(!confirm(`'${u?.label||''}' 하기 직전으로 되돌릴까요?\n그 뒤에 한 일도 함께 사라집니다.`)) break;
+    closeModal();
+    toast(undoApply(i)? '되돌렸어요' : '되돌리지 못했어요'); break;
+  }
+  case 'qaPick': { const sel = $('#qaItem'); if(sel){ sel.value = id; } break; }
+  case 'qaPlus': { const e2 = $('#qaAmt'); if(e2){
+      e2.value = num((parseAmount(e2.value)||0) + (+b.dataset.n||0)); } break; }
+  case 'qPlus':  { const e2 = $('#qAmt');  if(e2){
+      e2.value = num((parseAmount(e2.value)||0) + (+b.dataset.n||0)); } break; }
+  case 'todoDone': {
+    (state.todoDone = state.todoDone || {})[`${mk(nowMonthIdx())}|${id}`] = 1;
+    /* 지난 달 것은 쌓아 두지 않습니다 */
+    Object.keys(state.todoDone).forEach(k=>{ if(!k.startsWith(mk(nowMonthIdx())+'|')) delete state.todoDone[k]; });
+    save(); render(); toast('이번 달은 안 보여 드릴게요'); break;
+  }
   case 'payWindowAll': openPayWindowAll(); break;
   case 'loanAssetLink': openLoanAssetLink(); break;
   case 'loanAssetLinkRun': {
+    undoPush('대출을 자산 줄에 이음');
     const k = mk(nowMonthIdx());
     const hadFilled = ownerRows('부채').some(r=>assetCarry(r.id,k).v > 0);
     let n = 0, made = 0;
@@ -4521,6 +4715,7 @@ document.addEventListener('click', async (e)=>{
     closeModal(); render(); window.scrollTo(0,0); break;
   case 'goAsset': ui.aKey = b.dataset.k; ui.aAnnual=false; closeModal(); render(); window.scrollTo(0,0); break;
   case 'fillFromLast': {
+    undoPush('이전 기록으로 채움');
     /* 항목마다 가장 최근에 적었던 값을 가져온다 (월세는 5월, 차량비는 6월 … 처럼) */
     const cur = mk(ui.m);
     let n = 0;
@@ -4685,6 +4880,7 @@ document.addEventListener('click', async (e)=>{
     toast(V.autoFill ? '달이 바뀌면 빈 칸을 저절로 채울게요' : '자동 채우기를 껐어요');
     break; }
   case 'invMakeRows': {
+    undoPush('자산 앱 못 찾은 것들 줄 만들어 가져옴');
     /* 자산 앱에 있는데 받을 줄이 없는 것들 — 같은 이름으로 줄을 만들어 그대로 가져옵니다 */
     const key = b.dataset.key || ui.aKey;
     const miss = invPlan().filter(p=>!p.ok);
@@ -4707,6 +4903,7 @@ document.addEventListener('click', async (e)=>{
     break;
   }
   case 'invApplyAll': {
+    undoPush('자산 앱 금액으로 모두 반영');
     const key = b.dataset.key || ui.aKey;
     let n = 0;
     invPlan().forEach(p=>{
@@ -4741,6 +4938,7 @@ document.addEventListener('click', async (e)=>{
 
   /* ---- 고정비 · 대출 ---- */
   case 'autoGapFix': {
+    undoPush('고정비·대출 금액으로 한 번에 맞춤');
     /* 직접 적은 값을 비우면 고정비·대출 금액이 그 자리에 들어옵니다 */
     const key = mk(nowMonthIdx()), gaps = autoGaps(key);
     if(!gaps.length){ toast('맞출 게 없어요'); break; }
@@ -4760,6 +4958,7 @@ document.addEventListener('click', async (e)=>{
     save(); render();
     toast(state.autoFixed? '가계부에 자동으로 반영해요' : '자동 반영을 껐어요'); break;
   case 'autoMatch': {
+    undoPush('고정비를 가계부 항목과 자동 연결');
     const n = autoMatchAll();
     save(); render();
     toast(n? `${n}개를 가계부 항목과 연결했어요` : '연결할 것이 없어요 (이미 다 되어 있거나 이름이 달라요)'); break;
@@ -5171,7 +5370,7 @@ async function fsPut(path, json, rev){
 }
 const CORE_KEYS = ['year','settings','items','cells','entries','assetRows','assetCells','limits',
                    'fixed','loans','goal','habits','habitLog','memo',
-                   'pays','itemPay','itemAsset','cash','stmt','stmtFill','payeeMap','annuals','autoFixed'];
+                   'pays','itemPay','itemAsset','cash','stmt','stmtFill','payeeMap','annuals','autoFixed','todoDone'];
 function corePayload(){
   const o = {}; CORE_KEYS.forEach(k=>o[k]=state[k]);
   return JSON.stringify(o);
