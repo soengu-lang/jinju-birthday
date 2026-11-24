@@ -191,6 +191,13 @@ section.pane{padding-bottom:28px}
   overflow-y:auto;padding:16px 16px calc(20px + env(safe-area-inset-bottom));animation:up .22s ease}
 @media(min-width:640px){.modal{border-radius:20px;max-height:88vh}}
 @keyframes up{from{transform:translateY(24px);opacity:.4}to{transform:none;opacity:1}}
+/* ---------- 음성 ---------- */
+.micbtn{flex:0 0 auto;width:46px;padding:0;font-size:19px;line-height:1}
+.mic-ring{width:92px;height:92px;border-radius:50%;margin:16px auto 12px;display:grid;place-items:center;
+  background:rgba(239,68,68,.10);font-size:38px;animation:mic 1.5s ease-in-out infinite}
+@keyframes mic{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.34)}50%{box-shadow:0 0 0 17px rgba(239,68,68,0)}}
+#vText{min-height:52px;font-size:15px;font-weight:700;line-height:1.5;text-align:center}
+#vText.wait{color:var(--muted);font-weight:600;font-size:13px}
 .mhead{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:12px}
 .mhead h3{font-size:18px;font-weight:900;letter-spacing:-.02em}
 .x{font-size:19px;color:var(--muted);padding:2px 6px;line-height:1}
@@ -276,7 +283,7 @@ section.pane{padding-bottom:28px}
 const KEY = 'fridgeMealPlanner.v1';
 const WEEKDAYS = ['월','화','수','목','금','토','일'];
 const CATS = ['단백질','채소','유제품·계란','면·곡물','간식','소스·양념','기타'];
-const UNITS = ['g','kg','ml','L','개','대','모','장','줌','컵','큰술','작은술','봉','팩','마리'];
+const UNITS = ['g','kg','ml','L','개','대','단','모','장','줌','컵','큰술','작은술','봉','팩','마리'];
 const EXP_TYPES = {
   grocery:{label:'장보기', color:'#2f4a34', emoji:'🛒'},
   dining :{label:'외식',   color:'#ef7620', emoji:'🍽️'},
@@ -302,6 +309,13 @@ const EMOJI_HINTS = [
   [/죽|스프|수프/,'🥣'],[/샐러드/,'🥗'],[/두부/,'🍲'],[/도시락/,'🍱']
 ];
 /* 분류별 기본 소비기한(일) */
+/* 자주 담는 재료를 한 번 눌렀을 때의 현실적인 기본 수량 */
+const QUICK_AMT = {
+  '계란':[10,'개'], '대파':[1,'대'], '양파':[2,'개'], '두부':[1,'모'], '닭가슴살':[500,'g'],
+  '우유':[900,'ml'], '애호박':[1,'개'], '당근':[2,'개'], '토마토':[3,'개'], '곤약면':[2,'봉'],
+  '라면':[4,'개'], '컵라면':[2,'개'], '과자':[1,'봉'], '초콜릿':[1,'개'], '젤리':[1,'봉'],
+  '아이스크림':[4,'개'], '견과':[1,'봉'], '콜라':[2,'개'], '맥주':[4,'개'], '시리얼':[1,'봉']
+};
 const SHELF = {'단백질':3,'채소':6,'유제품·계란':14,'면·곡물':60,'간식':120,'소스·양념':180,'기타':30};
 /* 보관 위치 */
 const PLACES = ['냉장','냉동','실온'];
@@ -391,6 +405,235 @@ function blankState(){
    i: [재료, 수량, 단위, 대체가능] — '돼지고기'가 없어도 목살이 있으면
       "목살로 대체"로 알려 준다.
    ============================================================ */
+/* ============================================================
+   음성으로 재료 담기
+   ------------------------------------------------------------
+   "계란 열 개, 대파 두 단, 소고기 삼백 그램" 처럼 한 번에 여러 개를 받는다.
+   받아쓰기는 틀릴 수 있으므로 반드시 확인 화면을 거쳐 담는다.
+   ============================================================ */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+const voiceOK = () => !!SR;
+
+/* 한글 수사 → 숫자. 고유어(한·두·세…)와 한자어(일·이·삼·백) 둘 다 받는다 */
+const KO_ONES = { 하나:1, 한:1, 일:1, 둘:2, 두:2, 이:2, 셋:3, 세:3, 석:3, 삼:3, 넷:4, 네:4, 넉:4, 사:4,
+  다섯:5, 오:5, 여섯:6, 육:6, 륙:6, 일곱:7, 칠:7, 여덟:8, 여덜:8, 팔:8, 아홉:9, 구:9 };
+const KO_TENS = { 열:10, 십:10, 스물:20, 스무:20, 이십:20, 서른:30, 삼십:30, 마흔:40, 사십:40,
+  쉰:50, 오십:50, 예순:60, 육십:60, 일흔:70, 칠십:70, 여든:80, 팔십:80, 아흔:90, 구십:90 };
+function koNum(t){
+  t = String(t||'').trim();
+  if(!t) return null;
+  if(/^\d+(?:\.\d+)?$/.test(t)) return parseFloat(t);
+  if(t === '반') return 0.5;
+  // 한자어 백·천 (삼백=300, 이백오십=250, 천=1000)
+  if(t.includes('백') || t.includes('천')){
+    const D = '[일이삼사오육륙칠팔구]';
+    const m = t.match(new RegExp(`^(?:(${D})?천)?(?:(${D})?백)?(.*)$`));
+    if(m){
+      let n = 0;
+      if(t.includes('천')) n += (KO_ONES[m[1]] || 1) * 1000;
+      if(t.includes('백')) n += (KO_ONES[m[2]] || 1) * 100;
+      if(m[3]){ const r = koNum(m[3]); if(r != null) n += r; }
+      return n || null;
+    }
+  }
+  for(const [w,v] of Object.entries(KO_TENS)){           // 열다섯 · 스물셋
+    if(t === w) return v;
+    if(t.startsWith(w)){
+      const rest = KO_ONES[t.slice(w.length)];
+      if(rest) return v + rest;
+    }
+  }
+  return KO_ONES[t] ?? null;
+}
+/* 말로 하는 단위 → 앱이 쓰는 단위 */
+const SPOKEN_UNIT = { 그램:'g', 그람:'g', g:'g', 킬로그램:'kg', 킬로:'kg', kg:'kg',
+  밀리리터:'ml', 미리:'ml', ml:'ml', 리터:'L', l:'L',
+  개:'개', 알:'개', 통:'개', 병:'개', 캔:'개', 줄:'개', 쪽:'개', 입:'개', 포기:'개',
+  대:'대', 단:'단', 봉:'봉', 봉지:'봉', 팩:'팩', 모:'모', 장:'장', 줌:'줌',
+  컵:'컵', 큰술:'큰술', 작은술:'작은술', 마리:'마리' };
+const UNIT_WORDS = Object.keys(SPOKEN_UNIT).sort((a,b)=>b.length-a.length).join('|');
+const NUM_WORDS = [...Object.keys(KO_TENS), ...Object.keys(KO_ONES), '백', '천', '반']
+  .sort((a,b)=>b.length-a.length).join('|');
+
+/* 수량 없이 한 마디만 말했을 때 — 재료로 알아볼 수 있는 말만 받는다.
+   ("어제 날씨가 좋았지" 같은 말이 재료로 담기면 안 되므로) */
+function knownFood(w){
+  w = String(w||'').trim();
+  if(!w || w.length>7 || /\s/.test(w)) return false;
+  if(guessCat(w) !== '기타') return true;                                  // 아는 재료 이름
+  try{ return state.fridge.some(f=>sameItem(f.name,w)); }catch(e){ return false; }  // 전에 담은 것
+}
+/* "계란 열 개랑 대파 두 단" → [{name:'계란',qty:10,unit:'개'}, ...] */
+function parseSpokenItems(text){
+  const cleaned = String(text||'')
+    .replace(/\.(?!\d)/g, ' ')                                   // 마침표만 떼고 1.5는 지킨다
+    .replace(new RegExp(`(${UNIT_WORDS})(?:이랑|랑|하고|이고|와|과)(?=\\s|$)`,'g'), '$1 , ')
+    .replace(/\s+(그리고|하고|이랑|랑|또|그다음|다음)\s+/g, ' , ')  // "사과 두 개"의 '과'는 건드리지 않는다
+    .replace(/,/g, ' , ').replace(/\s+/g,' ').trim();
+  const NUM = `(?:\\d+(?:\\.\\d+)?|(?:${NUM_WORDS})+)`;
+  const reUnit = new RegExp(`^(.+?)\\s*(${NUM})\\s*(${UNIT_WORDS})$`);
+  const reNum  = new RegExp(`^(.+?)\\s*(${NUM})$`);
+  const out = [];
+  const push = (name, qty, unit) => {
+    name = String(name||'').replace(/^[\s,]+|[\s,]+$/g,'').trim();
+    if(!name || name.length>12 || !isFinite(qty) || qty<=0 || !unit) return;
+    if(out.some(x=>sameItem(x.name,name) && x.unit===unit)) return;
+    out.push({ name, qty, unit });
+  };
+  for(const seg of cleaned.split(',').map(x=>x.trim()).filter(Boolean)){
+    let m = seg.match(reUnit);
+    if(m){ push(m[1], koNum(m[2]), SPOKEN_UNIT[m[3]]); continue; }
+    m = seg.match(reNum);
+    if(m){ push(m[1], koNum(m[2]), '개'); continue; }           // "우유 하나"
+    if(!/\d/.test(seg) && knownFood(seg)) push(seg, 1, '개');    // "두부" (아무 말이나 담기지 않게)
+  }
+  return out;
+}
+
+let voiceStop = null;
+function startVoice(onPartial, onDone, onError){
+  if(!SR){ onError('이 브라우저는 앱 안 음성 입력을 지원하지 않아요'); return; }
+  let rec;
+  try{ rec = new SR(); }catch(e){ onError('마이크를 켜지 못했어요'); return; }
+  rec.lang = 'ko-KR'; rec.continuous = false; rec.interimResults = true; rec.maxAlternatives = 1;
+  let finalText = '';
+  rec.onresult = e => {
+    let interim = '';
+    for(let i=e.resultIndex; i<e.results.length; i++){
+      const t = e.results[i][0].transcript;
+      if(e.results[i].isFinal) finalText += t; else interim += t;
+    }
+    onPartial((finalText + ' ' + interim).trim());
+  };
+  rec.onerror = e => {
+    const msg = e.error==='not-allowed' ? '마이크 사용이 막혀 있어요. 설정에서 허용해 주세요.'
+      : e.error==='no-speech' ? '소리가 들리지 않았어요. 다시 눌러 주세요.'
+      : e.error==='network' ? '인터넷 연결을 확인해 주세요.'
+      : '잘 듣지 못했어요. 다시 눌러 주세요.';
+    onError(msg);
+  };
+  rec.onend = () => { voiceStop = null; onDone(finalText.trim()); };
+  try{ rec.start(); }catch(e){ onError('마이크를 켜지 못했어요'); return; }
+  voiceStop = () => { try{ rec.stop(); }catch(e){} };
+}
+
+/* 말로 담기 화면 ------------------------------------------------ */
+let voiceState = null;   // {mode:'fridge'|'wish', phase, text, items, err}
+
+function openVoice(mode){
+  if(!SR){
+    openModal(`<div class="modal pad stack">
+      <div class="row" style="justify-content:space-between">
+        <div style="font-size:14px;font-weight:800">🎤 음성으로 담기</div>
+        <button class="x" data-act="close">✕</button></div>
+      <div class="tiny" style="line-height:1.65">
+        이 브라우저는 <b>앱 안에서 바로 듣는 기능</b>을 지원하지 않아요.<br><br>
+        대신 <b>키보드의 🎤 버튼</b>을 쓰시면 됩니다 —
+        입력칸을 누르면 키보드가 올라오고, 스페이스바 옆(또는 오른쪽 아래) 마이크를 누른 뒤 말하면
+        글자로 적힙니다. 한 칸에 하나씩 넣는 방식이에요.<br><br>
+        <b>아이폰·아이패드</b>라면 <b>사파리</b>로 열면 앱 안 음성 입력도 됩니다.
+      </div>
+      <button class="btn block" data-act="close">알겠어요</button>
+    </div>`);
+    return;
+  }
+  voiceState = { mode, phase:'listen', text:'', items:[], err:'' };
+  drawVoice();
+  startVoice(
+    t => { if(voiceState && voiceState.phase==='listen'){ voiceState.text = t; paintVoiceText(); } },
+    t => {
+      if(!voiceState) return;
+      voiceState.text = (t||'').trim();
+      if(!voiceState.text){ voiceState.phase='error'; voiceState.err='소리가 들리지 않았어요.'; drawVoice(); return; }
+      if(voiceState.mode==='wish'){ const q = voiceState.text; voiceState=null; closeModal(); openWish(q); return; }
+      voiceState.items = parseSpokenItems(voiceState.text);
+      if(!voiceState.items.length){ voiceState.phase='error'; voiceState.err='재료를 알아듣지 못했어요.'; }
+      else voiceState.phase='review';
+      drawVoice();
+    },
+    msg => { if(!voiceState) return; voiceState.phase='error'; voiceState.err=msg; drawVoice(); }
+  );
+}
+function paintVoiceText(){
+  const el = $('#vText'); if(!el || !voiceState) return;
+  if(voiceState.text){ el.textContent = voiceState.text; el.classList.remove('wait'); }
+  else { el.textContent = '듣고 있어요…'; el.classList.add('wait'); }
+}
+function drawVoice(){
+  const v = voiceState; if(!v) return;
+  const head = `<div class="row" style="justify-content:space-between;margin-bottom:2px">
+    <div style="font-size:14px;font-weight:800">🎤 ${v.mode==='wish'?'말로 메뉴 찾기':'말로 냉장고에 담기'}</div>
+    <button class="x" data-act="close">✕</button></div>`;
+
+  if(v.phase==='listen'){
+    const ex = v.mode==='wish'
+      ? '“속 편한 국물 요리”, “매콤한 거”, “된장찌개”'
+      : '“계란 열 개, 대파 두 단, 소고기 삼백 그램”';
+    openModal(`<div class="modal pad stack">${head}
+      <div class="mic-ring">🎙️</div>
+      <div id="vText" class="wait">듣고 있어요…</div>
+      <div class="tiny muted" style="text-align:center;line-height:1.6">
+        한 번에 여러 개 말해도 됩니다<br>예) ${ex}</div>
+      <button class="btn block" data-act="voiceDone">■ 다 말했어요</button>
+      <div class="tiny muted" style="text-align:center">말을 멈추면 저절로 끝나요</div>
+    </div>`);
+    paintVoiceText();
+    return;
+  }
+
+  if(v.phase==='error'){
+    openModal(`<div class="modal pad stack">${head}
+      <div class="card pad" style="text-align:center">
+        <div style="font-size:30px">🤔</div>
+        <div style="font-size:14px;font-weight:800;margin-top:6px">${esc(v.err)}</div>
+        ${v.text? `<div class="tiny muted" style="margin-top:7px">들은 말: “${esc(v.text)}”</div>`:''}
+      </div>
+      <div class="tiny muted" style="line-height:1.6">
+        <b>이름 + 수량 + 단위</b> 순서로 말해 주세요.<br>
+        예) “두부 한 모”, “우유 1리터”, “돼지고기 오백 그램”
+      </div>
+      <button class="btn block" data-act="voiceRetry" data-mode="${v.mode}">🎤 다시 말하기</button>
+      <button class="btn ghost block sm" data-act="close">직접 입력할게요</button>
+    </div>`);
+    return;
+  }
+
+  // 확인 화면
+  const rows = v.items.map((it,i)=>{
+    const cat = guessCat(it.name);
+    return `<div class="row" style="gap:6px;padding:8px 0;border-top:${i?'1px solid var(--line)':'none'}">
+      <div class="grow" style="min-width:0">
+        <div style="font-size:14px;font-weight:800">${esc(it.name)}</div>
+        <div class="tiny muted">${cat}${cat==='간식'?' 🍪':''} · ${guessPlace(it.name,cat)}</div>
+      </div>
+      <button class="btn ghost sm" data-act="vQty" data-i="${i}" data-d="-1" style="width:32px;padding:0">−</button>
+      <div style="min-width:62px;text-align:center;font-size:13.5px;font-weight:800">${it.qty}</div>
+      <button class="btn ghost sm" data-act="vQty" data-i="${i}" data-d="1" style="width:32px;padding:0">＋</button>
+      <select data-vunit="${i}" style="width:66px;padding:5px 4px;font-size:11.5px;border-radius:9px">
+        ${UNITS.map(u=>`<option ${u===it.unit?'selected':''}>${u}</option>`).join('')}</select>
+      <button class="x" data-act="vDel" data-i="${i}">✕</button>
+    </div>`;
+  }).join('');
+
+  openModal(`<div class="modal pad stack">${head}
+    <div class="tiny muted">들은 말: “${esc(v.text)}”</div>
+    <div class="card pad" style="padding:4px 11px">${rows}</div>
+    <div class="tiny muted">분류·보관·소비기한은 자동으로 정해 드려요. 담은 뒤에도 고칠 수 있어요.</div>
+    <button class="btn block" data-act="vAddAll">＋ ${v.items.length}가지 담기</button>
+    <button class="btn ghost block sm" data-act="voiceRetry" data-mode="fridge">🎤 다시 말하기</button>
+  </div>`);
+}
+function voiceAddAll(){
+  const items = ((voiceState&&voiceState.items)||[]).slice();
+  if(!items.length){ closeModal(); return; }
+  items.forEach(it=>{
+    const cat = guessCat(it.name);
+    addToFridge({ name:it.name, qty:it.qty, unit:it.unit, cat, place:guessPlace(it.name,cat),
+                  expDate: iso(addDays(today(), SHELF[cat]||14)) });
+  });
+  closeModal(); save(); render();
+  toast(items.length===1 ? `${items[0].name} 담았어요` : `${items.length}가지 담았어요`);
+}
 /* ============================================================
    Claude API 연결 (선택) — 레시피집·조합 규칙으로 안 되는 요청을 맡는다
    ------------------------------------------------------------
@@ -1531,6 +1774,8 @@ function viewFridge(){
     <div class="card pad">
       <div class="row" style="justify-content:space-between;margin-bottom:9px">
         <div style="font-size:13px;font-weight:800">냉장고에 담기</div>
+        <div class="grow"></div>
+        <button class="chip line" data-act="voice" data-mode="fridge" style="margin-right:4px">🎤 말로 담기</button>
         <button class="x" data-act="closeAdd">✕</button>
       </div>
       <div class="field" style="margin-top:0"><label>재료 이름</label>
@@ -1556,7 +1801,10 @@ function viewFridge(){
       <div class="tiny muted" style="margin:10px 0 5px;font-weight:700">자주 담는 재료</div>
       <div class="row wrap" style="gap:5px">${quick}</div>
     </div>` : `
-    <button class="btn block" data-act="openAdd">＋ 재료 추가</button>`}
+    <div class="row" style="gap:7px">
+      <button class="btn grow" data-act="openAdd">＋ 재료 추가</button>
+      <button class="btn ghost micbtn" data-act="voice" data-mode="fridge" title="말로 담기">🎤</button>
+    </div>`}
 
     <div class="card pad" style="padding:11px">
       <input id="fSearch" placeholder="🔍 재료 검색" value="${esc(ui.fq)}" data-act="noop">
@@ -1724,8 +1972,11 @@ function viewMenu(){
 
     <div class="card pad">
       <div style="font-size:13px;font-weight:800;margin-bottom:7px">뭐가 드시고 싶어요?</div>
-      <input id="wishBox" placeholder="예: 속편한 음식, 매콤한 거, 간단한 국물"
-             value="${esc(ui.wish||'')}" enterkeyhint="search">
+      <div class="row" style="gap:7px">
+        <input id="wishBox" placeholder="예: 속편한 음식, 매콤한 거, 된장찌개"
+               value="${esc(ui.wish||'')}" enterkeyhint="search" style="flex:1;min-width:0">
+        <button class="btn ghost micbtn" data-act="voice" data-mode="wish" title="말로 찾기">🎤</button>
+      </div>
       <div class="row wrap" style="gap:5px;margin-top:8px">
         ${['속편한','매콤한','국물','간단한','고단백','다이어트','아이도 먹을','술안주']
           .map(w=>`<button class="chip line" data-act="wishChip" data-w="${w}">${w}</button>`).join('')}
@@ -1952,7 +2203,7 @@ function viewMoney(){
 /* ============================================================
    5. 모달
    ============================================================ */
-function closeModal(){ $('#modalRoot').innerHTML=''; }
+function closeModal(){ voiceState=null; if(voiceStop) voiceStop(); $('#modalRoot').innerHTML=''; }
 function openModal(html){
   $('#modalRoot').innerHTML = `<div class="mask" data-mask>${html}</div>`;
   $('#modalRoot .mask').addEventListener('click', e=>{ if(e.target.hasAttribute('data-mask')) closeModal(); });
@@ -2837,12 +3088,32 @@ document.addEventListener('click', async (e)=>{
     state.fridge = cookUndo; cookUndo = null;
     save(); closeModal(); render(); toast('되돌렸어요'); break;
   }
+  /* ---- 음성 ---- */
+  case 'voice':      openVoice(b.dataset.mode||'fridge'); break;
+  case 'voiceRetry': openVoice(b.dataset.mode||'fridge'); break;
+  case 'voiceDone':  if(voiceStop) voiceStop(); break;
+  case 'vDel': {
+    if(!voiceState) break;
+    voiceState.items.splice(+b.dataset.i,1);
+    if(!voiceState.items.length){ closeModal(); break; }
+    drawVoice(); break;
+  }
+  case 'vQty': {
+    if(!voiceState) break;
+    const it = voiceState.items[+b.dataset.i]; if(!it) break;
+    it.qty = Math.max(0, +(it.qty + stepOf(it.unit)*(+b.dataset.d)).toFixed(2));
+    if(!it.qty) it.qty = stepOf(it.unit);
+    drawVoice(); break;
+  }
+  case 'vAddAll': voiceAddAll(); break;
+
   case 'quickadd': {
     const name = b.dataset.name, cat = guessCat(name);
-    const unit = /계란/.test(name) || cat==='채소' || cat==='간식' ? '개' : 'g';   // 라면 1g이 되지 않게
-    addToFridge({name, qty:1, unit, cat, place:guessPlace(name,cat),
+    const [qty, unit] = QUICK_AMT[name] ||
+      [1, (cat==='채소' || cat==='간식' ? '개' : 'g')];     // 두부 1g·라면 1g이 되지 않게
+    addToFridge({name, qty, unit, cat, place:guessPlace(name,cat),
                  expDate: iso(addDays(today(), SHELF[cat]||14))});
-    save(); render(); toast(`${name} 담았어요`); break;
+    save(); render(); toast(`${name} ${nice(qty)}${unit} 담았어요`); break;
   }
   case 'qty': {
     const it = state.fridge.find(f=>f.id===id); if(!it) break;
@@ -3179,6 +3450,11 @@ document.addEventListener('keydown', (e)=>{
   if(e.key==='Enter' && e.target.id==='wishBox'){ e.preventDefault(); openWish(e.target.value.trim()); }
 });
 document.addEventListener('change', (e)=>{
+  if(e.target.dataset.vunit!=null && voiceState){
+    const it = voiceState.items[+e.target.dataset.vunit];
+    if(it) it.unit = e.target.value;
+    return;
+  }
   if(e.target.id==='fSortSel'){ ui.fSort = e.target.value; render(); return; }
   if(e.target.id==='fCatSel'){ ui.fCat = e.target.value; render(); return; }
   const s = e.target.closest('[data-act="setDay"]');
