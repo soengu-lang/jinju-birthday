@@ -372,7 +372,8 @@ function roundBuy(q,unit){
    1. 상태 (localStorage 자동 저장)
    ============================================================ */
 let state, ui = { tab:'week', weekOffset:0, monthOffset:0, menuFilter:'전체',
-                  addOpen:false, fq:'', fFilter:'all', fPlace:'전체', fCat:'전체', fSort:'exp', wish:'' };
+                  addOpen:false, fq:'', fFilter:'all', fPlace:'전체', fCat:'전체', fSort:'exp', wish:'',
+                  eType:'grocery', eAmt:'', eMemo:'', eDate:'' };
 
 let applyingRemote = false;
 function writeLocal(){
@@ -474,18 +475,18 @@ function parseSpokenItems(text){
   const reUnit = new RegExp(`^(.+?)\\s*(${NUM})\\s*(${UNIT_WORDS})$`);
   const reNum  = new RegExp(`^(.+?)\\s*(${NUM})$`);
   const out = [];
-  const push = (name, qty, unit) => {
+  const push = (name, qty, unit, loose) => {
     name = String(name||'').replace(/^[\s,]+|[\s,]+$/g,'').trim();
     if(!name || name.length>12 || !isFinite(qty) || qty<=0 || !unit) return;
     if(out.some(x=>sameItem(x.name,name) && x.unit===unit)) return;
-    out.push({ name, qty, unit });
+    out.push({ name, qty, unit, ...(loose?{loose:true}:{}) });
   };
   for(const seg of cleaned.split(',').map(x=>x.trim()).filter(Boolean)){
     let m = seg.match(reUnit);
     if(m){ push(m[1], koNum(m[2]), SPOKEN_UNIT[m[3]]); continue; }
     m = seg.match(reNum);
     if(m){ push(m[1], koNum(m[2]), '개'); continue; }           // "우유 하나"
-    if(!/\d/.test(seg) && knownFood(seg)) push(seg, 1, '개');    // "두부" (아무 말이나 담기지 않게)
+    if(!/\d/.test(seg) && knownFood(seg)) push(seg, 1, '개', true);  // "두부" → 수량 없이 '있음'
   }
   return out;
 }
@@ -607,7 +608,8 @@ function drawVoice(){
         <div class="tiny muted">${cat}${cat==='간식'?' 🍪':''} · ${guessPlace(it.name,cat)}</div>
       </div>
       <button class="btn ghost sm" data-act="vQty" data-i="${i}" data-d="-1" style="width:32px;padding:0">−</button>
-      <div style="min-width:62px;text-align:center;font-size:13.5px;font-weight:800">${it.qty}</div>
+      <div style="min-width:62px;text-align:center;font-size:13.5px;font-weight:800">${
+        it.loose ? '<span style="color:var(--green);font-size:12.5px">있음</span>' : it.qty}</div>
       <button class="btn ghost sm" data-act="vQty" data-i="${i}" data-d="1" style="width:32px;padding:0">＋</button>
       <select data-vunit="${i}" style="width:66px;padding:5px 4px;font-size:11.5px;border-radius:9px">
         ${UNITS.map(u=>`<option ${u===it.unit?'selected':''}>${u}</option>`).join('')}</select>
@@ -628,8 +630,8 @@ function voiceAddAll(){
   if(!items.length){ closeModal(); return; }
   items.forEach(it=>{
     const cat = guessCat(it.name);
-    addToFridge({ name:it.name, qty:it.qty, unit:it.unit, cat, place:guessPlace(it.name,cat),
-                  expDate: iso(addDays(today(), SHELF[cat]||14)) });
+    addToFridge({ name:it.name, qty:it.qty, unit:it.unit, cat, loose:it.loose,
+                  place:guessPlace(it.name,cat), expDate: iso(addDays(today(), SHELF[cat]||14)) });
   });
   closeModal(); save(); render();
   toast(items.length===1 ? `${items[0].name} 담았어요` : `${items.length}가지 담았어요`);
@@ -969,9 +971,8 @@ function dishCheck(d){
   const list = stockList();
   return d.i.map(([n,q,u,alt])=>{
     const [need,fam] = normUnit(q, u);
-    const s = findStock(list, n, fam);
-    if((s && s.qty >= need-0.001) || (UNIT_BASE[u] && seasoningInStock(n)))
-      return { n, q, u, state:'have' };
+    const s = stockFor(list, n, fam, need);
+    if(s && s.qty >= need-0.001) return { n, q, u, state:'have' };
     /* 레시피는 "청양고추 1개"인데 냉장고엔 "2봉"처럼 세는 단위가 다르면 양을 견줄 수 없다.
        이름이 같고 남아 있으면 없다고 하지 말고 보유량을 그대로 알려 준다 */
     const other = state.fridge.find(f=>f.qty>0 && sameItem(f.name,n));
@@ -1085,8 +1086,7 @@ function recipeStatus(r, list, servings){
   const miss = []; let urgent = 0;
   for(const ing of r.ingredients){
     const [need,u] = normUnit(ing.qty*f, ing.unit);
-    let s = findStock(list, ing.name, u);
-    if(!s && UNIT_BASE[ing.unit] && seasoningInStock(ing.name)) s = {qty:need, expDate:''};
+    const s = stockFor(list, ing.name, u, need);
     if(!s || s.qty < need-0.001) miss.push(ing.name);
     else if(s.expDate && dayDiff(s.expDate, t) <= 2) urgent++;
   }
@@ -1483,25 +1483,38 @@ const planOf = d => state.plan[d] || null;
 
 /* 냉장고 재고를 {name, qty, unit, expDate} 배열로 (단위 정규화) */
 function stockList(){
-  return state.fridge.map(f=>{ const [q,u]=normUnit(f.qty,f.unit); return {name:f.name,qty:q,unit:u,expDate:f.expDate}; });
+  return state.fridge.map(f=>{ const [q,u]=normUnit(f.qty,f.unit);
+    return {name:f.name, qty:q, unit:u, expDate:f.expDate, loose:!!f.loose}; });
 }
 function findStock(list, name, unit){
   return list.find(s=>sameItem(s.name,name) && s.unit===unit);
 }
+/* 레시피가 요구하는 양을 지금 재고로 댈 수 있는지.
+   "있음"으로만 담은 재료(수량을 세지 않은 것)와 팩째 가진 양념은 충분하다고 본다 ―
+   남은 양을 모르는 것을 두고 모자라다고 다그치면 앱을 안 열게 된다. */
+function stockFor(list, name, unit, need){
+  const s = findStock(list, name, unit);
+  if(s && s.loose) return {qty:need, expDate:s.expDate, loose:true};
+  if(s) return s;
+  if(isLoose(name) || (UNIT_BASE[unit] && seasoningInStock(name)))
+    return {qty:need, expDate:'', loose:true};
+  return null;
+}
 /* 고추장 "1팩"처럼 통째로 가진 양념은, 레시피의 1~2큰술을 대기에 충분하다고 본다.
    (팩·병 단위는 남은 양을 알 수 없으므로 부족하다고 다그치지 않는다) */
 function seasoningInStock(name){
-  return state.fridge.some(f=> sameItem(f.name,name) && f.qty>0
-    && (f.cat==='소스·양념' || f.cat==='기타') && !UNIT_BASE[f.unit]);
+  return state.fridge.some(f=> sameItem(f.name,name) && f.qty>0 && (f.loose ||
+    ((f.cat==='소스·양념' || f.cat==='기타') && !UNIT_BASE[f.unit])));
 }
+/* 수량을 세지 않고 "있음"으로만 담은 재료인지 */
+function isLoose(name){ return state.fridge.some(f=> sameItem(f.name,name) && f.loose && f.qty>0); }
 /* 레시피 1개가 지금 재고로 얼마나 커버되는지 (0~1) + 부족 재료 수 */
 function coverage(recipe, list, servings){
   const f = servings/(recipe.servings||2);
   let total=0, have=0, missing=0, urgent=0;
   for(const ing of recipe.ingredients){
     const [need,u] = normUnit(ing.qty*f, ing.unit);
-    let s = findStock(list, ing.name, u);
-    if(!s && UNIT_BASE[ing.unit] && seasoningInStock(ing.name)) s = {qty:need, expDate:''};  // 팩째 가진 양념
+    const s = stockFor(list, ing.name, u, need);   // 팩째 가진 양념·"있음" 재료 포함
     const w = 1;
     total += w;
     if(s && s.qty>0){
@@ -1569,11 +1582,9 @@ function shoppingNeeds(dates){
   }
   const list = stockList();
   return Object.values(need).map(n=>{
-    const s = findStock(list, n.name, n.unit);
-    const have = s? s.qty : 0;
-    if(!s && UNIT_BASE[n.disp] && seasoningInStock(n.name))
-      return {...n, have:n.need, short:0, whole:true};      // 팩째 있음
-    return {...n, have, short: Math.max(0, n.need-have)};
+    const s = stockFor(list, n.name, n.unit, n.need);
+    if(s && s.loose) return {...n, have:n.need, short:0, whole:true};   // 팩째·"있음"
+    return {...n, have: s? s.qty : 0, short: Math.max(0, n.need-(s? s.qty : 0))};
   }).sort((a,b)=> CATS.indexOf(a.cat)-CATS.indexOf(b.cat) || b.short-a.short);
 }
 /* 이번 주 평균 kcal/단백질 */
@@ -1770,6 +1781,27 @@ function viewFridge(){
         <div class="n red">${over}</div><div class="l">기한 지남</div></button>
     </div>
 
+    ${(()=>{
+      const td = tidyList(); if(!td.length) return '';
+      const over = tidyOver();
+      const last = state.settings.tidiedAt;
+      const ago = last ? dayDiff(iso(today()), last) : null;
+      const agoTxt = ago==null ? '아직 정리한 적 없어요'
+        : ago>=14 ? `마지막 정리 ${Math.floor(ago/7)}주 전`
+        : ago>=1  ? `마지막 정리 ${ago}일 전` : '오늘 정리했어요';
+      return `<button class="card pad" data-act="tidy" style="text-align:left;width:100%;border-color:var(--orange)">
+        <div class="row" style="gap:9px">
+          <div style="font-size:21px">🧹</div>
+          <div class="grow" style="min-width:0">
+            <div style="font-size:13.5px;font-weight:800">${
+              over.length ? `기한 지난 ${over.length}개 정리하기` : `오래된 ${td.length}개 확인하기`}</div>
+            <div class="tiny muted">${agoTxt}${
+              over.length && td.length>over.length ? ` · 오래된 ${td.length-over.length}개는 한 번에` : ''}</div>
+          </div>
+          <div style="font-size:15px;color:var(--muted)">›</div>
+        </div></button>`;
+    })()}
+
     ${ui.addOpen ? `
     <div class="card pad">
       <div class="row" style="justify-content:space-between;margin-bottom:9px">
@@ -1781,8 +1813,8 @@ function viewFridge(){
       <div class="field" style="margin-top:0"><label>재료 이름</label>
         <input id="fName" placeholder="예: 소고기 우둔살"></div>
       <div class="g3" style="margin-top:8px">
-        <div><label class="tiny" style="font-weight:800;color:var(--muted)">수량</label>
-          <input id="fQty" type="number" inputmode="decimal" placeholder="1" step="0.5"></div>
+        <div><label class="tiny" style="font-weight:800;color:var(--muted)">수량 <span style="font-weight:600">(선택)</span></label>
+          <input id="fQty" type="number" inputmode="decimal" placeholder="비우면 '있음'" step="0.5"></div>
         <div><label class="tiny" style="font-weight:800;color:var(--muted)">단위</label>
           <select id="fUnit">${UNITS.map(u=>`<option ${u==='g'?'selected':''}>${u}</option>`).join('')}</select></div>
         <div><label class="tiny" style="font-weight:800;color:var(--muted)">보관</label>
@@ -1797,7 +1829,10 @@ function viewFridge(){
       <label class="row tiny" style="margin-top:7px;gap:6px;font-weight:700;color:var(--muted)">
         <input type="checkbox" id="fNoExp" style="width:auto"> 소비기한 모름 (알림 안 받기)
       </label>
-      <button class="btn block" style="margin-top:10px" data-act="addFridge">＋ 담기</button>
+      <div class="tiny muted" style="margin-top:7px;line-height:1.55">
+        수량은 <b>비워도 됩니다</b> — <b style="color:var(--green)">있음</b>으로만 담기고,
+        다 쓰면 <b>다 씀</b> 한 번만 누르면 돼요.</div>
+      <button class="btn block" style="margin-top:8px" data-act="addFridge">＋ 담기</button>
       <div class="tiny muted" style="margin:10px 0 5px;font-weight:700">자주 담는 재료</div>
       <div class="row wrap" style="gap:5px">${quick}</div>
     </div>` : `
@@ -1843,9 +1878,12 @@ function fridgeRow(i){
       <div class="sub">${place} · ${i.expDate? '소비기한 '+i.expDate.slice(5).replace('-','/') : '기한 모름'}</div>
     </button>
     <button class="qty" data-act="editItem" data-id="${i.id}"
-      style="text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px">${nice(i.qty)}${i.unit}</button>
-    <button class="qbtn" data-act="qty" data-id="${i.id}" data-d="-1" style="font-size:10px">−${step}</button>
-    <button class="qbtn" data-act="qty" data-id="${i.id}" data-d="1" style="font-size:10px">+${step}</button>
+      style="text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px">${
+        i.loose ? '<span style="color:var(--green)">있음</span>' : nice(i.qty)+i.unit}</button>
+    ${i.loose
+      ? `<button class="qbtn" data-act="usedUp" data-id="${i.id}" style="font-size:10px;width:auto;padding:0 9px">다 씀</button>`
+      : `<button class="qbtn" data-act="qty" data-id="${i.id}" data-d="-1" style="font-size:10px">−${step}</button>
+         <button class="qbtn" data-act="qty" data-id="${i.id}" data-d="1" style="font-size:10px">+${step}</button>`}
   </div>`;
 }
 
@@ -2101,6 +2139,29 @@ function shopRow(n){
 }
 
 /* ---------- 4-5. 식비 ---------- */
+/* 지금까지 적은 기록에서 자주 쓰는 가게·메뉴를 뽑는다.
+   같은 걸 또 적을 때 금액까지 미리 채워 두면 두 번 눌러 끝난다. */
+function favSpots(){
+  const byMemo = {};
+  state.expenses.forEach(e=>{
+    const m = (e.memo||'').trim(); if(!m || m.length>10) return;
+    (byMemo[m] = byMemo[m] || []).push(e);
+  });
+  return Object.entries(byMemo)
+    .map(([memo,list])=>{
+      const last = list.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''))[0];
+      return { memo, n:list.length, type:last.type, amount:last.amount,
+               recent: list.map(e=>e.date||'').sort().pop() };
+    })
+    .filter(x=>x.n>=2)
+    .sort((a,b)=> b.n-a.n || b.recent.localeCompare(a.recent))
+    .slice(0,8);
+}
+/* render()가 화면을 다시 그려도 치던 금액이 날아가지 않게 */
+function keepExpenseInput(){
+  const a=$('#eAmt'), m=$('#eMemo'), d=$('#eDate');
+  if(a) ui.eAmt = a.value; if(m) ui.eMemo = m.value; if(d && d.value) ui.eDate = d.value;
+}
 function viewMoney(){
   const base = new Date(); base.setDate(1); base.setMonth(base.getMonth()+ui.monthOffset);
   const y = base.getFullYear(), m = base.getMonth();
@@ -2156,6 +2217,18 @@ function viewMoney(){
           <b style="color:${total>budget?'var(--red)':'var(--green)'}">${Math.round(budget? total/budget*100:0)}%</b>
         </div>
         <div class="bar"><i class="${total>budget?'over':''}" style="width:${pct}%"></i></div>
+        ${(()=>{
+          const left = budget-total, daysLeft = Math.max(0, daysInMonth-dayN)+ (isThisMonth?1:0);
+          if(!isThisMonth) return '';
+          if(left<0) return `<div class="tiny" style="margin-top:7px;color:var(--red);font-weight:800">
+            예산보다 ${won(-left)} 더 썼어요</div>`;
+          return `<div class="row" style="margin-top:9px;gap:8px">
+            <div class="grow"><div class="tiny muted">남은 돈</div>
+              <div style="font-size:17px;font-weight:900;color:var(--green)">${won(left)}</div></div>
+            <div style="text-align:right"><div class="tiny muted">남은 ${daysLeft}일 · 하루</div>
+              <div style="font-size:17px;font-weight:900">${won(Math.floor(left/Math.max(1,daysLeft)))}</div></div>
+          </div>`;
+        })()}
       </div>`:''}
       <div style="margin-top:14px">
         ${byCat.map(c=>`<div class="catrow">
@@ -2175,15 +2248,26 @@ function viewMoney(){
 
     <div class="card pad">
       <div style="font-size:13px;font-weight:800;margin-bottom:8px">지출 기록하기</div>
+      ${(()=>{ const fav = favSpots(); return fav.length ? `
+      <div class="tiny muted" style="font-weight:700;margin-bottom:5px">자주 쓰는 것 — 누르면 채워져요</div>
+      <div class="row wrap" style="gap:5px;margin-bottom:9px">${fav.map(f=>
+        `<button class="chip line" data-act="spot" data-memo="${esc(f.memo)}" data-type="${f.type}" data-amt="${f.amount}">
+          ${EXP_TYPES[f.type].emoji} ${esc(f.memo)} <span class="muted">${won(f.amount)}</span></button>`).join('')}
+      </div>` : ''; })()}
+      <div class="row wrap" style="gap:5px;margin-bottom:8px">
+        ${Object.entries(EXP_TYPES).map(([k,v])=>
+          `<button class="chip ${ui.eType===k?'on':'line'}" data-act="eType" data-t="${k}">${v.emoji} ${v.label}</button>`).join('')}
+      </div>
       <div class="g2">
-        <input id="eDate" type="date" value="${iso(today())}">
-        <select id="eType">${Object.entries(EXP_TYPES).map(([k,v])=>`<option value="${k}">${v.emoji} ${v.label}</option>`).join('')}</select>
+        <input id="eAmt" type="number" inputmode="numeric" placeholder="금액" value="${esc(ui.eAmt||'')}" enterkeyhint="done">
+        <input id="eMemo" placeholder="어디서 (선택)" value="${esc(ui.eMemo||'')}">
       </div>
-      <div class="g2" style="margin-top:7px">
-        <input id="eAmt" type="number" inputmode="numeric" placeholder="금액">
-        <input id="eMemo" placeholder="메모 (예: 이마트)">
-      </div>
-      <button class="btn block" style="margin-top:9px" data-act="addExpense">＋ 기록</button>
+      <details style="margin-top:7px">
+        <summary class="tiny muted" style="font-weight:700;cursor:pointer">날짜 바꾸기</summary>
+        <input id="eDate" type="date" value="${esc(ui.eDate||iso(today()))}" style="margin-top:6px">
+      </details>
+      <button class="btn block" style="margin-top:9px" data-act="addExpense">
+        ＋ ${EXP_TYPES[ui.eType||'grocery'].label}으로 기록</button>
     </div>
 
     ${rows.length? `<div class="card">${rows.map(e=>`
@@ -2604,6 +2688,109 @@ function openItemEdit(id){
   </div>`);
 }
 
+/* ---------- 30초 냉장고 정리 ----------
+   재고는 요리할 때마다 어긋난다. 어긋난 채로 두면 식단·장보기가 전부 틀리고,
+   그러면 앱을 여는 게 "밀린 숙제"가 된다. 81개를 하나씩 고치는 대신
+   손볼 것만 모아 두 버튼으로 끝내게 한다. */
+const STALE_DAYS = 14;
+const isOver = f => { const t=iso(today()); return !!f.expDate && dayDiff(f.expDate,t) < 0; };
+const isStale = f => { const seen = f.seenAt || f.buyDate || '';
+  return !!seen && dayDiff(iso(today()), seen) >= STALE_DAYS; };
+const byOldest = (a,b)=> (a.seenAt||a.buyDate||'').localeCompare(b.seenAt||b.buyDate||'');
+/* 기한 지난 것 = 진짜 결정이 필요한 것. 그냥 오래된 것 = 한꺼번에 처리해도 되는 것.
+   둘을 섞어 80줄을 들이밀면 "30초"가 거짓말이 된다. */
+function tidyOver(){  return state.fridge.filter(isOver).sort(byOldest); }
+function tidyStale(){ return state.fridge.filter(f=>!isOver(f) && isStale(f)).sort(byOldest); }
+function tidyList(){  return [...tidyOver(), ...tidyStale()]; }
+function sinceLabel(f){
+  const t = iso(today());
+  if(f.expDate && dayDiff(f.expDate,t) < 0){
+    const d = -dayDiff(f.expDate,t);
+    return `<b style="color:var(--red)">기한 ${d}일 지남</b>`;
+  }
+  const seen = f.seenAt || f.buyDate;
+  if(!seen) return '언제 담았는지 모름';
+  const d = dayDiff(t, seen);
+  return d>=30 ? `${Math.floor(d/7)}주째 그대로` : `${d}일째 그대로`;
+}
+function openTidy(){
+  const list = tidyList();
+  if(!list.length){
+    openModal(`<div class="modal pad stack">
+      <div class="row" style="justify-content:space-between">
+        <div style="font-size:14px;font-weight:800">🧹 냉장고 정리</div>
+        <button class="x" data-act="close">✕</button></div>
+      <div class="card pad" style="text-align:center">
+        <div style="font-size:30px">✨</div>
+        <div style="font-size:14px;font-weight:800;margin-top:6px">손볼 게 없어요</div>
+        <div class="tiny muted" style="margin-top:5px">기한 지난 것도, 오래 묵은 것도 없습니다.</div>
+      </div>
+      <button class="btn block" data-act="close">닫기</button>
+    </div>`);
+    state.settings.tidiedAt = iso(today()); save();
+    return;
+  }
+  drawTidy();
+}
+function drawTidy(){
+  const over = tidyOver(), stale = tidyStale();
+  if(!over.length && !stale.length){
+    state.settings.tidiedAt = iso(today()); save(); closeModal(); render();
+    toast('정리 끝 — 냉장고가 다시 맞아요'); return;
+  }
+  const row = f => `
+    <div style="padding:9px 0;border-top:1px solid var(--line)">
+      <div class="row" style="gap:7px">
+        <div class="grow" style="min-width:0">
+          <div style="font-size:14px;font-weight:800">${esc(f.name)}
+            <span class="tiny muted" style="font-weight:600">${f.loose? '있음' : nice(f.qty)+f.unit}</span></div>
+          <div class="tiny muted">${sinceLabel(f)}</div>
+        </div>
+        <button class="btn ghost sm" data-act="tidyKeep" data-id="${f.id}">아직 있음</button>
+        <button class="btn sm" data-act="tidyGone" data-id="${f.id}">다 썼어요</button>
+      </div>
+    </div>`;
+
+  const overBlock = over.length ? `
+    <div style="font-size:13px;font-weight:800;margin-top:4px">
+      🔴 기한이 지난 ${over.length}개 <span class="tiny muted" style="font-weight:600">— 하나씩 봐 주세요</span></div>
+    <div class="card pad" style="padding:2px 11px 9px;max-height:${stale.length?'38vh':'52vh'};overflow:auto">
+      ${over.slice(0,40).map(row).join('')}</div>` : '';
+
+  const staleBlock = stale.length ? `
+    <div style="font-size:13px;font-weight:800;margin-top:4px">
+      🟡 2주 넘게 그대로인 ${stale.length}개</div>
+    ${ui.tidyOpen ? `
+      <div class="card pad" style="padding:2px 11px 9px;max-height:38vh;overflow:auto">
+        ${stale.slice(0,60).map(row).join('')}</div>` : `
+      <div class="card pad">
+        <div class="tiny muted" style="line-height:1.6;margin-bottom:8px">
+          오래돼서 이미 드셨을 수도 있어요. 한꺼번에 처리하거나 하나씩 볼 수 있습니다.</div>
+        <div class="row" style="gap:6px">
+          <button class="btn ghost sm grow" data-act="tidyBulkKeep">전부 아직 있어요</button>
+          <button class="btn sm grow" style="background:var(--red)" data-act="tidyBulkGone">
+            ${ui.tidyConfirm ? `정말 ${stale.length}개 비울까요?` : '전부 비우기'}</button>
+        </div>
+        <button class="btn ghost block sm" style="margin-top:6px" data-act="tidyOpen">하나씩 보기 →</button>
+      </div>`}` : '';
+
+  openModal(`<div class="modal pad stack">
+    <div class="row" style="justify-content:space-between">
+      <div style="font-size:14px;font-weight:800">🧹 냉장고 정리</div>
+      <button class="x" data-act="close">✕</button></div>
+    <div class="tiny muted" style="line-height:1.6">
+      둘 중 하나만 누르면 됩니다. ‘아직 있음’은 확인한 날짜만 새로 적고,
+      지난 기한은 <b>기한 모름</b>으로 바꿔 더는 재촉하지 않아요.</div>
+    ${overBlock}
+    ${staleBlock}
+    <button class="btn ghost block sm" data-act="close">나중에 할게요</button>
+  </div>`);
+}
+function tidyKeep(f){
+  f.seenAt = iso(today());
+  if(f.expDate && dayDiff(f.expDate, iso(today())) < 0) f.expDate = '';   // 지난 기한은 모름으로
+}
+
 /* ---------- 요리 완료 → 쓴 만큼 냉장고에서 빼기 ---------- */
 let cookUndo = null;
 function openCookDone(recipeId, servings, dateKey){
@@ -2615,13 +2802,13 @@ function openCookDone(recipeId, servings, dateKey){
     const [nq,nu] = normUnit(need, ing.unit);
     const s = findStock(list, ing.name, nu);
     const have = s? s.qty : 0;
-    const whole = !s && seasoningInStock(ing.name);          // 팩·병째 가진 양념
+    const whole = (s && s.loose) || (!s && (isLoose(ing.name) || seasoningInStock(ing.name)));  // 팩·병째 / "있음" 
     const enough = have >= nq-0.001;
     return `<div class="g4" style="grid-template-columns:auto 1.6fr 1fr auto;align-items:center">
       <button class="cb ${enough?'on':''}" data-act="useTgl" data-k="${k}" ${whole?'disabled style="opacity:.35"':''}>✓</button>
       <div style="min-width:0">
         <div style="font-size:12.5px;font-weight:700">${esc(ing.name)}</div>
-        <div class="tiny muted">${whole? '팩째 보유 · 차감 안 함'
+        <div class="tiny muted">${whole? '있는 만큼 씀 · 차감 안 함'
           : have>0? `보유 ${nice(have)}${nu}` : '냉장고에 없음'}</div>
       </div>
       <input type="number" inputmode="decimal" step="0.5" data-use="${k}" value="${nice(need)}">
@@ -3000,13 +3187,15 @@ document.addEventListener('click', async (e)=>{
   /* ---- 냉장고 ---- */
   case 'addFridge': {
     const name = $('#fName').value.trim();
-    const qty = parseFloat($('#fQty').value);
+    const raw = $('#fQty').value.trim();
+    const qty = parseFloat(raw);
     if(!name){ toast('재료 이름을 적어 주세요'); return; }
+    const loose = !raw || !isFinite(qty) || qty<=0;      // 수량을 비우면 "있음"으로만 담는다
     const unit = $('#fUnit').value;
     const cat = $('#fCat').value || guessCat(name);
     const noExp = $('#fNoExp').checked;
     const exp = noExp ? '' : ($('#fExp').value || iso(addDays(today(), SHELF[cat]||14)));
-    addToFridge({name, qty: isFinite(qty)&&qty>0? qty:1, unit, cat, expDate:exp,
+    addToFridge({name, qty: loose?1:qty, unit, cat, expDate:exp, loose,
                  place: $('#fPlaceSel').value || guessPlace(name, cat)});
     save(); render(); toast(`${name} 담았어요`); break;
   }
@@ -3101,6 +3290,7 @@ document.addEventListener('click', async (e)=>{
   case 'vQty': {
     if(!voiceState) break;
     const it = voiceState.items[+b.dataset.i]; if(!it) break;
+    if(it.loose){ it.loose = false; drawVoice(); break; }      // 세기 시작하면 '있음' 해제
     it.qty = Math.max(0, +(it.qty + stepOf(it.unit)*(+b.dataset.d)).toFixed(2));
     if(!it.qty) it.qty = stepOf(it.unit);
     drawVoice(); break;
@@ -3117,9 +3307,33 @@ document.addEventListener('click', async (e)=>{
   }
   case 'qty': {
     const it = state.fridge.find(f=>f.id===id); if(!it) break;
+    if(it.loose){ it.loose = false; save(); render(); break; }   // 세기 시작하면 '있음' 해제
     it.qty = Math.max(0, +(it.qty + stepOf(it.unit)*(+b.dataset.d)).toFixed(2));
     if(it.qty===0) state.fridge = state.fridge.filter(f=>f.id!==id);
     save(); render(); break;
+  }
+  /* ---- 냉장고 정리 ---- */
+  case 'tidy': ui.tidyOpen=false; ui.tidyConfirm=false; openTidy(); break;
+  case 'tidyKeep': { const f = state.fridge.find(x=>x.id===id); if(f) tidyKeep(f); save(); drawTidy(); break; }
+  case 'tidyGone': {
+    const f = state.fridge.find(x=>x.id===id);
+    state.fridge = state.fridge.filter(x=>x.id!==id);
+    save(); drawTidy(); if(f) toast(`${f.name} 비웠어요`); break;
+  }
+  case 'tidyOpen': ui.tidyOpen = true; drawTidy(); break;
+  case 'tidyBulkKeep': { tidyStale().forEach(tidyKeep); ui.tidyConfirm=false; save(); drawTidy();
+    toast('오래된 재료를 모두 확인 처리했어요'); break; }
+  case 'tidyBulkGone': {
+    if(!ui.tidyConfirm){ ui.tidyConfirm = true; drawTidy(); break; }   // 한 번 더 눌러야 비운다
+    const gone = tidyStale(), ids = new Set(gone.map(f=>f.id));
+    state.fridge = state.fridge.filter(f=>!ids.has(f.id));
+    ui.tidyConfirm = false; save(); drawTidy(); toast(`${gone.length}개 비웠어요`); break;
+  }
+
+  case 'usedUp': {
+    const it = state.fridge.find(f=>f.id===id);
+    state.fridge = state.fridge.filter(f=>f.id!==id);
+    save(); render(); if(it) toast(`${it.name} 다 썼다고 기록했어요`); break;
   }
   case 'delFridge': state.fridge = state.fridge.filter(f=>f.id!==id); save(); render(); break;
 
@@ -3325,11 +3539,21 @@ document.addEventListener('click', async (e)=>{
 
   /* ---- 식비 ---- */
   case 'month': ui.monthOffset += +b.dataset.d; render(); break;
+  case 'eType': ui.eType = b.dataset.t; keepExpenseInput(); render(); break;
+  case 'spot': {
+    ui.eType = b.dataset.type; ui.eMemo = b.dataset.memo; ui.eAmt = b.dataset.amt;
+    render();
+    const el = $('#eAmt'); if(el){ el.focus(); el.select(); }
+    break;
+  }
   case 'addExpense': {
-    const amt = parseInt($('#eAmt').value,10);
-    if(!amt){ toast('금액을 적어 주세요'); break; }
-    state.expenses.push({id:uid(), date:$('#eDate').value||iso(today()), type:$('#eType').value, amount:amt, memo:$('#eMemo').value.trim()});
-    save(); render(); toast('기록했어요'); break;
+    keepExpenseInput();
+    const amt = parseInt(ui.eAmt,10);
+    if(!amt){ toast('금액을 적어 주세요'); const el=$('#eAmt'); if(el) el.focus(); break; }
+    const type = ui.eType || 'grocery';
+    state.expenses.push({id:uid(), date: ui.eDate || iso(today()), type, amount:amt, memo:(ui.eMemo||'').trim()});
+    ui.eAmt=''; ui.eMemo=''; ui.eDate='';
+    save(); render(); toast(`${won(amt)} 기록했어요`); break;
   }
   case 'quickExpense': {
     const amt = parseInt($('#qAmt').value,10);
@@ -3468,13 +3692,17 @@ document.addEventListener('change', (e)=>{
 $('#fab').addEventListener('click', ()=>openRecipeForm(null,true));
 
 /* 냉장고 병합 담기 */
-function addToFridge({name,qty,unit,cat,expDate,place}){
+function addToFridge({name,qty,unit,cat,expDate,place,loose}){
   const hit = state.fridge.find(f=>sameItem(f.name,name) && f.unit===unit);
-  if(hit){ hit.qty = +(hit.qty+qty).toFixed(2); if(expDate) hit.expDate = expDate; hit.buyDate = iso(today()); }
-  else {
+  if(hit){
+    if(loose && hit.loose) hit.qty = Math.max(hit.qty, 1);       // "있음" + "있음" = 그대로 있음
+    else { hit.qty = +(hit.qty+qty).toFixed(2); if(!loose) hit.loose = false; }
+    if(expDate) hit.expDate = expDate;
+    hit.buyDate = iso(today()); hit.seenAt = iso(today());
+  } else {
     const c = cat||guessCat(name);
-    state.fridge.push({id:uid(), name, cat:c, qty, unit, buyDate: iso(today()), expDate,
-                       place: place || guessPlace(name, c)});
+    state.fridge.push({id:uid(), name, cat:c, qty, unit, buyDate: iso(today()), seenAt: iso(today()),
+                       expDate, place: place || guessPlace(name, c), ...(loose?{loose:true}:{})});
   }
 }
 
